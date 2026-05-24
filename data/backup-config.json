@@ -1,0 +1,10 @@
+{
+  "enabled": true,
+  "intervalDays": 1,
+  "time": "09:00",
+  "botToken": "",
+  "adminChatId": "",
+  "lastBackupAt": "2026-05-24T03:00:08.339Z",
+  "nextBackupAt": "2026-05-25T03:00:00.000Z",
+  "updatedAt": "2026-05-24T03:00:14.826Z"
+}

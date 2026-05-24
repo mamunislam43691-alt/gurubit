@@ -1,0 +1,136 @@
+/**
+ * User shell — desktop sidebar + mobile bottom nav
+ */
+
+export const USER_NAV = [
+  { id: 'dashboard', label: 'Dashboard', href: '/dashboard', icon: 'home' },
+  { id: 'numbers',   label: 'Number',    href: '/numbers',   icon: 'mobile-alt' },
+  { id: 'live-feed', label: 'Live SMS',  href: '/live-feed', icon: 'satellite-dish' },
+  { id: 'post',      label: 'Post',      href: '/post',      icon: 'comment-dots' }
+];
+
+export class UserLayout {
+  static async ensureAuth(redirect = '/') {
+    const session = await fetch('/api/auth/session').then((r) => r.json()).catch(() => ({}));
+    if (!session.authenticated) {
+      window.location.href = redirect;
+      return null;
+    }
+    return session.user;
+  }
+
+  static profileMenuHtml(user) {
+    const photo = user?.profilePhotoUrl
+      ? `<img src="${user.profilePhotoUrl}" class="w-9 h-9 rounded-full object-cover border-2 border-primary/40">`
+      : `<span class="w-9 h-9 rounded-full bg-gradient-to-br from-primary/30 to-secondary/30 border border-primary/30 flex items-center justify-center text-primary text-sm"><i class="fas fa-user"></i></span>`;
+    return `
+      <div class="user-profile-corner relative">
+        <button type="button" id="userProfileBtn" class="flex items-center gap-2 rounded-full hover:bg-white/5 p-1 transition-all">
+          ${photo}
+          <i class="fas fa-chevron-down text-[9px] text-gray-500 hidden sm:block"></i>
+        </button>
+        <div id="userProfileMenu" class="user-profile-dropdown hidden">
+          <div class="px-4 py-3 border-b border-white/5">
+            <p class="text-xs font-bold text-white truncate">${user?.name || 'User'}</p>
+            <p class="text-[10px] text-gray-500 truncate">${user?.email || ''}</p>
+          </div>
+          <a href="/profile" class="user-profile-item"><i class="fas fa-user w-4"></i> My Account</a>
+          <a href="/profile?edit=1" class="user-profile-item"><i class="fas fa-edit w-4"></i> Edit Profile</a>
+          <a href="/withdraw" class="user-profile-item"><i class="fas fa-wallet w-4"></i> Withdraw</a>
+          <div class="border-t border-white/5 mt-1">
+            <button type="button" id="userLogoutBtn" class="user-profile-item text-red-400 w-full text-left"><i class="fas fa-sign-out-alt w-4"></i> Logout</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  static bindProfileMenu() {
+    const btn = document.getElementById('userProfileBtn');
+    const menu = document.getElementById('userProfileMenu');
+    btn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      menu?.classList.toggle('hidden');
+    });
+    document.addEventListener('click', () => menu?.classList.add('hidden'));
+    menu?.addEventListener('click', (e) => e.stopPropagation());
+    document.getElementById('userLogoutBtn')?.addEventListener('click', async () => {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      window.location.href = '/';
+    });
+  }
+
+  static renderShell({ activeId, title, bodyHtml, user }) {
+    document.getElementById('app').innerHTML = `
+      <div class="user-shell min-h-screen bg-dark text-gray-200">
+
+        <!-- ── Desktop sidebar (hidden on mobile) ── -->
+        <aside class="user-sidebar hidden md:flex" id="userSidebar">
+          <a href="/dashboard" class="user-sidebar-brand">
+            <img src="/assets/logo.svg" alt="" class="w-9 h-9">
+            <span class="font-black gradient-text text-sm uppercase tracking-widest">GURUBIT</span>
+          </a>
+          <nav class="user-sidebar-nav flex-1">
+            ${USER_NAV.map((n) => `
+              <a href="${n.href}" class="user-nav-link ${n.id === activeId ? 'is-active' : ''}">
+                <i class="fas fa-${n.icon} w-5 text-center"></i>
+                <span>${n.label}</span>
+              </a>
+            `).join('')}
+          </nav>
+          <div class="p-4 border-t border-white/5">
+            <p class="text-[10px] text-gray-600 truncate">${user?.name || ''}</p>
+          </div>
+        </aside>
+
+        <!-- ── Main content ── -->
+        <div class="user-main md:ml-[200px]">
+
+          <!-- Top bar -->
+          <header class="user-topbar sticky top-0 z-40 flex items-center justify-between gap-3 px-4 py-3 border-b border-white/5"
+                  style="background:rgba(2,11,24,0.85);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)">
+            <!-- Mobile: logo left -->
+            <a href="/dashboard" class="flex items-center gap-2 md:hidden">
+              <img src="/assets/logo.svg" alt="" class="w-7 h-7">
+              <span class="font-black gradient-text text-xs uppercase tracking-widest">GURUBIT</span>
+            </a>
+            <!-- Desktop: page title -->
+            <h1 class="hidden md:block text-base font-black text-white uppercase tracking-wide">${title}</h1>
+            <!-- Right actions -->
+            <div class="flex items-center gap-2">
+              <button id="userThemeToggleBtn" type="button"
+                class="theme-toggle-btn w-8 h-8 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-gray-400 hover:text-white transition-all text-xs">
+                <i class="fas fa-sun"></i>
+              </button>
+              ${UserLayout.profileMenuHtml(user)}
+            </div>
+          </header>
+
+          <!-- Mobile page title pill -->
+          <div class="md:hidden px-4 pt-4 pb-1">
+            <h1 class="text-sm font-black text-white uppercase tracking-widest">${title}</h1>
+          </div>
+
+          <!-- Page body -->
+          <main class="user-content pb-24 md:pb-6">${bodyHtml}</main>
+        </div>
+
+        <!-- ── Mobile bottom navigation ── -->
+        <nav class="mobile-bottom-nav md:hidden" id="mobileBottomNav">
+          ${USER_NAV.map((n) => `
+            <a href="${n.href}" class="mobile-nav-item ${n.id === activeId ? 'is-active' : ''}">
+              <i class="fas fa-${n.icon} mobile-nav-icon"></i>
+              <span class="mobile-nav-label">${n.label}</span>
+            </a>
+          `).join('')}
+        </nav>
+
+      </div>`;
+
+    UserLayout.bindProfileMenu();
+
+    document.getElementById('userThemeToggleBtn')?.addEventListener('click', () => {
+      window.GURUBIT_THEME.toggle();
+    });
+    window.GURUBIT_THEME.updateButtons();
+  }
+}

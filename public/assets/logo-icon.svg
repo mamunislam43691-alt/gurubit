@@ -1,0 +1,20 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FFD700"/>
+      <stop offset="100%" style="stop-color:#FFA500"/>
+    </linearGradient>
+    <linearGradient id="cyan" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00CED1"/>
+      <stop offset="100%" style="stop-color:#1E90FF"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Simplified guru icon for favicon -->
+  <circle cx="32" cy="28" r="18" fill="none" stroke="url(#gold)" stroke-width="2"/>
+  <ellipse cx="32" cy="30" rx="12" ry="15" fill="url(#cyan)" opacity="0.3"/>
+  <path d="M20 35 Q32 42 44 35" stroke="url(#cyan)" stroke-width="2" fill="none"/>
+  <path d="M32 45 L24 48 L24 55 Q24 58 32 60 Q40 58 40 55 L40 48 Z" 
+        fill="none" stroke="url(#cyan)" stroke-width="1.5"/>
+  <path d="M32 10 L28 14 L32 12 L36 14 Z" fill="url(#gold)"/>
+</svg>

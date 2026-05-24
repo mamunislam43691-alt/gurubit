@@ -1,0 +1,25 @@
+{
+  "name": "GURUBIT - SMS Platform",
+  "short_name": "GURUBIT",
+  "description": "Free temporary phone numbers for receiving SMS verification messages",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a192f",
+  "theme_color": "#FFD700",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/assets/logo-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/assets/logo.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
+  ],
+  "categories": ["utilities", "productivity"],
+  "screenshots": []
+}
