@@ -108,18 +108,85 @@ async function processIncomingSMS(smsData, wss) {
             }).catch(err => console.error('Number update error:', err.message))
         );
 
-        // Update 3: Update user earnings (non-critical)
-        promises.push(
-            collections.users.doc(userId).update({
-                earningsBalance: (numberData.userBalance || 0) + 0.50,
-                totalOtps: (numberData.userOtps || 0) + 1,
-                updatedAt: new Date().toISOString()
-            }).catch(err => {
-                if (process.env.DEBUG_SMS === 'true') {
-                    console.warn('User update error:', err.message);
+        // Update 3: Update user earnings using costStore rates (non-critical)
+        promises.push((async () => {
+            try {
+                // Get reward rates from costStore
+                const costStore = require('../services/costStore');
+                const catalogStore = require('../services/catalogStore');
+
+                // Find which country/server this number belongs to
+                const digits = String(phoneNumber).replace(/\D/g, '');
+                let countryId = null, serverId = null;
+                const allCountries = catalogStore.listCountries();
+                for (const country of allCountries) {
+                    const servers = catalogStore.listServers(country.id);
+                    for (const server of servers) {
+                        const nums = server.numbers || [];
+                        if (nums.some(n => String(n).replace(/\D/g, '') === digits)) {
+                            countryId = country.id;
+                            serverId = server.id;
+                            break;
+                        }
+                    }
+                    if (countryId) break;
                 }
-            })
-        );
+
+                const cost = costStore.getCost(countryId, serverId);
+                const userReward = parseFloat(cost.userReward) || 0.05;
+                const agentReward = parseFloat(cost.agentReward) || 0.02;
+
+                // Update user balance
+                const userDoc = await collections.users.doc(userId).get();
+                if (userDoc.exists) {
+                    const userData = userDoc.data();
+                    await collections.users.doc(userId).update({
+                        earningsBalance: (userData.earningsBalance || 0) + userReward,
+                        totalOtps: (userData.totalOtps || 0) + 1,
+                        updatedAt: new Date().toISOString()
+                    });
+
+                    // Also reward the agent who referred this user
+                    const agentEmail = userData.agentEmail || userData.referralEmail;
+                    if (agentEmail && agentReward > 0) {
+                        try {
+                            const usersSnap = await collections.users.get();
+                            let agentDoc = null;
+                            usersSnap.forEach(doc => {
+                                const d = doc.data();
+                                if (d.isAgent && d.email?.toLowerCase() === agentEmail.toLowerCase()) {
+                                    agentDoc = doc;
+                                }
+                            });
+                            if (agentDoc) {
+                                const agentData = agentDoc.data();
+                                await collections.users.doc(agentDoc.id).update({
+                                    earningsBalance: (agentData.earningsBalance || 0) + agentReward,
+                                    totalOtps: (agentData.totalOtps || 0) + 1,
+                                    updatedAt: new Date().toISOString()
+                                });
+                                if (process.env.DEBUG_SMS === 'true') {
+                                    console.log(`   Agent reward: +$${agentReward} → ${agentEmail}`);
+                                }
+                            }
+                        } catch (agentErr) {
+                            if (process.env.DEBUG_SMS === 'true') {
+                                console.warn('Agent reward error:', agentErr.message);
+                            }
+                        }
+                    }
+                }
+
+                // Store reward amounts for broadcast
+                numberData._userReward = userReward;
+                numberData._agentReward = agentReward;
+
+            } catch (err) {
+                if (process.env.DEBUG_SMS === 'true') {
+                    console.warn('Reward update error:', err.message);
+                }
+            }
+        })());
 
         // Wait for all updates
         await Promise.all(promises);
@@ -156,7 +223,7 @@ async function processIncomingSMS(smsData, wss) {
                         service: platformName,
                         receivedAt: receivedAt,
                         sourceId: sourceId || null,
-                        earningsAmount: 0.50
+                        earningsAmount: numberData._userReward || 0.05
                     };
 
                     const feedUpdatePayload = {

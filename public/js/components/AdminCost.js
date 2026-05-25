@@ -39,45 +39,66 @@ export class AdminCost {
     const ranges = c?.ranges || [];
 
     return `
-      <p class="text-gray-500 text-sm mb-6">Select a country, then set user & agent reward for each range (server).</p>
-      <motion.div class="flex flex-wrap gap-2 mb-6">
+      <!-- Info box -->
+      <div class="glass-card p-4 mb-6 border border-cyan-500/20">
+        <p class="text-xs text-gray-300 leading-relaxed">
+          <i class="fas fa-info-circle text-cyan-400 mr-1"></i>
+          <b class="text-white">How rewards work:</b>
+          When a user receives an SMS, they earn the <b class="text-primary">User Reward</b>.
+          The agent who referred that user also earns the <b class="text-yellow-400">Agent Reward</b> automatically.
+          If no SMS is received, no reward is given to anyone.
+        </p>
+      </div>
+
+      <p class="text-gray-500 text-sm mb-4">Select a country, then set reward per range (server).</p>
+
+      <div class="flex flex-wrap gap-2 mb-6">
         ${this.countries.map((co) => `
-          <button type="button" data-country-pick="${co.countryId}" class="number-filter-btn ${this.selectedCountryId === co.countryId ? 'is-active' : ''}">
+          <button type="button" data-country-pick="${co.countryId}"
+            class="number-filter-btn ${this.selectedCountryId === co.countryId ? 'is-active' : ''}">
             ${co.flag || '🌍'} ${co.name}
           </button>
         `).join('') || '<p class="text-gray-500">Add countries in Service first</p>'}
-      </motion.div>
+      </div>
+
       ${c ? `
         <div class="space-y-3">
           ${ranges.map((r) => `
-            <form class="cost-range-form glass-card p-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end" data-country="${c.countryId}" data-server="${r.serverId || ''}">
+            <form class="cost-range-form glass-card p-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end"
+              data-country="${c.countryId}" data-server="${r.serverId || ''}">
               <div class="sm:col-span-2">
                 <p class="stat-label">Range / Server</p>
                 <p class="text-white font-bold">${r.serverName || 'Default'}</p>
                 <p class="text-xs text-gray-500 uppercase">${c.name}</p>
               </div>
               <div>
-                <label class="stat-label">User reward</label>
+                <label class="stat-label flex items-center gap-1">
+                  <i class="fas fa-user text-primary text-xs"></i> User Reward (per SMS)
+                </label>
                 <input type="number" step="0.01" min="0" class="input-field user-r w-full" value="${r.userReward}">
               </div>
               <div>
-                <label class="stat-label">Agent reward</label>
+                <label class="stat-label flex items-center gap-1">
+                  <i class="fas fa-user-tie text-yellow-400 text-xs"></i> Agent Reward (per SMS)
+                </label>
                 <input type="number" step="0.01" min="0" class="input-field agent-r w-full" value="${r.agentReward}">
               </div>
               <div>
-                <button type="submit" class="neon-btn w-full py-3 text-xs uppercase cost-save-btn">Save</button>
+                <button type="submit" class="neon-btn w-full py-3 text-xs uppercase cost-save-btn">
+                  <i class="fas fa-save mr-1"></i> Save
+                </button>
               </div>
             </form>
           `).join('')}
         </div>
-      ` : ''}`.replaceAll('<motion.', '<').replaceAll('</motion.', '</');
+      ` : '<p class="text-gray-500 text-sm">No ranges found for this country.</p>'}`;
   }
 
   render() {
     AdminLayout.renderShell({
       activeId: 'costs',
       title: 'Cost Management',
-      subtitle: 'Rewards per country range',
+      subtitle: 'Set user & agent rewards per SMS received',
       bodyHtml: this.renderBody(),
       admin: this.admin
     });
