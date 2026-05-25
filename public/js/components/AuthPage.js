@@ -191,17 +191,7 @@ export class AuthPage {
                         window.location.href = '/numbers';
                         return;
                     }
-                    if (data.error?.code === 'EMAIL_NOT_VERIFIED') {
-                        this.errors.submit = null;
-                        this.isLoading = false;
-                        this.renderModal();
-                        this.showResendOption();
-                        return;
-                    }
                     this.errors.submit = data.error?.message || 'Login failed';
-                    if (data.error?.code === 'AGENT_NOT_APPROVED') {
-                        // Already shown in error message
-                    }
                 } else {
                     window.location.href = '/numbers';
                     return;
@@ -227,11 +217,7 @@ export class AuthPage {
                 this.errors.submit = null;
                 this.isLoading = false;
                 this.renderModal();
-                if (emailResult.ok && !emailResult.skipped) {
-                    this.showNotice('Account created! Check your inbox and tap the blue <strong>Activate Now</strong> button. After activating, your agent must approve your account before you can log in.');
-                } else {
-                    this.showNotice('Account created! <br>⚠️ Verification email could not be sent — please contact support or try the <strong>Resend Activation Email</strong> button on the login page.');
-                }
+                this.showNotice('Account created! ✅<br>Your request has been sent to your agent. Once your agent approves your account, you can log in with your email and password.');
                 return;
             } else {
                 window.location.href = '/numbers';

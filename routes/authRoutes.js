@@ -159,17 +159,8 @@ router.post('/login', async (req, res) => {
       }
     } catch {}
 
-    // Enforce email verification for all regular users (not agents)
-    // Agents are created by admin and do not need email verification
-    if (!emailVerified && isFirebaseConfigured && !isAgentUser) {
-      return res.status(403).json({
-        success: false,
-        error: {
-          message: 'Please verify your email first. Open the email we sent and tap Activate Now.',
-          code: 'EMAIL_NOT_VERIFIED'
-        }
-      });
-    }
+    // Email verification is not required — agent approval is the gate
+    // if (!emailVerified && isFirebaseConfigured && !isAgentUser) { ... }
 
     let userDoc = await collections.users.doc(uid).get();
 
@@ -199,9 +190,9 @@ router.post('/login', async (req, res) => {
 
     const userData = userDoc.data();
 
-    // Update email verification status in Firestore if it was false
+    // Update emailVerified status if needed (background, non-blocking)
     if (!userData.emailVerified) {
-      await collections.users.doc(uid).update({ emailVerified: true });
+      collections.users.doc(uid).update({ emailVerified: true }).catch(() => {});
     }
 
     if (userData.isBanned) {
