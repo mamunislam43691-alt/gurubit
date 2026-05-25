@@ -1223,4 +1223,121 @@ router.get('/database/download/:id', requireSuperAdminRoute, (req, res) => {
   res.download(file);
 });
 
+/**
+ * GET /api/admin/database/env-config
+ * Return current env config (masked secrets) for display in admin panel
+ */
+router.get('/database/env-config', requireSuperAdminRoute, (req, res) => {
+  res.json({
+    success: true,
+    firebase: {
+      databaseUrl: process.env.FIREBASE_DATABASE_URL || '',
+      serviceAccountSet: !!process.env.FIREBASE_SERVICE_ACCOUNT,
+      projectId: (() => {
+        try {
+          const sa = process.env.FIREBASE_SERVICE_ACCOUNT ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT) : null;
+          return sa?.project_id || '';
+        } catch { return ''; }
+      })()
+    },
+    smtp: {
+      host: process.env.SMTP_HOST || '',
+      port: process.env.SMTP_PORT || '587',
+      secure: process.env.SMTP_SECURE || 'false',
+      user: process.env.SMTP_USER || '',
+      from: process.env.SMTP_FROM || '',
+      passSet: !!process.env.SMTP_PASS
+    }
+  });
+});
+
+/**
+ * PUT /api/admin/database/env-config
+ * Update SMTP and Firebase env vars at runtime (persists in memory until restart)
+ * For permanent storage, user must also set in Render Dashboard
+ */
+router.put('/database/env-config', requireSuperAdminRoute, async (req, res) => {
+  try {
+    const { section, data } = req.body || {};
+
+    if (section === 'smtp') {
+      if (data.host !== undefined) process.env.SMTP_HOST = data.host;
+      if (data.port !== undefined) process.env.SMTP_PORT = String(data.port);
+      if (data.secure !== undefined) process.env.SMTP_SECURE = String(data.secure);
+      if (data.user !== undefined) process.env.SMTP_USER = data.user;
+      if (data.pass && data.pass.trim()) process.env.SMTP_PASS = data.pass;
+      if (data.from !== undefined) process.env.SMTP_FROM = data.from;
+
+      // Test SMTP connection if credentials provided
+      if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+        try {
+          const nodemailer = require('nodemailer');
+          const transporter = nodemailer.createTransport({
+            host: process.env.SMTP_HOST,
+            port: parseInt(process.env.SMTP_PORT || '587', 10),
+            secure: process.env.SMTP_SECURE === 'true',
+            auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+          });
+          await transporter.verify();
+          return res.json({ success: true, message: 'SMTP settings saved & connection verified ✅' });
+        } catch (err) {
+          return res.json({ success: true, message: `Settings saved but SMTP test failed: ${err.message}` });
+        }
+      }
+      return res.json({ success: true, message: 'SMTP settings saved (runtime only — also set in Render Dashboard for persistence)' });
+    }
+
+    if (section === 'firebase') {
+      if (data.databaseUrl !== undefined) process.env.FIREBASE_DATABASE_URL = data.databaseUrl;
+      if (data.serviceAccount && data.serviceAccount.trim()) {
+        try {
+          JSON.parse(data.serviceAccount); // validate JSON
+          process.env.FIREBASE_SERVICE_ACCOUNT = data.serviceAccount;
+        } catch {
+          return res.status(400).json({ success: false, error: { message: 'Invalid JSON for Service Account' } });
+        }
+      }
+      return res.json({ success: true, message: 'Firebase settings saved (runtime only — also set in Render Dashboard for persistence)' });
+    }
+
+    res.status(400).json({ success: false, error: { message: 'Unknown section' } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: { message: err.message } });
+  }
+});
+
+/**
+ * POST /api/admin/database/test-email
+ * Send a test email to verify SMTP settings
+ */
+router.post('/database/test-email', requireSuperAdminRoute, async (req, res) => {
+  try {
+    const { to } = req.body || {};
+    if (!to) return res.status(400).json({ success: false, error: { message: 'Recipient email required' } });
+    if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
+      return res.status(400).json({ success: false, error: { message: 'SMTP not configured. Save SMTP settings first.' } });
+    }
+    const nodemailer = require('nodemailer');
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: parseInt(process.env.SMTP_PORT || '587', 10),
+      secure: process.env.SMTP_SECURE === 'true',
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+    });
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || `"GURUBIT" <${process.env.SMTP_USER}>`,
+      to,
+      subject: 'GURUBIT — SMTP Test Email',
+      html: `<div style="font-family:sans-serif;padding:24px;background:#0f172a;color:#fff;border-radius:12px">
+        <h2 style="color:#06b6d4">✅ SMTP Test Successful</h2>
+        <p>Your GURUBIT email configuration is working correctly.</p>
+        <p style="color:#94a3b8;font-size:12px">Sent from GURUBIT Admin Panel</p>
+      </div>`
+    });
+    res.json({ success: true, message: `Test email sent to ${to}` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: { message: err.message } });
+  }
+});
+
 module.exports = router;
