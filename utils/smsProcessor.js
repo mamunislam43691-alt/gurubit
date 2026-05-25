@@ -132,7 +132,7 @@ async function processIncomingSMS(smsData, wss) {
                     if (countryId) break;
                 }
 
-                const cost = costStore.getCost(countryId, serverId);
+                const cost = await costStore.getCost(countryId, serverId);
                 const userReward = parseFloat(cost.userReward) || 0.05;
                 const agentReward = parseFloat(cost.agentReward) || 0.02;
 

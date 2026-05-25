@@ -1,43 +1,52 @@
 /**
- * SMS provider config (base URL + API key) — persisted
+ * SMS provider config — Firestore backed with in-memory cache
+ * Cache is refreshed on every write and periodically
  */
 
-const fs = require('fs');
-const path = require('path');
+const { db } = require('../config/firebase');
 
-const FILE = path.join(__dirname, '..', 'data', 'providers.json');
-let providers = [];
+const COLLECTION = 'smsProviders';
+let _cache = [];
+let _cacheLoaded = false;
 
-function save() {
-  const dir = path.dirname(FILE);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(FILE, JSON.stringify(providers, null, 2), 'utf8');
+function col() {
+  return db.collection(COLLECTION);
 }
 
-function load() {
-  providers = [];
-  if (!fs.existsSync(FILE)) return;
-  try {
-    providers = JSON.parse(fs.readFileSync(FILE, 'utf8'));
-  } catch {
-    providers = [];
-  }
+async function _refreshCache() {
+  const snap = await col().get();
+  const items = [];
+  snap.forEach(doc => items.push(doc.data()));
+  _cache = items.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  _cacheLoaded = true;
+  return _cache;
 }
 
+// Load cache on startup
+async function load() {
+  await _refreshCache();
+}
+
+// Sync list — uses cache (call load() first on startup)
 function list() {
-  return [...providers];
+  return [..._cache];
+}
+
+// Async list — always fresh from Firestore
+async function listAsync() {
+  return _refreshCache();
 }
 
 function getPrimary() {
-  return providers[0] || null;
+  return _cache[0] || null;
 }
 
 function findByApiKey(apiKey) {
   const k = String(apiKey || '').trim();
-  return providers.find((p) => p.apiKey === k) || null;
+  return _cache.find(p => p.apiKey === k) || null;
 }
 
-function add({ serviceName, baseUrl, apiKey, providerType, additionalUrls, countryId, serverId, apiCountryCode, cliRange }) {
+async function add({ serviceName, baseUrl, apiKey, providerType, additionalUrls, countryId, serverId, apiCountryCode, cliRange }) {
   const type = providerType || 'sms_only';
   const entry = {
     id: `prov_${Date.now()}`,
@@ -52,14 +61,15 @@ function add({ serviceName, baseUrl, apiKey, providerType, additionalUrls, count
     cliRange: cliRange ? String(cliRange).trim() : null,
     createdAt: new Date().toISOString()
   };
-  providers.push(entry);
-  save();
+  await col().doc(entry.id).set(entry);
+  await _refreshCache();
   return entry;
 }
 
-function update(id, { serviceName, baseUrl, apiKey, providerType, additionalUrls, countryId, serverId, apiCountryCode, cliRange }) {
-  const p = providers.find((x) => x.id === id);
-  if (!p) return null;
+async function update(id, { serviceName, baseUrl, apiKey, providerType, additionalUrls, countryId, serverId, apiCountryCode, cliRange }) {
+  const doc = await col().doc(id).get();
+  if (!doc.exists) return null;
+  const p = { ...doc.data() };
   if (serviceName !== undefined) p.serviceName = serviceName || 'Provider';
   if (baseUrl !== undefined) p.baseUrl = String(baseUrl || '').trim();
   if (apiKey !== undefined) p.apiKey = String(apiKey || '').trim();
@@ -74,25 +84,15 @@ function update(id, { serviceName, baseUrl, apiKey, providerType, additionalUrls
   if (serverId !== undefined) p.serverId = serverId || null;
   if (apiCountryCode !== undefined) p.apiCountryCode = String(apiCountryCode || '').trim();
   if (cliRange !== undefined) p.cliRange = cliRange ? String(cliRange).trim() : null;
-  save();
+  await col().doc(id).set(p);
+  await _refreshCache();
   return p;
 }
 
-function remove(id) {
-  const before = providers.length;
-  providers = providers.filter((p) => p.id !== id);
-  if (providers.length !== before) save();
-  return before !== providers.length;
+async function remove(id) {
+  await col().doc(id).delete();
+  await _refreshCache();
+  return true;
 }
 
-load();
-
-module.exports = {
-  load,
-  list,
-  getPrimary,
-  findByApiKey,
-  add,
-  update,
-  remove
-};
+module.exports = { load, list, listAsync, getPrimary, findByApiKey, add, update, remove };

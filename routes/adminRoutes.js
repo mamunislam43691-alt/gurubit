@@ -76,7 +76,7 @@ router.post('/login', async (req, res) => {
     let sessionMeta = null;
 
     if (username && String(username).trim()) {
-      const staff = verifyStaff(username, password);
+      const staff = await verifyStaff(username, password);
       if (!staff) {
         return res.status(401).json({
           success: false,
@@ -245,7 +245,7 @@ router.get('/dashboard', async (req, res) => {
       totalUsers: users.length,
       activeUsers: users.filter((u) => !u.isBanned).length,
       bannedUsers: users.filter((u) => !!u.isBanned).length,
-      totalServices: catalogStore.countServices(),
+      totalServices: await catalogStore.countServices(),
       totalNumbers: numbersSnapshot.size || 0,
       totalSms: messagesSnapshot.size || 0,
       totalOtps: messagesSnapshot.size || 0,
@@ -255,7 +255,7 @@ router.get('/dashboard', async (req, res) => {
       withdrawalsSuccess,
       withdrawalsPending,
       supportChats: supportOpen,
-      broadcasts: listBroadcasts().length
+      broadcasts: (await listBroadcasts()).length
     };
 
     const { buildDashboardAnalytics } = require('../services/statsHelper');
@@ -454,30 +454,28 @@ function verifyAdminPerm(permission) {
 }
 
 /** Staff management (super admin only) */
-router.get('/staff', requireSuperAdmin, (req, res) => {
-  res.json({ success: true, staff: listStaff() });
+router.get('/staff', requireSuperAdmin, async (req, res) => {
+  res.json({ success: true, staff: await listStaff() });
 });
 
-router.post('/staff', requireSuperAdmin, (req, res) => {
+router.post('/staff', requireSuperAdmin, async (req, res) => {
   const { username, password, role, displayName } = req.body || {};
   if (!username || !password) {
     return res.status(400).json({ success: false, error: { message: 'Username and password required' } });
   }
   const allowed = ['admin', 'supporter'];
   const staffRole = allowed.includes(role) ? role : 'supporter';
-  const created = createStaff({ username, password, role: staffRole, displayName });
+  const created = await createStaff({ username, password, role: staffRole, displayName });
   res.json({ success: true, staff: created });
 });
 
-router.delete('/staff/:id', requireSuperAdmin, (req, res) => {
-  if (!deleteStaff(req.params.id)) {
-    return res.status(404).json({ success: false, error: { message: 'Not found' } });
-  }
+router.delete('/staff/:id', requireSuperAdmin, async (req, res) => {
+  await deleteStaff(req.params.id);
   res.json({ success: true });
 });
 
-router.put('/staff/:id', requireSuperAdmin, (req, res) => {
-  const updated = updateStaff(req.params.id, req.body || {});
+router.put('/staff/:id', requireSuperAdmin, async (req, res) => {
+  const updated = await updateStaff(req.params.id, req.body || {});
   if (!updated) {
     return res.status(404).json({ success: false, error: { message: 'Not found' } });
   }
@@ -485,16 +483,16 @@ router.put('/staff/:id', requireSuperAdmin, (req, res) => {
 });
 
 /** Broadcast */
-router.get('/broadcasts', verifyAdminPerm('broadcast'), (req, res) => {
-  res.json({ success: true, broadcasts: listBroadcasts() });
+router.get('/broadcasts', verifyAdminPerm('broadcast'), async (req, res) => {
+  res.json({ success: true, broadcasts: await listBroadcasts() });
 });
 
-router.post('/broadcasts', verifyAdminPerm('broadcast'), (req, res) => {
+router.post('/broadcasts', verifyAdminPerm('broadcast'), async (req, res) => {
   const { title, message } = req.body || {};
   if (!title?.trim() || !message?.trim()) {
     return res.status(400).json({ success: false, error: { message: 'Title and message required' } });
   }
-  const item = createBroadcast({
+  const item = await createBroadcast({
     title,
     message,
     createdBy: req.adminSession?.username || 'admin'
@@ -668,95 +666,90 @@ router.put('/withdrawals/:id/approve', verifyAdmin, async (req, res) => {
 /**
  * POST /api/admin/countries
  */
-router.get('/catalog/countries', verifyAdmin, (req, res) => {
-  res.json({ success: true, countries: catalogStore.listCountries() });
+router.get('/catalog/countries', verifyAdmin, async (req, res) => {
+  res.json({ success: true, countries: await catalogStore.listCountries() });
 });
 
 router.post('/countries', verifyAdmin, async (req, res) => {
   try {
-    const c = catalogStore.addCountry(req.body);
-    if (req.body.id) await collections.countries.doc(c.id).set(c).catch(() => {});
+    const c = await catalogStore.addCountry(req.body);
     res.json({ success: true, country: c });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: error.message } });
   }
 });
 
-router.delete('/countries/:id', verifyAdmin, (req, res) => {
-  if (!catalogStore.deleteCountry(req.params.id)) {
-    return res.status(404).json({ success: false, error: { message: 'Not found' } });
-  }
+router.delete('/countries/:id', verifyAdmin, async (req, res) => {
+  await catalogStore.deleteCountry(req.params.id);
   res.json({ success: true });
 });
 
-router.put('/countries/:id', verifyAdmin, (req, res) => {
-  const c = catalogStore.updateCountry(req.params.id, req.body);
+router.put('/countries/:id', verifyAdmin, async (req, res) => {
+  const c = await catalogStore.updateCountry(req.params.id, req.body);
   if (!c) return res.status(404).json({ success: false, error: { message: 'Not found' } });
   res.json({ success: true, country: c });
 });
 
-router.post('/countries/:id/clear', verifyAdmin, (req, res) => {
-  catalogStore.clearCountryData(req.params.id);
+router.post('/countries/:id/clear', verifyAdmin, async (req, res) => {
+  await catalogStore.clearCountryData(req.params.id);
   res.json({ success: true });
 });
 
-router.post('/catalog/servers', verifyAdmin, (req, res) => {
+router.post('/catalog/servers', verifyAdmin, async (req, res) => {
   const { countryId, name } = req.body || {};
   if (!countryId || !name) {
     return res.status(400).json({ success: false, error: { message: 'countryId and name required' } });
   }
-  const s = catalogStore.addServer(countryId, { name });
+  const s = await catalogStore.addServer(countryId, { name });
   res.json({ success: true, server: s });
 });
 
-router.put('/catalog/servers/:id', verifyAdmin, (req, res) => {
-  const s = catalogStore.updateServer(req.params.id, req.body);
+router.put('/catalog/servers/:id', verifyAdmin, async (req, res) => {
+  const s = await catalogStore.updateServer(req.params.id, req.body);
   if (!s) return res.status(404).json({ success: false, error: { message: 'Not found' } });
   res.json({ success: true, server: s });
 });
 
-router.delete('/catalog/servers/:id', verifyAdmin, (req, res) => {
-  if (!catalogStore.deleteServer(req.params.id)) {
-    return res.status(404).json({ success: false, error: { message: 'Not found' } });
-  }
+router.delete('/catalog/servers/:id', verifyAdmin, async (req, res) => {
+  await catalogStore.deleteServer(req.params.id);
   res.json({ success: true });
 });
 
-router.post('/catalog/servers/:id/clear', verifyAdmin, (req, res) => {
-  catalogStore.clearServerData(req.params.id);
-  res.json({ success: true, server: catalogStore.getServer(req.params.id) });
+router.post('/catalog/servers/:id/clear', verifyAdmin, async (req, res) => {
+  await catalogStore.clearServerData(req.params.id);
+  res.json({ success: true, server: await catalogStore.getServer(req.params.id) });
 });
 
-router.post('/catalog/servers/:id/numbers', verifyAdmin, (req, res) => {
+router.post('/catalog/servers/:id/numbers', verifyAdmin, async (req, res) => {
   const { phoneNumbers, phoneNumber } = req.body || {};
   const raw = phoneNumbers || phoneNumber;
-  const result = catalogStore.addServerNumbers(req.params.id, raw);
+  const result = await catalogStore.addServerNumbers(req.params.id, raw);
   if (!result) return res.status(404).json({ success: false, error: { message: 'Server not found' } });
   res.json({ success: true, ...result });
 });
 
-router.get('/catalog/countries/:id/platforms', verifyAdmin, (req, res) => {
+router.get('/catalog/countries/:id/platforms', verifyAdmin, async (req, res) => {
   res.json({
     success: true,
-    platforms: catalogStore.listPlatforms(req.params.id),
-    servers: catalogStore.listServers(req.params.id)
+    platforms: await catalogStore.listPlatforms(req.params.id),
+    servers: await catalogStore.listServers(req.params.id)
   });
 });
 
-router.post('/catalog/countries/:id/platforms', verifyAdmin, (req, res) => {
-  const p = catalogStore.addPlatform(req.params.id, req.body);
+router.post('/catalog/countries/:id/platforms', verifyAdmin, async (req, res) => {
+  const p = await catalogStore.addPlatform(req.params.id, req.body);
   if (!p) return res.status(400).json({ success: false, error: { message: 'Could not add service' } });
   res.json({ success: true, platform: p });
 });
 
-router.delete('/catalog/platforms/:id', verifyAdmin, (req, res) => {
-  catalogStore.deletePlatform(req.params.id);
+router.delete('/catalog/platforms/:id', verifyAdmin, async (req, res) => {
+  await catalogStore.deletePlatform(req.params.id);
   res.json({ success: true });
 });
 
-router.post('/catalog/platforms/:id/numbers', verifyAdmin, (req, res) => {
+router.post('/catalog/platforms/:id/numbers', verifyAdmin, async (req, res) => {
   const { phoneNumber } = req.body || {};
-  const n = catalogStore.addNumber(req.params.id, phoneNumber);
+  const n = await catalogStore.addNumber(req.params.id, phoneNumber);
   if (!n) return res.status(400).json({ success: false, error: { message: 'Invalid' } });
   res.json({ success: true, number: n });
 });
@@ -767,30 +760,19 @@ router.get('/api-keys', verifyAdmin, async (req, res) => {
   try {
     const providerPoll = require('../services/providerPoll');
     const statuses = providerPoll.getProviderStatuses ? providerPoll.getProviderStatuses() : {};
-    const keys = providerStore.list().map(k => {
+    const allKeys = await providerStore.list();
+    const keys = allKeys.map(k => {
       const urls = [];
       if (k.baseUrl) urls.push(k.baseUrl.trim());
       if (Array.isArray(k.additionalUrls)) {
-        k.additionalUrls.forEach(u => {
-          if (u && u.trim()) urls.push(u.trim());
-        });
+        k.additionalUrls.forEach(u => { if (u && u.trim()) urls.push(u.trim()); });
       }
-
       const urlStatuses = {};
       urls.forEach(u => {
-        const providerKey = `${k.id}:${u}`;
-        const statusData = statuses[providerKey] || { status: 'unknown', lastPollTime: null, lastError: null };
-        urlStatuses[u] = {
-          status: statusData.status,
-          lastPollTime: statusData.lastPollTime,
-          lastError: statusData.lastError
-        };
+        const statusData = statuses[`${k.id}:${u}`] || { status: 'unknown', lastPollTime: null, lastError: null };
+        urlStatuses[u] = { status: statusData.status, lastPollTime: statusData.lastPollTime, lastError: statusData.lastError };
       });
-
-      return {
-        ...k,
-        urlStatuses
-      };
+      return { ...k, urlStatuses };
     });
     res.json({ success: true, keys });
   } catch (error) {
@@ -802,12 +784,9 @@ router.post('/api-keys', verifyAdmin, async (req, res) => {
   try {
     const { serviceName, apiKey, baseUrl, providerType, additionalUrls, countryId, serverId, apiCountryCode, cliRange } = req.body;
     if (!baseUrl?.trim() || !apiKey?.trim()) {
-      return res.status(400).json({
-        success: false,
-        error: { message: 'Base URL and API key are required' }
-      });
+      return res.status(400).json({ success: false, error: { message: 'Base URL and API key are required' } });
     }
-    const key = providerStore.add({
+    const key = await providerStore.add({
       serviceName: serviceName || 'SMS Provider',
       baseUrl: (baseUrl || '').trim(),
       apiKey: apiKey.trim(),
@@ -818,12 +797,7 @@ router.post('/api-keys', verifyAdmin, async (req, res) => {
       apiCountryCode: (apiCountryCode || '').trim(),
       cliRange: cliRange ? String(cliRange).trim() : null
     });
-    res.json({
-      success: true,
-      message: 'Provider saved',
-      key,
-      webhookUrl: `${req.protocol}://${req.get('host')}/api/provider/incoming-sms`
-    });
+    res.json({ success: true, message: 'Provider saved', key, webhookUrl: `${req.protocol}://${req.get('host')}/api/provider/incoming-sms` });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: error.message } });
   }
@@ -833,12 +807,9 @@ router.put('/api-keys/:id', verifyAdmin, async (req, res) => {
   try {
     const { serviceName, apiKey, baseUrl, providerType, additionalUrls, countryId, serverId, apiCountryCode, cliRange } = req.body;
     if (!baseUrl?.trim() || !apiKey?.trim()) {
-      return res.status(400).json({
-        success: false,
-        error: { message: 'Base URL and API key are required' }
-      });
+      return res.status(400).json({ success: false, error: { message: 'Base URL and API key are required' } });
     }
-    const key = providerStore.update(req.params.id, {
+    const key = await providerStore.update(req.params.id, {
       serviceName: serviceName || 'SMS Provider',
       baseUrl: (baseUrl || '').trim(),
       apiKey: apiKey.trim(),
@@ -849,9 +820,7 @@ router.put('/api-keys/:id', verifyAdmin, async (req, res) => {
       apiCountryCode: (apiCountryCode || '').trim(),
       cliRange: cliRange ? String(cliRange).trim() : null
     });
-    if (!key) {
-      return res.status(404).json({ success: false, error: { message: 'Provider not found' } });
-    }
+    if (!key) return res.status(404).json({ success: false, error: { message: 'Provider not found' } });
     res.json({ success: true, message: 'Provider updated', key });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: error.message } });
@@ -859,12 +828,12 @@ router.put('/api-keys/:id', verifyAdmin, async (req, res) => {
 });
 
 router.delete('/api-keys/:id', verifyAdmin, async (req, res) => {
-  providerStore.remove(req.params.id);
+  await providerStore.remove(req.params.id);
   res.json({ success: true });
 });
 
-router.post('/catalog/reset-demo', verifyAdmin, (req, res) => {
-  catalogStore.clearAllCatalog();
+router.post('/catalog/reset-demo', verifyAdmin, async (req, res) => {
+  await catalogStore.clearAllCatalog();
   res.json({ success: true, message: 'All countries/servers/numbers cleared' });
 });
 
@@ -940,13 +909,13 @@ router.get('/users/search', verifyAdmin, async (req, res) => {
   res.json({ success: true, users });
 });
 
-router.get('/costs', verifyAdminPerm('costs'), (req, res) => {
-  res.json({ success: true, costs: costStore.listCostsGrouped(catalogStore) });
+router.get('/costs', verifyAdminPerm('costs'), async (req, res) => {
+  res.json({ success: true, costs: await costStore.listCostsGrouped(catalogStore) });
 });
 
-router.put('/costs/:countryId', verifyAdminPerm('costs'), (req, res) => {
+router.put('/costs/:countryId', verifyAdminPerm('costs'), async (req, res) => {
   const { serverId, userReward, agentReward } = req.body || {};
-  const c = costStore.setCost(req.params.countryId, serverId || '', { userReward, agentReward });
+  const c = await costStore.setCost(req.params.countryId, serverId || '', { userReward, agentReward });
   res.json({ success: true, cost: c });
 });
 

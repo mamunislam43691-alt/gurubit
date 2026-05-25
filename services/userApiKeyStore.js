@@ -1,20 +1,32 @@
 /**
- * Per-user API keys (agents) for external site access
+ * Per-user API keys (agents) — Firestore backed
  */
 
 const crypto = require('crypto');
-const keys = new Map();
+const { db } = require('../config/firebase');
+
+const COLLECTION = 'userApiKeys';
+
+function col() {
+  return db.collection(COLLECTION);
+}
 
 function generateKey() {
   return `gurubit_${crypto.randomBytes(24).toString('hex')}`;
 }
 
-function listForUser(userId) {
-  return Array.from(keys.values()).filter((k) => k.userId === userId);
+async function listForUser(userId) {
+  const snap = await col().get();
+  const items = [];
+  snap.forEach(doc => {
+    const d = doc.data();
+    if (d.userId === userId) items.push(d);
+  });
+  return items.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 }
 
-function createKey(userId, label) {
-  const id = `ukey_${Date.now()}`;
+async function createKey(userId, label) {
+  const id = `ukey_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
   const apiKey = generateKey();
   const entry = {
     id,
@@ -24,19 +36,27 @@ function createKey(userId, label) {
     createdAt: new Date().toISOString(),
     lastUsedAt: null
   };
-  keys.set(id, entry);
+  await col().doc(id).set(entry);
   return entry;
 }
 
-function revokeKey(userId, id) {
-  const k = keys.get(id);
-  if (!k || k.userId !== userId) return false;
-  keys.delete(id);
+async function revokeKey(userId, id) {
+  const doc = await col().doc(id).get();
+  if (!doc.exists) return false;
+  const data = doc.data();
+  if (data.userId !== userId) return false;
+  await col().doc(id).delete();
   return true;
 }
 
-function findByKey(apiKey) {
-  return Array.from(keys.values()).find((k) => k.apiKey === apiKey) || null;
+async function findByKey(apiKey) {
+  const snap = await col().get();
+  let found = null;
+  snap.forEach(doc => {
+    const d = doc.data();
+    if (d.apiKey === apiKey) found = d;
+  });
+  return found;
 }
 
 module.exports = { listForUser, createKey, revokeKey, findByKey };

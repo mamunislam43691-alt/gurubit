@@ -14,10 +14,9 @@ function authProvider(req) {
     req.headers.authorization?.replace(/^Bearer\s+/i, '') ||
     req.body?.apiKey ||
     req.query?.apiKey;
+  // Use sync cache lookup (providerStore.load() called on startup)
   const provider = providerStore.findByApiKey(key);
-  if (!provider) {
-    return null;
-  }
+  if (!provider) return null;
   req.provider = provider;
   return provider;
 }

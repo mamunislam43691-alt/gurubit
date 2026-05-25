@@ -1,5 +1,6 @@
 /**
  * Agent panel API — members, approvals, stats
+ * All store calls are async (Firestore backed)
  */
 
 const express = require('express');
@@ -10,9 +11,7 @@ const agentStore = require('../services/agentStore');
 async function verifyAuth(req, res, next) {
   try {
     const token = req.cookies.sessionToken || req.headers.authorization?.replace('Bearer ', '');
-    if (!token) {
-      return res.status(401).json({ success: false, error: { message: 'Unauthorized' } });
-    }
+    if (!token) return res.status(401).json({ success: false, error: { message: 'Unauthorized' } });
     const decodedToken = await auth.verifyIdToken(token);
     req.userId = decodedToken.uid;
     next();
@@ -24,9 +23,7 @@ async function verifyAuth(req, res, next) {
 async function verifyAgent(req, res, next) {
   try {
     const token = req.cookies.sessionToken || req.headers.authorization?.replace('Bearer ', '');
-    if (!token) {
-      return res.status(401).json({ success: false, error: { message: 'Unauthorized' } });
-    }
+    if (!token) return res.status(401).json({ success: false, error: { message: 'Unauthorized' } });
     const decodedToken = await auth.verifyIdToken(token);
     req.userId = decodedToken.uid;
     const userDoc = await collections.users.doc(req.userId).get();
@@ -69,7 +66,7 @@ router.get('/dashboard', verifyAgent, async (req, res) => {
     });
 
     const activeMembers = members.filter((m) => m.agentApproved !== false);
-    const pendingRaw = agentStore.listPending(agentEmail);
+    const pendingRaw = await agentStore.listPending(agentEmail);
     const pending = [];
     for (const p of pendingRaw) {
       let extra = {};
@@ -127,15 +124,15 @@ async function approveUser(userId, agentEmail) {
     agentApproved: true,
     updatedAt: new Date().toISOString()
   });
-  const pending = agentStore.listPending(agentEmail);
-  pending.forEach((p) => {
-    if (p.userId === userId && p.status === 'pending') agentStore.approve(p.id);
-  });
+  const pending = await agentStore.listPending(agentEmail);
+  for (const p of pending) {
+    if (p.userId === userId && p.status === 'pending') await agentStore.approve(p.id);
+  }
 }
 
 router.post('/approve/:approvalId', verifyAgent, async (req, res) => {
   try {
-    const item = agentStore.approve(req.params.approvalId);
+    const item = await agentStore.approve(req.params.approvalId);
     if (!item || item.agentEmail !== req.agent.email.toLowerCase()) {
       return res.status(404).json({ success: false, error: { message: 'Approval not found' } });
     }
@@ -149,9 +146,7 @@ router.post('/approve/:approvalId', verifyAgent, async (req, res) => {
 router.post('/approve-user/:userId', verifyAgent, async (req, res) => {
   try {
     const userDoc = await collections.users.doc(req.params.userId).get();
-    if (!userDoc.exists) {
-      return res.status(404).json({ success: false, error: { message: 'User not found' } });
-    }
+    if (!userDoc.exists) return res.status(404).json({ success: false, error: { message: 'User not found' } });
     const u = userDoc.data();
     if (!memberOfAgent(u, req.agent.email)) {
       return res.status(403).json({ success: false, error: { message: 'Not your member' } });
@@ -164,7 +159,7 @@ router.post('/approve-user/:userId', verifyAgent, async (req, res) => {
 });
 
 router.post('/reject/:approvalId', verifyAgent, async (req, res) => {
-  const item = agentStore.reject(req.params.approvalId);
+  const item = await agentStore.reject(req.params.approvalId);
   if (!item || item.agentEmail !== req.agent.email.toLowerCase()) {
     return res.status(404).json({ success: false, error: { message: 'Approval not found' } });
   }
@@ -174,18 +169,13 @@ router.post('/reject/:approvalId', verifyAgent, async (req, res) => {
 router.put('/users/:userId/toggle-ban', verifyAgent, async (req, res) => {
   try {
     const userDoc = await collections.users.doc(req.params.userId).get();
-    if (!userDoc.exists) {
-      return res.status(404).json({ success: false, error: { message: 'User not found' } });
-    }
+    if (!userDoc.exists) return res.status(404).json({ success: false, error: { message: 'User not found' } });
     const u = userDoc.data();
     if (!memberOfAgent(u, req.agent.email)) {
       return res.status(403).json({ success: false, error: { message: 'Not your member' } });
     }
     const nextBanStatus = !u.isBanned;
-    await collections.users.doc(req.params.userId).update({
-      isBanned: nextBanStatus,
-      updatedAt: new Date().toISOString()
-    });
+    await collections.users.doc(req.params.userId).update({ isBanned: nextBanStatus, updatedAt: new Date().toISOString() });
     res.json({ success: true, isBanned: nextBanStatus, message: nextBanStatus ? 'User banned' : 'User unbanned' });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: error.message } });

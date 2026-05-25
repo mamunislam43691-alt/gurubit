@@ -55,7 +55,7 @@ router.post('/signup', async (req, res) => {
     }
 
     const { queueApproval } = require('../services/agentStore');
-    queueApproval({ userId: uid, email, name, agentEmail });
+    await queueApproval({ userId: uid, email, name, agentEmail });
 
     await collections.users.doc(uid).set({
       id: uid,

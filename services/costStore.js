@@ -1,24 +1,38 @@
 /**
- * Cost / reward rates per country + server (range)
+ * Cost / reward rates per country + server — Firestore backed
  */
 
-const costs = new Map();
+const { db } = require('../config/firebase');
+
+const COLLECTION = 'costRates';
+
+function col() {
+  return db.collection(COLLECTION);
+}
 
 function costKey(countryId, serverId) {
-  return serverId ? `${countryId}|${serverId}` : String(countryId);
+  return serverId ? `${countryId}__${serverId}` : String(countryId);
 }
 
-function listCosts() {
-  return Array.from(costs.values());
+async function listCosts() {
+  const snap = await col().get();
+  const items = [];
+  snap.forEach(doc => items.push(doc.data()));
+  return items;
 }
 
-function listCostsGrouped(catalogStore) {
+async function listCostsGrouped(catalogStore) {
   const countries = catalogStore?.listCountries?.() || [];
+  const allCosts = await listCosts();
+  const costMap = new Map(allCosts.map(c => [costKey(c.countryId, c.serverId || ''), c]));
+
   return countries.map((c) => {
     const servers = catalogStore.listServers(c.id);
     const ranges = servers.length
       ? servers.map((s) => {
-          const row = getCost(c.id, s.id);
+          const row = costMap.get(costKey(c.id, s.id))
+            || costMap.get(costKey(c.id, ''))
+            || { userReward: 0.05, agentReward: 0.02 };
           return {
             serverId: s.id,
             serverName: s.name,
@@ -29,22 +43,18 @@ function listCostsGrouped(catalogStore) {
       : [{
           serverId: '',
           serverName: 'Default',
-          userReward: getCost(c.id).userReward,
-          agentReward: getCost(c.id).agentReward
+          userReward: (costMap.get(costKey(c.id, '')) || { userReward: 0.05 }).userReward,
+          agentReward: (costMap.get(costKey(c.id, '')) || { agentReward: 0.02 }).agentReward
         }];
-    return {
-      countryId: c.id,
-      name: c.name,
-      code: c.code,
-      flag: c.flag,
-      ranges
-    };
+    return { countryId: c.id, name: c.name, code: c.code, flag: c.flag, ranges };
   });
 }
 
-function setCost(countryId, serverId, patch) {
+async function setCost(countryId, serverId, patch) {
   const key = costKey(countryId, serverId || '');
-  const prev = costs.get(key) || { countryId, serverId: serverId || null, userReward: 0.05, agentReward: 0.02 };
+  const docRef = col().doc(key);
+  const existing = await docRef.get();
+  const prev = existing.exists ? existing.data() : { countryId, serverId: serverId || null, userReward: 0.05, agentReward: 0.02 };
   const next = {
     ...prev,
     ...patch,
@@ -52,18 +62,18 @@ function setCost(countryId, serverId, patch) {
     serverId: serverId || null,
     updatedAt: new Date().toISOString()
   };
-  costs.set(key, next);
+  await docRef.set(next);
   return next;
 }
 
-function getCost(countryId, serverId) {
+async function getCost(countryId, serverId) {
   const key = costKey(countryId, serverId || '');
-  return costs.get(key) || costs.get(costKey(countryId, '')) || {
-    countryId,
-    serverId: serverId || null,
-    userReward: 0.05,
-    agentReward: 0.02
-  };
+  const doc = await col().doc(key).get();
+  if (doc.exists) return doc.data();
+  // fallback to country default
+  const fallback = await col().doc(costKey(countryId, '')).get();
+  if (fallback.exists) return fallback.data();
+  return { countryId, serverId: serverId || null, userReward: 0.05, agentReward: 0.02 };
 }
 
 module.exports = { listCosts, listCostsGrouped, setCost, getCost };

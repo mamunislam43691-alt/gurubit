@@ -1,26 +1,35 @@
 /**
- * Broadcast messages to users (in-memory)
+ * Broadcast messages — Firestore backed
  */
 
 const { randomBytes } = require('crypto');
+const { db } = require('../config/firebase');
 
-const broadcasts = [];
+const COLLECTION = 'broadcasts';
 
-function createBroadcast({ title, message, createdBy }) {
+function col() {
+  return db.collection(COLLECTION);
+}
+
+async function createBroadcast({ title, message, createdBy }) {
+  const id = `bc_${Date.now()}_${randomBytes(3).toString('hex')}`;
   const item = {
-    id: `bc_${Date.now()}_${randomBytes(3).toString('hex')}`,
+    id,
     title: title.trim(),
     message: message.trim(),
     createdBy: createdBy || 'admin',
     createdAt: new Date().toISOString(),
     status: 'sent'
   };
-  broadcasts.unshift(item);
+  await col().doc(id).set(item);
   return item;
 }
 
-function listBroadcasts() {
-  return broadcasts;
+async function listBroadcasts() {
+  const snap = await col().get();
+  const items = [];
+  snap.forEach(doc => items.push(doc.data()));
+  return items.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 }
 
 module.exports = { createBroadcast, listBroadcasts };

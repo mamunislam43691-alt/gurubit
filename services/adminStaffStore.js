@@ -1,16 +1,31 @@
 /**
- * Admin staff accounts (in-memory; persists while server runs)
+ * Admin staff accounts — Firestore backed
  */
 
 const crypto = require('crypto');
+const { db } = require('../config/firebase');
 
-const staff = new Map();
+const COLLECTION = 'adminStaff';
+
+function col() { return db.collection(COLLECTION); }
 
 function hashPassword(password) {
   return crypto.createHash('sha256').update(String(password)).digest('hex');
 }
 
-function createStaff({ username, password, role, displayName }) {
+function sanitize(entry) {
+  const { passwordHash, ...rest } = entry;
+  return rest;
+}
+
+async function _getAll() {
+  const snap = await col().get();
+  const items = [];
+  snap.forEach(doc => items.push(doc.data()));
+  return items;
+}
+
+async function createStaff({ username, password, role, displayName }) {
   const id = `staff_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
   const entry = {
     id,
@@ -21,54 +36,40 @@ function createStaff({ username, password, role, displayName }) {
     createdAt: new Date().toISOString(),
     active: true
   };
-  staff.set(id, entry);
+  await col().doc(id).set(entry);
   return sanitize(entry);
 }
 
-function sanitize(entry) {
-  const { passwordHash, ...rest } = entry;
-  return rest;
-}
-
-function findByUsername(username) {
+async function verifyStaff(username, password) {
   const u = String(username).trim().toLowerCase();
-  for (const entry of staff.values()) {
-    if (entry.username === u && entry.active) return entry;
-  }
-  return null;
-}
-
-function verifyStaff(username, password) {
-  const entry = findByUsername(username);
+  const all = await _getAll();
+  const entry = all.find(s => s.username === u && s.active);
   if (!entry) return null;
   if (entry.passwordHash !== hashPassword(password)) return null;
   return sanitize(entry);
 }
 
-function listStaff() {
-  return Array.from(staff.values()).map(sanitize);
+async function listStaff() {
+  const all = await _getAll();
+  return all.map(sanitize);
 }
 
-function deleteStaff(id) {
-  return staff.delete(id);
+async function deleteStaff(id) {
+  await col().doc(id).delete();
+  return true;
 }
 
-function updateStaff(id, patch) {
-  const entry = staff.get(id);
-  if (!entry) return null;
-  if (patch.password) entry.passwordHash = hashPassword(patch.password);
-  if (patch.role) entry.role = patch.role;
-  if (patch.displayName) entry.displayName = patch.displayName;
-  if (typeof patch.active === 'boolean') entry.active = patch.active;
-  staff.set(id, entry);
-  return sanitize(entry);
+async function updateStaff(id, patch) {
+  const doc = await col().doc(id).get();
+  if (!doc.exists) return null;
+  const entry = doc.data();
+  const update = {};
+  if (patch.password) update.passwordHash = hashPassword(patch.password);
+  if (patch.role) update.role = patch.role;
+  if (patch.displayName) update.displayName = patch.displayName;
+  if (typeof patch.active === 'boolean') update.active = patch.active;
+  await col().doc(id).update(update);
+  return sanitize({ ...entry, ...update });
 }
 
-module.exports = {
-  createStaff,
-  verifyStaff,
-  listStaff,
-  deleteStaff,
-  updateStaff,
-  hashPassword
-};
+module.exports = { createStaff, verifyStaff, listStaff, deleteStaff, updateStaff, hashPassword };

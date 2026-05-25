@@ -445,6 +445,17 @@ async function startServer() {
       } catch (e) {
         console.warn('Guru init:', e.message);
       }
+
+      // Load all Firestore-backed stores into memory cache
+      try {
+        await require('./services/catalogStore').loadCatalog();
+        console.log('✅ Catalog loaded from Firestore');
+      } catch (e) { console.warn('Catalog load:', e.message); }
+
+      try {
+        await require('./services/providerStore').load();
+        console.log('✅ Providers loaded from Firestore');
+      } catch (e) { console.warn('Provider load:', e.message); }
       console.log(`\n🚀 GURUBIT Server running at http://localhost:${PORT}/`);
       console.log(`📁 Serving files from: ${path.join(__dirname, 'public')}`);
       console.log('API server ready for connections');

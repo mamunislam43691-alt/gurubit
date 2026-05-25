@@ -1,22 +1,31 @@
 /**
- * In-memory live support conversations (persists while server runs)
+ * Live support conversations — Firestore backed
+ * WebSocket socket references remain in-memory (they can't be stored in DB)
  */
 
 const { randomBytes } = require('crypto');
+const { db } = require('../config/firebase');
 
-const sessions = new Map();
-const messages = new Map();
+const SESSIONS_COL = 'supportSessions';
+const MESSAGES_COL = 'supportMessages';
+
+// Socket references stay in-memory (not serializable)
 const visitorSockets = new Map();
 const adminSockets = new Set();
+
+function sessionsCol() { return db.collection(SESSIONS_COL); }
+function messagesCol() { return db.collection(MESSAGES_COL); }
 
 function newId(prefix = 's') {
   return `${prefix}_${Date.now()}_${randomBytes(4).toString('hex')}`;
 }
 
-function pickSupporter(staffUsernames = []) {
+async function pickSupporter(staffUsernames = []) {
+  const snap = await sessionsCol().get();
   const counts = {};
-  staffUsernames.forEach((u) => { counts[u] = 0; });
-  sessions.forEach((s) => {
+  staffUsernames.forEach(u => { counts[u] = 0; });
+  snap.forEach(doc => {
+    const s = doc.data();
     if (s.assignedTo && s.status === 'open') {
       counts[s.assignedTo] = (counts[s.assignedTo] || 0) + 1;
     }
@@ -26,7 +35,7 @@ function pickSupporter(staffUsernames = []) {
   return keys.sort((a, b) => counts[a] - counts[b])[0];
 }
 
-function createSession({ name, email, assignedTo = null }) {
+async function createSession({ name, email, assignedTo = null }) {
   const id = newId('chat');
   const session = {
     id,
@@ -40,38 +49,44 @@ function createSession({ name, email, assignedTo = null }) {
     unreadVisitor: 0,
     lastMessage: ''
   };
-  sessions.set(id, session);
-  messages.set(id, []);
+  await sessionsCol().doc(id).set(session);
   return session;
 }
 
-function getSession(id) {
-  return sessions.get(id) || null;
+async function getSession(id) {
+  const doc = await sessionsCol().doc(id).get();
+  return doc.exists ? doc.data() : null;
 }
 
-function listSessions(filterAssignedTo) {
-  let list = Array.from(sessions.values());
-  if (filterAssignedTo) {
-    list = list.filter((s) => s.assignedTo === filterAssignedTo || !s.assignedTo);
-  }
-  return list.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+async function listSessions(filterAssignedTo) {
+  const snap = await sessionsCol().get();
+  const items = [];
+  snap.forEach(doc => {
+    const s = doc.data();
+    if (!filterAssignedTo || s.assignedTo === filterAssignedTo || !s.assignedTo) {
+      items.push(s);
+    }
+  });
+  return items.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
 }
 
-function assignSession(sessionId, username) {
-  const session = sessions.get(sessionId);
-  if (!session) return null;
-  session.assignedTo = username;
-  session.updatedAt = new Date().toISOString();
-  return session;
+async function assignSession(sessionId, username) {
+  const doc = await sessionsCol().doc(sessionId).get();
+  if (!doc.exists) return null;
+  await sessionsCol().doc(sessionId).update({
+    assignedTo: username,
+    updatedAt: new Date().toISOString()
+  });
+  return { ...doc.data(), assignedTo: username };
 }
 
-function transferSession(sessionId, toUsername) {
+async function transferSession(sessionId, toUsername) {
   return assignSession(sessionId, toUsername);
 }
 
-function addMessage(sessionId, { from, text, imageUrl }) {
-  const session = sessions.get(sessionId);
-  if (!session) return null;
+async function addMessage(sessionId, { from, text, imageUrl }) {
+  const sessionDoc = await sessionsCol().doc(sessionId).get();
+  if (!sessionDoc.exists) return null;
   if (!text?.trim() && !imageUrl) return null;
 
   const msg = {
@@ -83,62 +98,53 @@ function addMessage(sessionId, { from, text, imageUrl }) {
     createdAt: new Date().toISOString()
   };
 
-  const list = messages.get(sessionId) || [];
-  list.push(msg);
-  messages.set(sessionId, list);
+  await messagesCol().doc(msg.id).set(msg);
 
-  session.updatedAt = msg.createdAt;
-  session.lastMessage = text || (imageUrl ? '[Image]' : '');
-  if (from === 'visitor') session.unreadAdmin += 1;
-  else session.unreadVisitor += 1;
+  const session = sessionDoc.data();
+  const update = {
+    updatedAt: msg.createdAt,
+    lastMessage: text || (imageUrl ? '[Image]' : ''),
+    unreadAdmin: (session.unreadAdmin || 0) + (from === 'visitor' ? 1 : 0),
+    unreadVisitor: (session.unreadVisitor || 0) + (from !== 'visitor' ? 1 : 0)
+  };
+  await sessionsCol().doc(sessionId).update(update);
 
   return msg;
 }
 
-function getMessages(sessionId) {
-  return messages.get(sessionId) || [];
+async function getMessages(sessionId) {
+  const snap = await messagesCol().get();
+  const items = [];
+  snap.forEach(doc => {
+    const d = doc.data();
+    if (d.sessionId === sessionId) items.push(d);
+  });
+  return items.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
 }
 
-function markRead(sessionId, forRole) {
-  const session = sessions.get(sessionId);
-  if (!session) return;
-  if (forRole === 'admin') session.unreadAdmin = 0;
-  if (forRole === 'visitor') session.unreadVisitor = 0;
+async function markRead(sessionId, forRole) {
+  const update = {};
+  if (forRole === 'admin') update.unreadAdmin = 0;
+  if (forRole === 'visitor') update.unreadVisitor = 0;
+  if (Object.keys(update).length) {
+    await sessionsCol().doc(sessionId).update(update);
+  }
 }
 
-function registerVisitorSocket(sessionId, ws) {
-  visitorSockets.set(sessionId, ws);
-}
-
-function removeVisitorSocket(sessionId) {
-  visitorSockets.delete(sessionId);
-}
-
-function registerAdminSocket(ws) {
-  adminSockets.add(ws);
-}
-
-function removeAdminSocket(ws) {
-  adminSockets.delete(ws);
-}
-
-function getVisitorSocket(sessionId) {
-  return visitorSockets.get(sessionId);
-}
-
-function getAdminSockets() {
-  return adminSockets;
-}
-
-function deleteMessage(sessionId, messageId) {
-  const list = messages.get(sessionId);
-  if (!list) return false;
-  const i = list.findIndex((m) => m.id === messageId);
-  if (i < 0) return false;
-  list.splice(i, 1);
-  messages.set(sessionId, list);
+async function deleteMessage(sessionId, messageId) {
+  const doc = await messagesCol().doc(messageId).get();
+  if (!doc.exists) return false;
+  await messagesCol().doc(messageId).delete();
   return true;
 }
+
+// Socket helpers (in-memory only — sockets can't be stored in DB)
+function registerVisitorSocket(sessionId, ws) { visitorSockets.set(sessionId, ws); }
+function removeVisitorSocket(sessionId) { visitorSockets.delete(sessionId); }
+function registerAdminSocket(ws) { adminSockets.add(ws); }
+function removeAdminSocket(ws) { adminSockets.delete(ws); }
+function getVisitorSocket(sessionId) { return visitorSockets.get(sessionId); }
+function getAdminSockets() { return adminSockets; }
 
 module.exports = {
   pickSupporter,

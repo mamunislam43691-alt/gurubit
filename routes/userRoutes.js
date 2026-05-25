@@ -360,7 +360,7 @@ router.get('/api-keys', verifyAuth, async (req, res) => {
         if (!userDoc.exists || !userDoc.data().isAgent) {
             return res.status(403).json({ success: false, error: { message: 'Agents only' } });
         }
-        res.json({ success: true, keys: userApiKeyStore.listForUser(req.userId) });
+        res.json({ success: true, keys: await userApiKeyStore.listForUser(req.userId) });
     } catch (error) {
         res.status(500).json({ success: false, error: { message: 'Failed to list keys' } });
     }
@@ -373,7 +373,7 @@ router.post('/api-keys', verifyAuth, async (req, res) => {
             return res.status(403).json({ success: false, error: { message: 'Agents only' } });
         }
         const label = req.body?.label || 'Website API';
-        const key = userApiKeyStore.createKey(req.userId, label);
+        const key = await userApiKeyStore.createKey(req.userId, label);
         res.json({ success: true, key });
     } catch (error) {
         res.status(500).json({ success: false, error: { message: 'Failed to create key' } });
@@ -382,9 +382,8 @@ router.post('/api-keys', verifyAuth, async (req, res) => {
 
 router.delete('/api-keys/:id', verifyAuth, async (req, res) => {
     try {
-        if (!userApiKeyStore.revokeKey(req.userId, req.params.id)) {
-            return res.status(404).json({ success: false, error: { message: 'Key not found' } });
-        }
+        const ok = await userApiKeyStore.revokeKey(req.userId, req.params.id);
+        if (!ok) return res.status(404).json({ success: false, error: { message: 'Key not found' } });
         res.json({ success: true });
     } catch (error) {
         res.status(500).json({ success: false, error: { message: 'Failed to revoke key' } });

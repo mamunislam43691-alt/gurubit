@@ -1,15 +1,18 @@
 /**
  * Guru social — feed, groups, follow, reports, AI moderation
+ * All data stored in Firestore — no in-memory stores
  */
 
 const express = require('express');
 const router = express.Router();
-const { auth, collections } = require('../config/firebase');
+const { auth, collections, db } = require('../config/firebase');
 const postStore = require('../services/postStore');
 const { moderateContent } = require('../services/aiModeration');
 
-// In-memory announcement store (persists during server run)
-const announcements = [];
+// Firestore collections
+const ANN_COL        = 'announcements';
+const GROUP_MEM_COL  = 'groupMembers';   // doc id: groupId_userId
+const GROUP_BAN_COL  = 'groupBans';      // doc id: groupId_userId
 
 async function verifyAuth(req, res, next) {
   try {
@@ -47,7 +50,6 @@ router.post('/posts', verifyAuth, async (req, res) => {
   const { text, imageUrl, imageData, videoUrl, link } = req.body || {};
   const img = imageUrl || imageData;
 
-  // Link detection — block immediately with warning
   if (postStore.hasLink(text) && !req.user.isAdmin) {
     return res.status(400).json({
       success: false,
@@ -62,11 +64,7 @@ router.post('/posts', verifyAuth, async (req, res) => {
   const modText = [text, link].filter(Boolean).join(' ');
   const mod = await moderateContent({ text: modText, userId: req.userId, settings });
   if (!mod.allowed) {
-    return res.status(403).json({
-      success: false,
-      error: { message: mod.error, code: mod.code },
-      suspendedUntil: mod.suspendedUntil
-    });
+    return res.status(403).json({ success: false, error: { message: mod.error, code: mod.code }, suspendedUntil: mod.suspendedUntil });
   }
 
   const result = await postStore.createPost({ user: req.user, text, imageUrl: img, videoUrl, link });
@@ -78,11 +76,7 @@ async function applyReportPenalty(userId) {
   const uniqueReports = await postStore.countUserReports(userId);
   if (uniqueReports < 4) return null;
   const until = new Date(Date.now() + 4 * 24 * 60 * 60 * 1000).toISOString();
-  await collections.users.doc(userId).update({
-    suspendedUntil: until,
-    reportCount: uniqueReports,
-    updatedAt: new Date().toISOString()
-  });
+  await collections.users.doc(userId).update({ suspendedUntil: until, reportCount: uniqueReports, updatedAt: new Date().toISOString() });
   return until;
 }
 
@@ -123,91 +117,94 @@ router.get('/users/:id/profile', verifyAuth, async (req, res) => {
 
 // ── Groups ────────────────────────────────────────────────────────────────────
 
-// In-memory group membership store
-const groupMembers = new Map(); // groupId → Set of userIds
-const groupBans = new Map();    // groupId → Set of userIds
+async function isMember(groupId, userId) {
+  const doc = await db.collection(GROUP_MEM_COL).doc(`${groupId}_${userId}`).get();
+  return doc.exists;
+}
+
+async function isBanned(groupId, userId) {
+  const doc = await db.collection(GROUP_BAN_COL).doc(`${groupId}_${userId}`).get();
+  return doc.exists;
+}
+
+async function getMyGroupIds(userId) {
+  const snap = await db.collection(GROUP_MEM_COL).get();
+  const ids = [];
+  snap.forEach(doc => {
+    const d = doc.data();
+    if (d.userId === userId) ids.push(d.groupId);
+  });
+  return ids;
+}
 
 router.get('/groups', verifyAuth, async (req, res) => {
-  const groups = await postStore.listGroups();
-  const myGroupIds = [];
-  groups.forEach((g) => {
-    const members = groupMembers.get(g.id) || new Set();
-    if (members.has(req.userId)) myGroupIds.push(g.id);
-  });
+  const [groups, myGroupIds] = await Promise.all([
+    postStore.listGroups(),
+    getMyGroupIds(req.userId)
+  ]);
   res.json({ success: true, groups, myGroupIds });
 });
 
-// Create group (admin only via admin panel — but also allow here for admin users)
 router.post('/groups', verifyAuth, async (req, res) => {
   if (!req.user.isAdmin) return res.status(403).json({ success: false, error: { message: 'Admin only' } });
   const { name, description } = req.body || {};
   if (!name?.trim()) return res.status(400).json({ success: false, error: { message: 'Name required' } });
   const id = `group_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
   await collections.guruGroups.doc(id).set({
-    id,
-    name: name.trim(),
-    description: description || '',
-    memberCount: 0,
-    createdAt: new Date().toISOString(),
-    createdBy: req.userId
+    id, name: name.trim(), description: description || '',
+    memberCount: 0, createdAt: new Date().toISOString(), createdBy: req.userId
   });
   res.json({ success: true, group: { id, name: name.trim() } });
 });
 
-// Delete group (admin only)
 router.delete('/groups/:id', verifyAuth, async (req, res) => {
   if (!req.user.isAdmin) return res.status(403).json({ success: false, error: { message: 'Admin only' } });
   await collections.guruGroups.doc(req.params.id).delete();
-  groupMembers.delete(req.params.id);
-  groupBans.delete(req.params.id);
+  // Clean up memberships and bans
+  const [memSnap, banSnap] = await Promise.all([
+    db.collection(GROUP_MEM_COL).get(),
+    db.collection(GROUP_BAN_COL).get()
+  ]);
+  const deletes = [];
+  memSnap.forEach(doc => { if (doc.data().groupId === req.params.id) deletes.push(doc.ref.delete()); });
+  banSnap.forEach(doc => { if (doc.data().groupId === req.params.id) deletes.push(doc.ref.delete()); });
+  await Promise.all(deletes);
   res.json({ success: true });
 });
 
-// Join group
 router.post('/groups/:id/join', verifyAuth, async (req, res) => {
   const gid = req.params.id;
-  const bans = groupBans.get(gid) || new Set();
-  if (bans.has(req.userId)) {
+  if (await isBanned(gid, req.userId)) {
     return res.status(403).json({ success: false, error: { message: 'You are banned from this group' } });
   }
-  if (!groupMembers.has(gid)) groupMembers.set(gid, new Set());
-  groupMembers.get(gid).add(req.userId);
-
+  const memId = `${gid}_${req.userId}`;
+  await db.collection(GROUP_MEM_COL).doc(memId).set({
+    groupId: gid, userId: req.userId, joinedAt: new Date().toISOString()
+  });
   // Update member count
-  try {
-    const doc = await collections.guruGroups.doc(gid).get();
-    if (doc.exists) {
-      await collections.guruGroups.doc(gid).update({
-        memberCount: groupMembers.get(gid).size
-      });
-    }
-  } catch (_) {}
-
+  const snap = await db.collection(GROUP_MEM_COL).get();
+  const count = snap.docs.filter(d => d.data().groupId === gid).length;
+  await collections.guruGroups.doc(gid).update({ memberCount: count }).catch(() => {});
   res.json({ success: true });
 });
 
-// Leave group
 router.post('/groups/:id/leave', verifyAuth, async (req, res) => {
   const gid = req.params.id;
-  groupMembers.get(gid)?.delete(req.userId);
-  try {
-    const doc = await collections.guruGroups.doc(gid).get();
-    if (doc.exists) {
-      await collections.guruGroups.doc(gid).update({
-        memberCount: Math.max(0, (groupMembers.get(gid)?.size || 0))
-      });
-    }
-  } catch (_) {}
+  await db.collection(GROUP_MEM_COL).doc(`${gid}_${req.userId}`).delete();
+  const snap = await db.collection(GROUP_MEM_COL).get();
+  const count = snap.docs.filter(d => d.data().groupId === gid).length;
+  await collections.guruGroups.doc(gid).update({ memberCount: Math.max(0, count) }).catch(() => {});
   res.json({ success: true });
 });
 
-// Ban user from group (admin only)
 router.post('/groups/:id/ban/:userId', verifyAuth, async (req, res) => {
   if (!req.user.isAdmin) return res.status(403).json({ success: false, error: { message: 'Admin only' } });
   const gid = req.params.id;
-  if (!groupBans.has(gid)) groupBans.set(gid, new Set());
-  groupBans.get(gid).add(req.params.userId);
-  groupMembers.get(gid)?.delete(req.params.userId);
+  const uid = req.params.userId;
+  await db.collection(GROUP_BAN_COL).doc(`${gid}_${uid}`).set({
+    groupId: gid, userId: uid, bannedAt: new Date().toISOString(), bannedBy: req.userId
+  });
+  await db.collection(GROUP_MEM_COL).doc(`${gid}_${uid}`).delete();
   res.json({ success: true });
 });
 
@@ -224,73 +221,61 @@ router.post('/groups/:id/messages', verifyAuth, async (req, res) => {
     return res.status(400).json({ success: false, error: { message: 'Message required' } });
   }
 
-  // Ban check
-  const bans = groupBans.get(gid) || new Set();
-  if (bans.has(req.userId)) {
+  if (await isBanned(gid, req.userId)) {
     return res.status(403).json({ success: false, error: { message: 'You are banned from this group' } });
   }
 
-  // Link detection — auto-block + ban
   if (postStore.hasLink(text) && !req.user.isAdmin) {
-    // Auto-ban from group
-    if (!groupBans.has(gid)) groupBans.set(gid, new Set());
-    groupBans.get(gid).add(req.userId);
-    groupMembers.get(gid)?.delete(req.userId);
-
+    // Auto-ban from group in Firestore
+    await db.collection(GROUP_BAN_COL).doc(`${gid}_${req.userId}`).set({
+      groupId: gid, userId: req.userId, bannedAt: new Date().toISOString(), bannedBy: 'system', reason: 'link_detected'
+    });
+    await db.collection(GROUP_MEM_COL).doc(`${gid}_${req.userId}`).delete();
     return res.status(400).json({
       success: false,
-      error: {
-        message: 'Links are not allowed in groups. You have been removed from this group.',
-        code: 'LINK_DETECTED'
-      }
+      error: { message: 'Links are not allowed in groups. You have been removed from this group.', code: 'LINK_DETECTED' }
     });
   }
 
   const settings = await postStore.getSettings();
   const mod = await moderateContent({ text: (text || '').trim(), userId: req.userId, settings });
   if (!mod.allowed) {
-    return res.status(403).json({
-      success: false,
-      error: { message: mod.error, code: mod.code },
-      suspendedUntil: mod.suspendedUntil
-    });
+    return res.status(403).json({ success: false, error: { message: mod.error, code: mod.code }, suspendedUntil: mod.suspendedUntil });
   }
 
   const result = await postStore.addGroupMessage(gid, {
-    userId: req.userId,
-    userName: req.user.name,
-    text: (text || '').trim(),
-    imageUrl: img
+    userId: req.userId, userName: req.user.name,
+    text: (text || '').trim(), imageUrl: img
   });
   if (result?.error) return res.status(400).json({ success: false, error: { message: result.error } });
   res.json({ success: true, message: result });
 });
 
-// ── Announcements ─────────────────────────────────────────────────────────────
+// ── Announcements — Firestore backed ─────────────────────────────────────────
+
+const ANN_FS = () => db.collection(ANN_COL);
 
 router.get('/announcements', verifyAuth, async (req, res) => {
-  res.json({ success: true, announcements: [...announcements].reverse() });
+  const snap = await ANN_FS().get();
+  const items = [];
+  snap.forEach(doc => items.push(doc.data()));
+  items.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  res.json({ success: true, announcements: items });
 });
 
 router.post('/announcements', verifyAuth, async (req, res) => {
   if (!req.user.isAdmin) return res.status(403).json({ success: false, error: { message: 'Admin only' } });
   const { title, body } = req.body || {};
   if (!title?.trim()) return res.status(400).json({ success: false, error: { message: 'Title required' } });
-  const ann = {
-    id: `ann_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-    title: title.trim(),
-    body: (body || '').trim(),
-    createdAt: new Date().toISOString(),
-    createdBy: req.userId
-  };
-  announcements.push(ann);
+  const id = `ann_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  const ann = { id, title: title.trim(), body: (body || '').trim(), createdAt: new Date().toISOString(), createdBy: req.userId };
+  await ANN_FS().doc(id).set(ann);
   res.json({ success: true, announcement: ann });
 });
 
 router.delete('/announcements/:id', verifyAuth, async (req, res) => {
   if (!req.user.isAdmin) return res.status(403).json({ success: false, error: { message: 'Admin only' } });
-  const idx = announcements.findIndex((a) => a.id === req.params.id);
-  if (idx !== -1) announcements.splice(idx, 1);
+  await ANN_FS().doc(req.params.id).delete();
   res.json({ success: true });
 });
 
