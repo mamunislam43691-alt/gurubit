@@ -28,7 +28,7 @@ export class AuthPage {
         this.isLoginMode = path === '/login' || (!this.isForgotMode && path !== '/signup');
         this.formData = {
             name: '', identificationNumber: '', email: '',
-            telegramNumber: '', address: '', referralEmail: '',
+            telegramNumber: '', cryptoAddress: '', referralEmail: '',
             password: '', agreeTerms: false
         };
         this.errors = {};
@@ -50,7 +50,6 @@ export class AuthPage {
             if (!this.formData.identificationNumber) this.errors.identificationNumber = 'Required';
             if (!this.formData.email) this.errors.email = 'Required';
             if (!this.formData.telegramNumber) this.errors.telegramNumber = 'Required';
-            if (!this.formData.address) this.errors.address = 'Required';
             if (!this.formData.referralEmail) this.errors.referralEmail = 'Required';
             if (!this.formData.password || this.formData.password.length < 8)
                 this.errors.password = 'Min 8 characters required';
@@ -223,12 +222,16 @@ export class AuthPage {
                     }
                     throw new Error(err.error?.message || 'Could not save your profile');
                 }
-                const emailResult = await this.sendVerificationEmail(cred.user);
+                const emailResult = await this.sendVerificationEmail(cred.user).catch(() => ({ ok: false, skipped: true }));
                 this.isLoginMode = true;
                 this.errors.submit = null;
                 this.isLoading = false;
                 this.renderModal();
-                this.showNotice('Account created! Check your inbox and tap the blue <strong>Activate Now</strong> button. After activating, your agent must approve your account before you can log in.');
+                if (emailResult.ok && !emailResult.skipped) {
+                    this.showNotice('Account created! Check your inbox and tap the blue <strong>Activate Now</strong> button. After activating, your agent must approve your account before you can log in.');
+                } else {
+                    this.showNotice('Account created! <br>⚠️ Verification email could not be sent — please contact support or try the <strong>Resend Activation Email</strong> button on the login page.');
+                }
                 return;
             } else {
                 window.location.href = '/numbers';
@@ -357,20 +360,20 @@ export class AuthPage {
             { id: 'identificationNumber', type: 'text', placeholder: 'Phone Number', icon: 'phone' },
             { id: 'email', type: 'email', placeholder: 'Email Address', icon: 'envelope' },
             { id: 'telegramNumber', type: 'text', placeholder: 'Telegram Username', icon: 'paper-plane' },
-            { id: 'address', type: 'text', placeholder: 'USDT TRC20 Wallet', icon: 'wallet' },
+            { id: 'cryptoAddress', type: 'text', placeholder: 'USDT TRC20 Wallet Address', icon: 'wallet' },
             { id: 'referralEmail', type: 'email', placeholder: 'Agent / Referral Email', icon: 'user-tie' }
         ];
         return `
-            <motion.div class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[40vh] overflow-y-auto pr-1">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[40vh] overflow-y-auto pr-1">
                 ${fields.map(f => this.renderField(f.id, f.type, f.placeholder, f.icon)).join('')}
-            </motion.div>
+            </div>
             ${this.renderField('password', 'password', 'Password (min. 8 chars)', 'lock')}
             <label class="flex items-start gap-3 cursor-pointer text-xs text-gray-400">
                 <input type="checkbox" id="agreeTerms" class="mt-0.5 rounded border-gray-600" ${this.formData.agreeTerms ? 'checked' : ''}>
                 <span>I agree to <a href="/terms" target="_blank" class="text-primary hover:underline">Terms</a> and <a href="/privacy" target="_blank" class="text-primary hover:underline">Privacy Policy</a></span>
             </label>
             ${this.errors.agreeTerms ? `<p class="text-red-400 text-[10px]">${this.errors.agreeTerms}</p>` : ''}
-        `.replaceAll('<motion.', '<').replaceAll('</motion.', '</');
+        `;
     }
 
     renderForgotFields() {
@@ -444,7 +447,7 @@ export class AuthPage {
         document.getElementById('authModalBackdrop')?.addEventListener('click', () => this.closeModal());
         document.getElementById('authModalPanel')?.addEventListener('click', (e) => e.stopPropagation());
 
-        ['name', 'identificationNumber', 'email', 'telegramNumber', 'address', 'referralEmail', 'password'].forEach(id => {
+        ['name', 'identificationNumber', 'email', 'telegramNumber', 'cryptoAddress', 'referralEmail', 'password'].forEach(id => {
             document.getElementById(id)?.addEventListener('input', (e) => { this.formData[id] = e.target.value; });
         });
         document.getElementById('agreeTerms')?.addEventListener('change', (e) => { this.formData.agreeTerms = e.target.checked; });

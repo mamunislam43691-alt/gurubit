@@ -64,13 +64,16 @@ export class AdminDatabase {
   async saveSmtp() {
     const btn = document.getElementById('saveSmtpBtn');
     if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+    const user = document.getElementById('smtpUser')?.value?.trim();
+    const fromVal = document.getElementById('smtpFrom')?.value?.trim();
     const data = {
       host: document.getElementById('smtpHost')?.value?.trim(),
       port: document.getElementById('smtpPort')?.value?.trim() || '587',
       secure: document.getElementById('smtpSecure')?.value || 'false',
-      user: document.getElementById('smtpUser')?.value?.trim(),
+      user,
       pass: document.getElementById('smtpPass')?.value?.trim(),
-      from: document.getElementById('smtpFrom')?.value?.trim()
+      // Auto-fill FROM if empty
+      from: fromVal || (user ? `"GURUBIT" <${user}>` : '')
     };
     const res = await fetch('/api/admin/database/env-config', {
       method: 'PUT',
@@ -230,7 +233,8 @@ export class AdminDatabase {
             <div>
               <label class="stat-label block mb-1">From Name & Email</label>
               <input type="text" id="smtpFrom" class="input-field font-mono text-sm"
-                placeholder='"GURUBIT" <yourname@gmail.com>' value="${smtp.from || ''}">
+                placeholder='"GURUBIT" <supportgurubit@gmail.com>'
+                value="${smtp.from || (smtp.user ? `"GURUBIT" <${smtp.user}>` : '')}">
             </div>
           </div>
 

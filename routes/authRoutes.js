@@ -22,6 +22,7 @@ router.post('/signup', async (req, res) => {
       email,
       identificationNumber,
       telegramNumber,
+      cryptoAddress,
       address,
       referralEmail
     } = req.body;
@@ -63,7 +64,7 @@ router.post('/signup', async (req, res) => {
       email,
       phone: identificationNumber,
       telegram: telegramNumber,
-      cryptoAddress: address,
+      cryptoAddress: cryptoAddress || address || '',
       referralEmail: referralEmail,
       agentEmail,
       agentApproved: false,
