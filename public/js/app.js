@@ -117,6 +117,7 @@ const ROUTES = {
   '/live-feed':         () => import('./components/LiveSMSFeed.js').then(m => m.LiveSMSFeed),
   '/post':              () => import('./components/PostFeed.js').then(m => m.PostFeed),
   '/groups':            () => import('./components/GroupsPage.js').then(m => m.GroupsPage),
+  '/movement':          () => import('./components/PostFeed.js').then(m => m.PostFeed),
   '/guru':              () => import('./components/PostFeed.js').then(m => m.PostFeed),
   '/withdraw':          () => import('./components/WithdrawPage.js').then(m => m.WithdrawPage),
   '/admin/users':       () => import('./components/AdminUsers.js').then(m => m.AdminUsers),

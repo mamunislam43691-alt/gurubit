@@ -1030,6 +1030,26 @@ router.put('/guru/settings', verifyAdmin, async (req, res) => {
   res.json({ success: true, settings: await postStore.setSettings(req.body) });
 });
 
+// Admin: create group
+router.post('/guru/groups', verifyAdmin, async (req, res) => {
+  const { name, description } = req.body || {};
+  if (!name?.trim()) return res.status(400).json({ success: false, error: { message: 'Name required' } });
+  const id = `group_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  const { collections: cols } = require('../config/firebase');
+  await cols.guruGroups.doc(id).set({
+    id, name: name.trim(), description: description || '',
+    memberCount: 0, createdAt: new Date().toISOString(), createdBy: 'admin'
+  });
+  res.json({ success: true, group: { id, name: name.trim() } });
+});
+
+// Admin: delete group
+router.delete('/guru/groups/:id', verifyAdmin, async (req, res) => {
+  const { collections: cols } = require('../config/firebase');
+  await cols.guruGroups.doc(req.params.id).delete();
+  res.json({ success: true });
+});
+
 router.put('/users/:id/suspend', verifyAdmin, async (req, res) => {
   const days = parseInt(req.body.days, 10) || 4;
   const until = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();

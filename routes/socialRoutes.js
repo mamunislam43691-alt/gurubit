@@ -8,6 +8,9 @@ const { auth, collections } = require('../config/firebase');
 const postStore = require('../services/postStore');
 const { moderateContent } = require('../services/aiModeration');
 
+// In-memory announcement store (persists during server run)
+const announcements = [];
+
 async function verifyAuth(req, res, next) {
   try {
     const token = req.cookies.sessionToken || req.headers.authorization?.replace('Bearer ', '');
@@ -27,6 +30,8 @@ async function verifyAuth(req, res, next) {
   }
 }
 
+// ── Feed ─────────────────────────────────────────────────────────────────────
+
 router.get('/feed', verifyAuth, async (req, res) => {
   const posts = await postStore.listPosts();
   const withFollow = await Promise.all(
@@ -41,6 +46,18 @@ router.get('/feed', verifyAuth, async (req, res) => {
 router.post('/posts', verifyAuth, async (req, res) => {
   const { text, imageUrl, imageData, videoUrl, link } = req.body || {};
   const img = imageUrl || imageData;
+
+  // Link detection — block immediately with warning
+  if (postStore.hasLink(text) && !req.user.isAdmin) {
+    return res.status(400).json({
+      success: false,
+      error: {
+        message: 'Links are not allowed in posts. Telegram links, website URLs, and similar content are prohibited.',
+        code: 'LINK_DETECTED'
+      }
+    });
+  }
+
   const settings = await postStore.getSettings();
   const modText = [text, link].filter(Boolean).join(' ');
   const mod = await moderateContent({ text: modText, userId: req.userId, settings });
@@ -52,13 +69,7 @@ router.post('/posts', verifyAuth, async (req, res) => {
     });
   }
 
-  const result = await postStore.createPost({
-    user: req.user,
-    text,
-    imageUrl: img,
-    videoUrl,
-    link
-  });
+  const result = await postStore.createPost({ user: req.user, text, imageUrl: img, videoUrl, link });
   if (result.error) return res.status(400).json({ success: false, error: { message: result.error } });
   res.json({ success: true, post: result.post });
 });
@@ -110,8 +121,94 @@ router.get('/users/:id/profile', verifyAuth, async (req, res) => {
   });
 });
 
+// ── Groups ────────────────────────────────────────────────────────────────────
+
+// In-memory group membership store
+const groupMembers = new Map(); // groupId → Set of userIds
+const groupBans = new Map();    // groupId → Set of userIds
+
 router.get('/groups', verifyAuth, async (req, res) => {
-  res.json({ success: true, groups: await postStore.listGroups() });
+  const groups = await postStore.listGroups();
+  const myGroupIds = [];
+  groups.forEach((g) => {
+    const members = groupMembers.get(g.id) || new Set();
+    if (members.has(req.userId)) myGroupIds.push(g.id);
+  });
+  res.json({ success: true, groups, myGroupIds });
+});
+
+// Create group (admin only via admin panel — but also allow here for admin users)
+router.post('/groups', verifyAuth, async (req, res) => {
+  if (!req.user.isAdmin) return res.status(403).json({ success: false, error: { message: 'Admin only' } });
+  const { name, description } = req.body || {};
+  if (!name?.trim()) return res.status(400).json({ success: false, error: { message: 'Name required' } });
+  const id = `group_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  await collections.guruGroups.doc(id).set({
+    id,
+    name: name.trim(),
+    description: description || '',
+    memberCount: 0,
+    createdAt: new Date().toISOString(),
+    createdBy: req.userId
+  });
+  res.json({ success: true, group: { id, name: name.trim() } });
+});
+
+// Delete group (admin only)
+router.delete('/groups/:id', verifyAuth, async (req, res) => {
+  if (!req.user.isAdmin) return res.status(403).json({ success: false, error: { message: 'Admin only' } });
+  await collections.guruGroups.doc(req.params.id).delete();
+  groupMembers.delete(req.params.id);
+  groupBans.delete(req.params.id);
+  res.json({ success: true });
+});
+
+// Join group
+router.post('/groups/:id/join', verifyAuth, async (req, res) => {
+  const gid = req.params.id;
+  const bans = groupBans.get(gid) || new Set();
+  if (bans.has(req.userId)) {
+    return res.status(403).json({ success: false, error: { message: 'You are banned from this group' } });
+  }
+  if (!groupMembers.has(gid)) groupMembers.set(gid, new Set());
+  groupMembers.get(gid).add(req.userId);
+
+  // Update member count
+  try {
+    const doc = await collections.guruGroups.doc(gid).get();
+    if (doc.exists) {
+      await collections.guruGroups.doc(gid).update({
+        memberCount: groupMembers.get(gid).size
+      });
+    }
+  } catch (_) {}
+
+  res.json({ success: true });
+});
+
+// Leave group
+router.post('/groups/:id/leave', verifyAuth, async (req, res) => {
+  const gid = req.params.id;
+  groupMembers.get(gid)?.delete(req.userId);
+  try {
+    const doc = await collections.guruGroups.doc(gid).get();
+    if (doc.exists) {
+      await collections.guruGroups.doc(gid).update({
+        memberCount: Math.max(0, (groupMembers.get(gid)?.size || 0))
+      });
+    }
+  } catch (_) {}
+  res.json({ success: true });
+});
+
+// Ban user from group (admin only)
+router.post('/groups/:id/ban/:userId', verifyAuth, async (req, res) => {
+  if (!req.user.isAdmin) return res.status(403).json({ success: false, error: { message: 'Admin only' } });
+  const gid = req.params.id;
+  if (!groupBans.has(gid)) groupBans.set(gid, new Set());
+  groupBans.get(gid).add(req.params.userId);
+  groupMembers.get(gid)?.delete(req.params.userId);
+  res.json({ success: true });
 });
 
 router.get('/groups/:id/messages', verifyAuth, async (req, res) => {
@@ -119,11 +216,34 @@ router.get('/groups/:id/messages', verifyAuth, async (req, res) => {
 });
 
 router.post('/groups/:id/messages', verifyAuth, async (req, res) => {
+  const gid = req.params.id;
   const { text, imageData, imageUrl } = req.body || {};
   const img = imageUrl || imageData;
-  if (!text?.trim() && !img) return res.status(400).json({ success: false, error: { message: 'Message required' } });
+
+  if (!text?.trim() && !img) {
+    return res.status(400).json({ success: false, error: { message: 'Message required' } });
+  }
+
+  // Ban check
+  const bans = groupBans.get(gid) || new Set();
+  if (bans.has(req.userId)) {
+    return res.status(403).json({ success: false, error: { message: 'You are banned from this group' } });
+  }
+
+  // Link detection — auto-block + ban
   if (postStore.hasLink(text) && !req.user.isAdmin) {
-    return res.status(400).json({ success: false, error: { message: 'Links not allowed' } });
+    // Auto-ban from group
+    if (!groupBans.has(gid)) groupBans.set(gid, new Set());
+    groupBans.get(gid).add(req.userId);
+    groupMembers.get(gid)?.delete(req.userId);
+
+    return res.status(400).json({
+      success: false,
+      error: {
+        message: 'Links are not allowed in groups. You have been removed from this group.',
+        code: 'LINK_DETECTED'
+      }
+    });
   }
 
   const settings = await postStore.getSettings();
@@ -136,7 +256,7 @@ router.post('/groups/:id/messages', verifyAuth, async (req, res) => {
     });
   }
 
-  const result = await postStore.addGroupMessage(req.params.id, {
+  const result = await postStore.addGroupMessage(gid, {
     userId: req.userId,
     userName: req.user.name,
     text: (text || '').trim(),
@@ -144,6 +264,34 @@ router.post('/groups/:id/messages', verifyAuth, async (req, res) => {
   });
   if (result?.error) return res.status(400).json({ success: false, error: { message: result.error } });
   res.json({ success: true, message: result });
+});
+
+// ── Announcements ─────────────────────────────────────────────────────────────
+
+router.get('/announcements', verifyAuth, async (req, res) => {
+  res.json({ success: true, announcements: [...announcements].reverse() });
+});
+
+router.post('/announcements', verifyAuth, async (req, res) => {
+  if (!req.user.isAdmin) return res.status(403).json({ success: false, error: { message: 'Admin only' } });
+  const { title, body } = req.body || {};
+  if (!title?.trim()) return res.status(400).json({ success: false, error: { message: 'Title required' } });
+  const ann = {
+    id: `ann_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    title: title.trim(),
+    body: (body || '').trim(),
+    createdAt: new Date().toISOString(),
+    createdBy: req.userId
+  };
+  announcements.push(ann);
+  res.json({ success: true, announcement: ann });
+});
+
+router.delete('/announcements/:id', verifyAuth, async (req, res) => {
+  if (!req.user.isAdmin) return res.status(403).json({ success: false, error: { message: 'Admin only' } });
+  const idx = announcements.findIndex((a) => a.id === req.params.id);
+  if (idx !== -1) announcements.splice(idx, 1);
+  res.json({ success: true });
 });
 
 module.exports = router;

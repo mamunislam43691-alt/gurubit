@@ -6,7 +6,7 @@ export const USER_NAV = [
   { id: 'dashboard', label: 'Dashboard', href: '/dashboard', icon: 'home' },
   { id: 'numbers',   label: 'Number',    href: '/numbers',   icon: 'mobile-alt' },
   { id: 'live-feed', label: 'Live SMS',  href: '/live-feed', icon: 'satellite-dish' },
-  { id: 'post',      label: 'Post',      href: '/post',      icon: 'comment-dots' }
+  { id: 'post',      label: 'Movement', href: '/post',      icon: 'bolt' }
 ];
 
 export class UserLayout {
