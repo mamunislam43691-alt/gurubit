@@ -82,6 +82,8 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     uptime: process.uptime(),
+    adminPasswordSet: !!process.env.ADMIN_PASSWORD,
+    nodeEnv: process.env.NODE_ENV || 'not set',
     memory: {
       heapUsedMB: Math.round(memUsage.heapUsed / 1024 / 1024),
       heapTotalMB: Math.round(memUsage.heapTotal / 1024 / 1024),
