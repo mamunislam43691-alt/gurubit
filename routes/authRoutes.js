@@ -149,9 +149,18 @@ router.post('/login', async (req, res) => {
       emailVerified = userRecord.emailVerified;
     }
 
-    // Skip email verification check in development mode
-    // This allows testing without email verification
-    if (!emailVerified && isFirebaseConfigured && process.env.NODE_ENV === 'production') {
+    // Check if this user is an agent (admin-created agents skip email verification)
+    let isAgentUser = false;
+    try {
+      const preCheckDoc = await collections.users.doc(uid).get();
+      if (preCheckDoc.exists) {
+        isAgentUser = !!preCheckDoc.data().isAgent;
+      }
+    } catch {}
+
+    // Enforce email verification for all regular users (not agents)
+    // Agents are created by admin and do not need email verification
+    if (!emailVerified && isFirebaseConfigured && !isAgentUser) {
       return res.status(403).json({
         success: false,
         error: {

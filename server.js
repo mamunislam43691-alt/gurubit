@@ -28,7 +28,7 @@ const { handleSupportMessage, onSupportDisconnect } = require('./utils/supportWe
 
 // Initialize Express app
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3000; // Render.com automatically sets PORT env var
 
 // Middleware - Performance optimizations
 app.use(cors());

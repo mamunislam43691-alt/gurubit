@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: gurubit
+    env: node
+    region: singapore
+    plan: free
+    buildCommand: npm install && npm run build:css
+    startCommand: node server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: MUTE_FIREBASE_WARNINGS
+        value: false
+      - key: DEBUG_WS
+        value: false
+      - key: DEBUG_POLLING
+        value: false
+      - key: DEBUG_SMS
+        value: false
+      # ⚠️ নিচের গুলো Render Dashboard-এ manually set করতে হবে (secret values):
+      # ADMIN_PASSWORD
+      # FIREBASE_SERVICE_ACCOUNT  (serviceAccountKey.json এর পুরো content)
+      # FIREBASE_DATABASE_URL
+      # SESSION_SECRET
+      # APP_URL  (তোমার Render URL, যেমন: https://gurubit.onrender.com)

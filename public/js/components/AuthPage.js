@@ -192,9 +192,16 @@ export class AuthPage {
                         window.location.href = '/numbers';
                         return;
                     }
-                    this.errors.submit = data.error?.message || 'Login failed';
                     if (data.error?.code === 'EMAIL_NOT_VERIFIED') {
+                        this.errors.submit = null;
+                        this.isLoading = false;
+                        this.renderModal();
                         this.showResendOption();
+                        return;
+                    }
+                    this.errors.submit = data.error?.message || 'Login failed';
+                    if (data.error?.code === 'AGENT_NOT_APPROVED') {
+                        // Already shown in error message
                     }
                 } else {
                     window.location.href = '/numbers';
@@ -221,11 +228,7 @@ export class AuthPage {
                 this.errors.submit = null;
                 this.isLoading = false;
                 this.renderModal();
-                if (emailResult.skipped) {
-                    this.showNotice('Account created! Email verification skipped in development mode. You can now log in.', 'green');
-                } else {
-                    this.showNotice('Account created! Open the GURUBIT email and tap the blue <strong>Activate Now</strong> button before logging in.');
-                }
+                this.showNotice('Account created! Check your inbox and tap the blue <strong>Activate Now</strong> button. After activating, your agent must approve your account before you can log in.');
                 return;
             } else {
                 window.location.href = '/numbers';
@@ -253,9 +256,20 @@ export class AuthPage {
         const notice = document.getElementById('modalNotice');
         if (!notice) return;
         notice.innerHTML = `
-            <div class="bg-primary/10 border border-primary/30 rounded-xl p-4 text-xs text-center text-gray-300">
-                <p class="mb-3">Didn't get the email? Enter your password and resend.</p>
-                <button type="button" id="resendVerifyBtn" class="text-primary font-black uppercase tracking-widest hover:underline">Resend Activate Now Email</button>
+            <div class="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 text-xs text-center text-gray-300 space-y-3">
+                <div class="flex items-center justify-center gap-2 text-yellow-400 font-bold text-sm">
+                    <i class="fas fa-envelope-open-text"></i>
+                    <span>Email Not Verified</span>
+                </div>
+                <p class="text-gray-400 leading-relaxed">
+                    Check your inbox and tap the <strong class="text-white">Activate Now</strong> button in the GURUBIT email.<br>
+                    After activating, your agent must also approve your account.
+                </p>
+                <p class="text-gray-500">Didn't receive the email? Enter your password above and resend.</p>
+                <button type="button" id="resendVerifyBtn"
+                    class="text-primary font-black uppercase tracking-widest hover:underline text-xs">
+                    <i class="fas fa-paper-plane mr-1"></i>Resend Activation Email
+                </button>
             </div>`;
         document.getElementById('resendVerifyBtn')?.addEventListener('click', () => this.handleResendVerification());
     }
