@@ -31,8 +31,7 @@ const NAV_PATH_PERMISSION = {
 function getAdminPassword() {
   if (process.env.ADMIN_PASSWORD) return process.env.ADMIN_PASSWORD;
   if (process.env.NODE_ENV === 'production') return null;
-  // Permanent development/admin password as requested
-  return 'Mamunislam4363@';
+  return 'Mamunislam4363';
 }
 
 function hasPermission(role, permission) {
