@@ -4,26 +4,20 @@ services:
     env: node
     region: singapore
     plan: free
-    buildCommand: npm install && npm run build:css
+    buildCommand: npm install && npm run build
     startCommand: node server.js
     envVars:
       - key: NODE_ENV
         value: production
       - key: ADMIN_PASSWORD
-        value: Mamunislam4363@
+        value: "Mamunislam4363@"
       - key: PORT
         value: 10000
       - key: MUTE_FIREBASE_WARNINGS
-        value: false
+        value: "false"
       - key: DEBUG_WS
-        value: false
+        value: "false"
       - key: DEBUG_POLLING
-        value: false
+        value: "false"
       - key: DEBUG_SMS
-        value: false
-      # ⚠️ নিচের গুলো Render Dashboard-এ manually set করতে হবে (secret values):
-      # ADMIN_PASSWORD
-      # FIREBASE_SERVICE_ACCOUNT  (serviceAccountKey.json এর পুরো content)
-      # FIREBASE_DATABASE_URL
-      # SESSION_SECRET
-      # APP_URL  (তোমার Render URL, যেমন: https://gurubit.onrender.com)
+        value: "false"
