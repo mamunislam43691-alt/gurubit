@@ -1257,6 +1257,17 @@ router.put('/database/env-config', requireSuperAdminRoute, async (req, res) => {
       if (data.pass && data.pass.trim()) process.env.SMTP_PASS = data.pass;
       if (data.from !== undefined) process.env.SMTP_FROM = data.from;
 
+      // Persist to Firestore so it survives server restarts
+      const { saveSmtpToFirestore } = require('../services/emailSender');
+      await saveSmtpToFirestore({
+        host: process.env.SMTP_HOST,
+        port: process.env.SMTP_PORT,
+        secure: process.env.SMTP_SECURE,
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+        from: process.env.SMTP_FROM
+      });
+
       // Test SMTP connection if credentials provided
       if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
         try {
@@ -1268,12 +1279,12 @@ router.put('/database/env-config', requireSuperAdminRoute, async (req, res) => {
             auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
           });
           await transporter.verify();
-          return res.json({ success: true, message: 'SMTP settings saved & connection verified ✅' });
+          return res.json({ success: true, message: 'SMTP settings saved to Firestore & connection verified ✅' });
         } catch (err) {
-          return res.json({ success: true, message: `Settings saved but SMTP test failed: ${err.message}` });
+          return res.json({ success: true, message: `Settings saved to Firestore but SMTP test failed: ${err.message}` });
         }
       }
-      return res.json({ success: true, message: 'SMTP settings saved (runtime only — also set in Render Dashboard for persistence)' });
+      return res.json({ success: true, message: 'SMTP settings saved to Firestore ✅ (will persist after restart)' });
     }
 
     if (section === 'firebase') {

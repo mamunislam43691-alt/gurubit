@@ -456,6 +456,27 @@ async function startServer() {
         await require('./services/providerStore').load();
         console.log('✅ Providers loaded from Firestore');
       } catch (e) { console.warn('Provider load:', e.message); }
+
+      // Load SMTP config from Firestore (persists across restarts)
+      try {
+        await require('./services/emailSender').loadSmtpFromFirestore();
+      } catch (e) { console.warn('SMTP load:', e.message); }
+
+      // Auto-migrate local JSON files to Firestore (one-time, safe to run multiple times)
+      try {
+        const fs = require('fs');
+        const path = require('path');
+        const providersFile = path.join(__dirname, 'data', 'providers.json');
+        const catalogFile = path.join(__dirname, 'data', 'catalog.json');
+        if (fs.existsSync(providersFile) || fs.existsSync(catalogFile)) {
+          console.log('📦 Migrating local data files to Firestore...');
+          const { execFile } = require('child_process');
+          execFile(process.execPath, [path.join(__dirname, 'scripts', 'migrate-to-firestore.js')], (err) => {
+            if (err) console.warn('Migration warning:', err.message);
+            else console.log('✅ Local data migrated to Firestore');
+          });
+        }
+      } catch (e) { console.warn('Migration check:', e.message); }
       console.log(`\n🚀 GURUBIT Server running at http://localhost:${PORT}/`);
       console.log(`📁 Serving files from: ${path.join(__dirname, 'public')}`);
       console.log('API server ready for connections');
