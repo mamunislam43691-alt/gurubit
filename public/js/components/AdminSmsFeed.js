@@ -9,9 +9,11 @@ import { AdminLayout } from './AdminLayout.js';
 export class AdminSmsFeed {
   constructor() {
     this.admin = null;
-    this.messages = [];       // all SMS from providers
-    this.filter = 'all';      // 'all' | 'matched' | 'unmatched'
-    this.numberRequests = []; // recent number requests for admin view
+    this.messages = [];
+    this.filter = 'all';
+    this.numberRequests = [];
+    this.rangeData = [];
+    this.rangeLiveRows = [];
     this.ws = null;
     this.reconnectAttempts = 0;
     this.maxReconnectAttempts = 60;
@@ -27,10 +29,12 @@ export class AdminSmsFeed {
     const unmatched = this.messages.filter(m => m.matched === false).length;
 
     return [
-      { id: 'all',           label: 'All SMS',         count: all },
-      { id: 'matched',       label: 'Matched',         count: matched },
-      { id: 'unmatched',     label: 'Unmatched',       count: unmatched },
-      { id: 'number_requests', label: 'Number Requests', count: this.numberRequests.length }
+      { id: 'all',             label: 'All SMS',         count: all },
+      { id: 'matched',         label: 'Matched',         count: matched },
+      { id: 'unmatched',       label: 'Unmatched',       count: unmatched },
+      { id: 'number_requests', label: 'Number Requests', count: this.numberRequests.length },
+      { id: 'range',           label: 'Range',           count: this.rangeData.length },
+      { id: 'range_live',      label: 'Range Live',      count: this.rangeLiveRows.length }
     ];
   }
 
@@ -145,7 +149,9 @@ export class AdminSmsFeed {
       <!-- Table -->
       <div class="glass-card overflow-hidden border-white/5">
         <div class="overflow-x-auto">
-          <table class="w-full text-left" style="border-collapse:collapse; min-width:720px;">
+          ${this.filter === 'range' ? this._renderRange() :
+            this.filter === 'range_live' ? this._renderRangeLive() :
+          `<table class="w-full text-left" style="border-collapse:collapse; min-width:720px;">
             <thead style="background:rgba(10,30,59,0.9);">
               <tr>
                 <th class="px-4 py-3 text-[10px] font-black uppercase text-primary tracking-widest border-b border-white/5">Country</th>
@@ -157,10 +163,10 @@ export class AdminSmsFeed {
               </tr>
             </thead>
             <tbody id="smsFeedTbody">
-              ${this.filter === 'number_requests' 
-                ? this._renderNumberRequests() 
-                : (filtered.length
-                  ? filtered.map(m => this._renderRow(m)).join('')
+              ${this.filter === 'number_requests'
+                ? this._renderNumberRequests()
+                : (this._filtered().length
+                  ? this._filtered().map(m => this._renderRow(m)).join('')
                   : `<tr><td colspan="6" class="px-4 py-20 text-center">
                       <div class="flex flex-col items-center gap-3">
                         <i class="fas fa-satellite-dish text-5xl text-gray-700"></i>
@@ -169,7 +175,7 @@ export class AdminSmsFeed {
                       </div>
                     </td></tr>`)}
             </tbody>
-          </table>
+          </table>`}
         </div>
 
         <!-- Footer stats -->
@@ -205,6 +211,114 @@ export class AdminSmsFeed {
         </div>
       </div>
     `;
+  }
+
+  _renderRange() {
+    if (!this.rangeData.length) {
+      return `<div class="p-12 text-center text-gray-500">
+        <i class="fas fa-chart-bar text-4xl mb-3 block text-gray-700"></i>
+        <p>No range data yet. Add countries & servers in Service section.</p>
+      </div>`;
+    }
+    return `<div class="p-4 space-y-6">
+      ${this.rangeData.map(country => `
+        <div class="glass-card p-4">
+          <!-- Country header -->
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-3">
+              ${country.iconData
+                ? `<img src="${country.iconData}" class="w-8 h-6 rounded object-cover">`
+                : `<span class="text-2xl">${country.flag}</span>`}
+              <div>
+                <p class="font-black text-white text-sm">${country.countryName}</p>
+                <p class="text-[10px] text-gray-500">${country.totalSuccess} total OTPs</p>
+              </div>
+            </div>
+            <span class="text-xs font-bold text-primary bg-primary/10 px-3 py-1 rounded-full">
+              ${country.ranges.length} range${country.ranges.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+          <!-- Ranges table -->
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs" style="border-collapse:collapse; min-width:600px;">
+              <thead>
+                <tr class="text-[10px] uppercase text-gray-500 border-b border-white/5">
+                  <th class="py-2 px-3 text-left">Range / Server</th>
+                  <th class="py-2 px-3 text-center">Available</th>
+                  <th class="py-2 px-3 text-center">OTPs ✅</th>
+                  <th class="py-2 px-3 text-center">Pending ⏳</th>
+                  <th class="py-2 px-3 text-center">Failed ❌</th>
+                  <th class="py-2 px-3 text-center">Rate</th>
+                  <th class="py-2 px-3 text-left">Provider</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${country.ranges.map((r, i) => `
+                  <tr class="border-b border-white/5 hover:bg-white/[0.02] ${i === 0 ? 'bg-primary/5' : ''}">
+                    <td class="py-2 px-3">
+                      <p class="font-bold text-white">${r.serverName}</p>
+                      ${i === 0 ? '<span class="text-[9px] text-primary font-black uppercase bg-primary/10 px-1.5 py-0.5 rounded">Best</span>' : ''}
+                    </td>
+                    <td class="py-2 px-3 text-center">
+                      <span class="${r.available > 0 ? 'text-green-400' : 'text-red-400'} font-bold">${r.available}</span>
+                    </td>
+                    <td class="py-2 px-3 text-center text-green-400 font-bold">${r.success}</td>
+                    <td class="py-2 px-3 text-center text-yellow-400">${r.pending}</td>
+                    <td class="py-2 px-3 text-center text-red-400">${r.failed}</td>
+                    <td class="py-2 px-3 text-center">
+                      <div class="flex items-center gap-1 justify-center">
+                        <div class="w-12 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                          <div class="h-full rounded-full ${r.rate >= 70 ? 'bg-green-400' : r.rate >= 40 ? 'bg-yellow-400' : 'bg-red-400'}"
+                            style="width:${r.rate}%"></div>
+                        </div>
+                        <span class="font-bold ${r.rate >= 70 ? 'text-green-400' : r.rate >= 40 ? 'text-yellow-400' : 'text-gray-500'}">${r.rate}%</span>
+                      </div>
+                    </td>
+                    <td class="py-2 px-3 text-gray-400 text-[10px]">${r.providerName || '—'}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `).join('')}
+    </div>`;
+  }
+
+  _renderRangeLive() {
+    if (!this.rangeLiveRows.length) {
+      return `<div class="p-12 text-center text-gray-500">
+        <i class="fas fa-broadcast-tower text-4xl mb-3 block text-gray-700"></i>
+        <p>No SMS data yet. Waiting for incoming messages...</p>
+      </div>`;
+    }
+    return `<table class="w-full text-left" style="border-collapse:collapse; min-width:900px;">
+      <thead style="background:rgba(10,30,59,0.9);">
+        <tr>
+          <th class="px-3 py-3 text-[10px] font-black uppercase text-primary tracking-widest border-b border-white/5">#</th>
+          <th class="px-3 py-3 text-[10px] font-black uppercase text-primary tracking-widest border-b border-white/5">Country</th>
+          <th class="px-3 py-3 text-[10px] font-black uppercase text-primary tracking-widest border-b border-white/5">Platform</th>
+          <th class="px-3 py-3 text-[10px] font-black uppercase text-primary tracking-widest border-b border-white/5">Range</th>
+          <th class="px-3 py-3 text-[10px] font-black uppercase text-primary tracking-widest border-b border-white/5">Number</th>
+          <th class="px-3 py-3 text-[10px] font-black uppercase text-primary tracking-widest border-b border-white/5">SMS / OTP</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${this.rangeLiveRows.map(r => `
+          <tr class="border-b border-white/[0.04] hover:bg-white/[0.02]">
+            <td class="px-3 py-2 text-gray-600 text-xs">${r.no}</td>
+            <td class="px-3 py-2 text-xs text-gray-300">${r.country}</td>
+            <td class="px-3 py-2 text-xs text-gray-400">${r.platform}</td>
+            <td class="px-3 py-2 text-xs text-cyan-300 font-mono">${r.server}</td>
+            <td class="px-3 py-2 font-mono text-xs text-primary">${r.phone}</td>
+            <td class="px-3 py-2 text-xs">
+              ${r.otp ? `<span class="font-mono font-black text-white bg-primary/10 border border-primary/25 px-2 py-0.5 rounded mr-2">${r.otp}</span>` : ''}
+              <span class="text-gray-400">${(r.sms || '').slice(0, 80)}</span>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>`;
   }
 
   _renderNumberRequests() {
@@ -252,8 +366,21 @@ export class AdminSmsFeed {
   _attachListeners() {
     // Filter tabs
     document.querySelectorAll('.sms-feed-tab').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
         this.filter = btn.dataset.tab;
+        // Refresh range data on tab click
+        if (this.filter === 'range') {
+          try {
+            const ra = await fetch('/api/admin/range-analytics').then(r => r.json()).catch(() => ({}));
+            if (ra.success) this.rangeData = ra.rangeData || [];
+          } catch {}
+        }
+        if (this.filter === 'range_live') {
+          try {
+            const rl = await fetch('/api/admin/range-live').then(r => r.json()).catch(() => ({}));
+            if (rl.success) this.rangeLiveRows = rl.rows || [];
+          } catch {}
+        }
         this.render();
       });
     });
@@ -638,9 +765,19 @@ export class AdminSmsFeed {
       if (nr.success && Array.isArray(nr.requests)) {
         this.numberRequests = nr.requests;
       }
-    } catch (e) {
-      // ignore
-    }
+    } catch (e) {}
+
+    // Load range analytics
+    try {
+      const ra = await fetch('/api/admin/range-analytics').then(r => r.json()).catch(() => ({}));
+      if (ra.success) this.rangeData = ra.rangeData || [];
+    } catch (e) {}
+
+    // Load range live
+    try {
+      const rl = await fetch('/api/admin/range-live').then(r => r.json()).catch(() => ({}));
+      if (rl.success) this.rangeLiveRows = rl.rows || [];
+    } catch (e) {}
 
     this.render();
     this.setupWebSocket();

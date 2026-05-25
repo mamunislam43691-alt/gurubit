@@ -920,7 +920,141 @@ router.put('/costs/:countryId', verifyAdminPerm('costs'), async (req, res) => {
 });
 
 /**
- * GET /api/admin/leaderboard
+ * GET /api/admin/range-analytics
+ * Range performance: OTP counts per country/server, sorted by best OTP rate
+ */
+router.get('/range-analytics', verifyAdmin, async (req, res) => {
+  try {
+    const catalogStore = require('../services/catalogStore');
+    const providerStore = require('../services/providerStore');
+
+    const countries = catalogStore.listCountries();
+    const allProviders = providerStore.list();
+
+    // Get OTP success counts per server
+    const successSnap = await collections.phoneNumbers
+      .where('status', '==', 'successful')
+      .get();
+    const pendingSnap = await collections.phoneNumbers
+      .where('status', '==', 'pending')
+      .get();
+    const failedSnap = await collections.phoneNumbers
+      .where('status', '==', 'failed')
+      .get();
+
+    const successByServer = {};
+    const pendingByServer = {};
+    const failedByServer = {};
+
+    successSnap.forEach(doc => {
+      const d = doc.data();
+      if (d.serverId) successByServer[d.serverId] = (successByServer[d.serverId] || 0) + 1;
+    });
+    pendingSnap.forEach(doc => {
+      const d = doc.data();
+      if (d.serverId) pendingByServer[d.serverId] = (pendingByServer[d.serverId] || 0) + 1;
+    });
+    failedSnap.forEach(doc => {
+      const d = doc.data();
+      if (d.serverId) failedByServer[d.serverId] = (failedByServer[d.serverId] || 0) + 1;
+    });
+
+    // Get recent SMS messages per server for live feed
+    const smsSnap = await collections.smsMessages.get();
+    const smsByServer = {};
+    smsSnap.forEach(doc => {
+      const d = doc.data();
+      if (d.serverId) {
+        if (!smsByServer[d.serverId]) smsByServer[d.serverId] = [];
+        smsByServer[d.serverId].push(d);
+      }
+    });
+
+    // Build range data per country
+    const rangeData = countries.map(country => {
+      const servers = catalogStore.listServers(country.id);
+      const ranges = servers.map(srv => {
+        const success = successByServer[srv.id] || 0;
+        const pending = pendingByServer[srv.id] || 0;
+        const failed = failedByServer[srv.id] || 0;
+        const total = success + failed;
+        const rate = total > 0 ? Math.round((success / total) * 100) : 0;
+        const available = catalogStore.countAvailable(srv.id);
+        const provider = allProviders.find(p =>
+          p.serverId === srv.id || (p.countryId === country.id && p.providerType === 'integrated')
+        );
+        const recentSms = (smsByServer[srv.id] || [])
+          .sort((a, b) => new Date(b.receivedAt || b.createdAt) - new Date(a.receivedAt || a.createdAt))
+          .slice(0, 5);
+
+        return {
+          serverId: srv.id,
+          serverName: srv.name,
+          available,
+          success,
+          pending,
+          failed,
+          total,
+          rate,
+          providerId: provider?.id || null,
+          providerName: provider?.serviceName || null,
+          recentSms
+        };
+      }).sort((a, b) => b.success - a.success); // best OTP first
+
+      const totalSuccess = ranges.reduce((s, r) => s + r.success, 0);
+      return {
+        countryId: country.id,
+        countryName: country.name,
+        flag: country.flag || '🌍',
+        iconData: country.iconData || null,
+        totalSuccess,
+        ranges
+      };
+    }).sort((a, b) => b.totalSuccess - a.totalSuccess); // best country first
+
+    res.json({ success: true, rangeData });
+  } catch (err) {
+    res.status(500).json({ success: false, error: { message: err.message } });
+  }
+});
+
+/**
+ * GET /api/admin/range-live
+ * Live SMS feed with country/range/platform/number/SMS columns
+ */
+router.get('/range-live', verifyAdmin, async (req, res) => {
+  try {
+    const catalogStore = require('../services/catalogStore');
+    const limit = parseInt(req.query.limit || '100', 10);
+
+    const smsSnap = await collections.smsMessages.get();
+    const numSnap = await collections.phoneNumbers.get();
+
+    const numbersById = {};
+    numSnap.forEach(doc => { numbersById[doc.id] = doc.data(); });
+
+    const messages = [];
+    smsSnap.forEach(doc => messages.push(doc.data()));
+    messages.sort((a, b) => new Date(b.receivedAt || b.createdAt) - new Date(a.receivedAt || a.createdAt));
+
+    const rows = messages.slice(0, limit).map((m, i) => {
+      const num = numbersById[m.numberId] || {};
+      const country = num.countryName || m.country || '—';
+      const server = num.serverName || m.server || '—';
+      const platform = m.platformName || m.service || '—';
+      const phone = m.phoneNumber || num.phoneNumber || '—';
+      const otp = m.otp || m.otpCode || null;
+      const sms = m.content || m.smsMessage || '—';
+      const time = m.receivedAt || m.createdAt;
+      return { no: i + 1, country, server, platform, phone, otp, sms, time };
+    });
+
+    res.json({ success: true, rows });
+  } catch (err) {
+    res.status(500).json({ success: false, error: { message: err.message } });
+  }
+});
  * Rank users by successful OTPs
  */
 router.get('/leaderboard', verifyAdmin, async (req, res) => {

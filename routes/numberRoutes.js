@@ -314,15 +314,52 @@ router.post('/numbers/generate', verifyAuth, async (req, res) => {
             }
         } else {
             // Non-integrated server: take number from catalog pool
-            const available = catalogStore.countAvailable(serverId);
+            // Smart fallback: if this server has no numbers, find best alternative server
+            let targetServerId = serverId;
+            let available = catalogStore.countAvailable(serverId);
+
             if (!available) {
-                return res.status(400).json({ success: false, error: { message: 'No numbers available. Please wait or contact admin.' } });
+                // Find best alternative server in same country by OTP success rate
+                const allServers = catalogStore.listServers(countryId);
+                let bestServer = null;
+                let bestCount = 0;
+
+                for (const s of allServers) {
+                    if (s.id === serverId) continue;
+                    const cnt = catalogStore.countAvailable(s.id);
+                    if (cnt > 0) {
+                        // Check OTP success rate for this server
+                        try {
+                            const snap = await collections.phoneNumbers
+                                .where('serverId', '==', s.id)
+                                .where('status', '==', 'successful')
+                                .get();
+                            const successCount = snap.size || 0;
+                            if (successCount > bestCount || (successCount === bestCount && cnt > 0)) {
+                                bestCount = successCount;
+                                bestServer = s;
+                            }
+                        } catch {
+                            // If DB query fails, just pick by available count
+                            if (cnt > bestCount) { bestCount = cnt; bestServer = s; }
+                        }
+                    }
+                }
+
+                if (bestServer) {
+                    console.log(`\n🔄 [Smart Range] Server "${catalogStore.getServer(serverId)?.name || serverId}" empty → switching to "${bestServer.name}" (${catalogStore.countAvailable(bestServer.id)} numbers, ${bestCount} OTPs)\n`);
+                    targetServerId = bestServer.id;
+                    available = catalogStore.countAvailable(bestServer.id);
+                } else {
+                    return res.status(400).json({ success: false, error: { message: 'No numbers available in any range. Please wait or contact admin.' } });
+                }
             }
-            rawPhone = catalogStore.takeNextPhoneFromServer(serverId, true);
+
+            rawPhone = await catalogStore.takeNextPhoneFromServer(targetServerId, true);
+            serverId = targetServerId; // update serverId to actual server used
             if (!rawPhone) {
                 return res.status(400).json({ success: false, error: { message: 'No numbers available. Please wait or contact admin.' } });
             }
-            // providerId stays null — SMS will come via SMS-only webhook provider polling
         }
 
         // Validate phone number
