@@ -195,6 +195,11 @@ router.post('/logout', (req, res) => {
  * GET /api/admin/dashboard
  * Get admin dashboard statistics
  */
+// In-memory cache for dashboard stats (survives quota errors)
+let _dashboardCache = null;
+let _dashboardCacheTime = 0;
+const DASHBOARD_CACHE_TTL = 60 * 1000; // 1 minute
+
 router.get('/dashboard', async (req, res) => {
   try {
     const sessionToken = req.cookies.admin_session;
@@ -206,10 +211,30 @@ router.get('/dashboard', async (req, res) => {
       });
     }
 
-    // Get real counts from Firestore collections
-    const usersSnapshot = await collections.users.get();
-    const numbersSnapshot = await collections.phoneNumbers.get();
-    const messagesSnapshot = await collections.smsMessages.get();
+    // Return cached data immediately if fresh enough
+    if (_dashboardCache && (Date.now() - _dashboardCacheTime) < DASHBOARD_CACHE_TTL) {
+      return res.json({ success: true, ..._dashboardCache });
+    }
+
+    // Get real counts from Firestore collections — with quota error handling
+    let usersSnapshot, numbersSnapshot, messagesSnapshot;
+    try {
+      [usersSnapshot, numbersSnapshot, messagesSnapshot] = await Promise.all([
+        collections.users.get(),
+        collections.phoneNumbers.get(),
+        collections.smsMessages.get()
+      ]);
+    } catch (quotaErr) {
+      // On quota error, return cached data or empty stats
+      if (_dashboardCache) {
+        return res.json({ success: true, ..._dashboardCache, _cached: true });
+      }
+      return res.json({
+        success: true,
+        stats: { totalUsers:0, activeUsers:0, bannedUsers:0, totalServices:0, totalNumbers:0, totalSms:0, totalOtps:0, providers:0, agents:0, activeAgents:0, withdrawalsSuccess:0, withdrawalsPending:0, supportChats:0, broadcasts:0 },
+        topApplications: [], topRanges: [], chart: [], topServices: []
+      });
+    }
 
     const users = [];
     usersSnapshot.forEach((doc) => users.push(doc.data()));
@@ -261,14 +286,19 @@ router.get('/dashboard', async (req, res) => {
     const { buildDashboardAnalytics } = require('../services/statsHelper');
     const analytics = await buildDashboardAnalytics(collections, stats, users);
 
-    return res.status(200).json({
-      success: true,
+    const responseData = {
       stats,
       topApplications: analytics.topApplications,
       topRanges: analytics.topRanges,
       chart: analytics.chart,
       topServices: analytics.topServices
-    });
+    };
+
+    // Cache for next request
+    _dashboardCache = responseData;
+    _dashboardCacheTime = Date.now();
+
+    return res.status(200).json({ success: true, ...responseData });
   } catch (error) {
     console.error('Dashboard stats error:', error);
     res.status(500).json({ success: false, error: { message: error.message } });
@@ -1055,6 +1085,7 @@ router.get('/range-live', verifyAdmin, async (req, res) => {
     res.status(500).json({ success: false, error: { message: err.message } });
   }
 });
+/*
  * Rank users by successful OTPs
  */
 router.get('/leaderboard', verifyAdmin, async (req, res) => {

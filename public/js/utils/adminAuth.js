@@ -16,27 +16,36 @@ const PATH_PERMISSION = {
   '/admin/support': 'support',
   '/admin/staff': 'staff',
   '/admin/settings': 'settings',
-  '/admin/guru': 'users'
+  '/admin/guru': 'users',
+  '/admin/sms-feed': 'provider',
+  '/admin/database': 'settings'
 };
 
 let cachedAdmin = null;
+let _adminFetchPromise = null;
 
 export async function fetchAdminMe() {
-  try {
-    const res = await fetch('/api/admin/me');
-    if (!res.ok) {
-      cachedAdmin = null;
-      return null;
-    }
-    const data = await res.json();
-    if (data.success && data.admin) {
-      cachedAdmin = data.admin;
-      return cachedAdmin;
-    }
-  } catch {
-    cachedAdmin = null;
+  // Return cached admin immediately
+  if (cachedAdmin) return cachedAdmin;
+
+  // Deduplicate concurrent calls — with 5s timeout
+  if (!_adminFetchPromise) {
+    _adminFetchPromise = Promise.race([
+      fetch('/api/admin/me').then(res => {
+        if (!res.ok) return null;
+        return res.json();
+      }).then(data => {
+        if (data?.success && data.admin) {
+          cachedAdmin = data.admin;
+          return cachedAdmin;
+        }
+        return null;
+      }).catch(() => null),
+      new Promise(resolve => setTimeout(() => resolve(null), 5000))
+    ]).finally(() => { _adminFetchPromise = null; });
   }
-  return null;
+
+  return _adminFetchPromise;
 }
 
 export function getCachedAdmin() {
@@ -45,6 +54,7 @@ export function getCachedAdmin() {
 
 export function clearAdminCache() {
   cachedAdmin = null;
+  _adminFetchPromise = null;
 }
 
 export function adminCanAccess(path, admin = cachedAdmin) {

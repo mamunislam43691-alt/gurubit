@@ -197,6 +197,8 @@ export class NumberSelection {
     }
     this.isGenerating = true;
     this.render();
+    // Show "please wait" notification while generating
+    this._showNotification('⏳ Please wait, finding a number...', 'info');
     try {
       const res = await fetch('/api/numbers/generate', {
         method: 'POST',
@@ -282,22 +284,28 @@ export class NumberSelection {
     document.getElementById('noNumModal')?.remove();
     const m = document.createElement('div');
     m.id = 'noNumModal';
-    m.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);';
+    m.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem;background:rgba(0,0,0,.75);backdrop-filter:blur(6px);animation:fadeIn .2s ease;';
     m.innerHTML = `
-      <div style="background:linear-gradient(135deg,rgba(255,255,255,.06),rgba(255,255,255,.02));border:1px solid rgba(255,255,255,.1);border-radius:1.5rem;padding:2rem;max-width:360px;width:100%;text-align:center;animation:fadeIn .25s ease;">
-        <div style="width:56px;height:56px;border-radius:50%;background:rgba(245,158,11,.15);display:flex;align-items:center;justify-content:center;margin:0 auto 1rem;">
+      <div style="background:linear-gradient(135deg,rgba(10,30,59,0.98),rgba(5,22,45,0.98));border:1px solid rgba(245,158,11,.3);border-radius:1.5rem;padding:2rem;max-width:340px;width:100%;text-align:center;box-shadow:0 25px 60px rgba(0,0,0,.6);">
+        <div style="width:60px;height:60px;border-radius:50%;background:rgba(245,158,11,.15);border:2px solid rgba(245,158,11,.3);display:flex;align-items:center;justify-content:center;margin:0 auto 1.25rem;">
           <i class="fas fa-exclamation-triangle" style="color:#f59e0b;font-size:1.5rem;"></i>
         </div>
-        <h3 style="color:#fff;font-weight:900;font-size:1rem;margin-bottom:.5rem;text-transform:uppercase;letter-spacing:.05em;">Number Not Available</h3>
-        <p style="color:#94a3b8;font-size:.8rem;line-height:1.6;margin-bottom:.5rem;">No numbers are available in this range right now.</p>
-        <p style="color:#64748b;font-size:.75rem;line-height:1.5;margin-bottom:1.5rem;">Please try selecting a different country or range and try again.</p>
-        <button id="noNumClose" style="background:linear-gradient(135deg,#00d2ff,#3a7bd5);color:#020b18;border:none;padding:.75rem 2rem;border-radius:.75rem;font-weight:900;cursor:pointer;font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;width:100%;">Try Another Range</button>
+        <h3 style="color:#fff;font-weight:900;font-size:1rem;margin-bottom:.5rem;text-transform:uppercase;letter-spacing:.08em;">Number Not Available</h3>
+        <p style="color:#94a3b8;font-size:.82rem;line-height:1.65;margin-bottom:.4rem;">No numbers are available in this range right now.</p>
+        <p style="color:#64748b;font-size:.75rem;line-height:1.55;margin-bottom:1.5rem;">Please select a <strong style="color:#f59e0b;">different country or range</strong> and try again.</p>
+        <button id="noNumClose" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:#020b18;border:none;padding:.75rem 2rem;border-radius:.75rem;font-weight:900;cursor:pointer;font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;width:100%;transition:opacity .2s;">Try Another Range</button>
       </div>`;
     document.body.appendChild(m);
     m.querySelector('#noNumClose')?.addEventListener('click', () => m.remove());
     m.addEventListener('click', (e) => { if (e.target === m) m.remove(); });
-    // Auto-dismiss after 5s
-    setTimeout(() => { m.style.opacity = '0'; m.style.transition = 'opacity .3s'; setTimeout(() => m.remove(), 300); }, 5000);
+    // Auto-dismiss after 6s
+    setTimeout(() => {
+      if (m.parentNode) {
+        m.style.opacity = '0';
+        m.style.transition = 'opacity .3s';
+        setTimeout(() => m.remove(), 300);
+      }
+    }, 6000);
   }
 
   formatRelative(iso) {

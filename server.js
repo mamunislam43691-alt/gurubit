@@ -388,6 +388,11 @@ async function startServer() {
   });
 
   process.on('unhandledRejection', (reason, promise) => {
+    // Suppress Firestore quota errors — they are handled per-route
+    if (reason && (reason.code === 8 || String(reason.message || '').includes('RESOURCE_EXHAUSTED') || String(reason.message || '').includes('Quota exceeded'))) {
+      // Silently ignore — routes handle this gracefully
+      return;
+    }
     console.error('❌ UNHANDLED REJECTION:', reason);
     if (reason instanceof Error) {
       console.error('Stack trace:', reason.stack);
@@ -610,13 +615,19 @@ process.on('SIGINT', () => {
 
 // Catch uncaught exceptions
 process.on('uncaughtException', (error) => {
-  console.error('\n❌ Uncaught Exception:', error);
+  if (error && (error.code === 8 || String(error.message || '').includes('RESOURCE_EXHAUSTED') || String(error.message || '').includes('Quota exceeded'))) {
+    return; // Suppress Firestore quota errors silently
+  }
+  console.error('\n❌ Uncaught Exception:', error.message);
   console.error('Server will continue running...');
 });
 
 // Catch unhandled promise rejections
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('\n❌ Unhandled Rejection at:', promise, 'reason:', reason);
+process.on('unhandledRejection', (reason) => {
+  if (reason && (reason.code === 8 || String(reason.message || '').includes('RESOURCE_EXHAUSTED') || String(reason.message || '').includes('Quota exceeded'))) {
+    return; // Suppress Firestore quota errors silently
+  }
+  console.error('\n❌ Unhandled Rejection:', reason?.message || reason);
   console.error('Server will continue running...');
 });
 

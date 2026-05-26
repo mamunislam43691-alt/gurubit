@@ -314,6 +314,7 @@ export class LiveSMSFeed {
   }
 
   renderPublic() {
+    document.getElementById('app-skeleton')?.remove();
     document.getElementById('app').innerHTML = `
       <div class="min-h-screen text-white" style="background: radial-gradient(ellipse at top, #0a1e3b 0%, #020b18 65%);">
         ${this.siteNav()}
@@ -323,9 +324,25 @@ export class LiveSMSFeed {
             <p class="text-gray-400 mt-1 text-sm">Real-time SMS signals from all providers</p>
           </div>
         </header>
-        <main class="max-w-6xl mx-auto px-4 py-8">${this.renderTable()}</main>
+        <main class="max-w-6xl mx-auto px-4 py-8 pb-24">${this.renderTable()}</main>
+        <!-- Mobile bottom nav for public view -->
+        <nav class="mobile-bottom-nav md:hidden" style="position:fixed;bottom:0;left:0;right:0;z-index:50;background:rgba(2,11,24,0.95);backdrop-filter:blur(16px);border-top:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-around;padding:0.5rem 0;">
+          <a href="/" class="mobile-nav-item" style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:0.4rem 1rem;color:#9ca3af;font-size:10px;font-weight:700;text-transform:uppercase;text-decoration:none;">
+            <i class="fas fa-home" style="font-size:1.1rem;"></i><span>Home</span>
+          </a>
+          <a href="/live-feed" class="mobile-nav-item" style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:0.4rem 1rem;color:#00d2ff;font-size:10px;font-weight:700;text-transform:uppercase;text-decoration:none;">
+            <i class="fas fa-satellite-dish" style="font-size:1.1rem;"></i><span>Live SMS</span>
+          </a>
+          <a href="/faq" class="mobile-nav-item" style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:0.4rem 1rem;color:#9ca3af;font-size:10px;font-weight:700;text-transform:uppercase;text-decoration:none;">
+            <i class="fas fa-question-circle" style="font-size:1.1rem;"></i><span>Help</span>
+          </a>
+          <button type="button" id="feedNavLoginMobile" style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:0.4rem 1rem;color:#9ca3af;font-size:10px;font-weight:700;text-transform:uppercase;background:none;border:none;cursor:pointer;">
+            <i class="fas fa-sign-in-alt" style="font-size:1.1rem;"></i><span>Login</span>
+          </button>
+        </nav>
       </div>`;
     this.attachListeners();
+    document.getElementById('feedNavLoginMobile')?.addEventListener('click', () => this.openAuth('login'));
   }
 
   renderInApp() {

@@ -55,6 +55,7 @@ export class LandingPage {
 
     render() {
         const container = document.getElementById('app');
+        document.getElementById('app-skeleton')?.remove();
         container.innerHTML = `
             <motion.div data-page="landing" class="min-h-screen text-white overflow-x-hidden" style="background: radial-gradient(ellipse at top right, #0a1e3b 0%, #020b18 60%);">
                 <motion.div class="fixed inset-0 overflow-hidden pointer-events-none z-0">
@@ -252,12 +253,19 @@ export class LandingPage {
 
     attachEventListeners() {
         const openModal = (mode) => {
+            // Show modal instantly — import is cached after first call
             import('./AuthPage.js').then(({ AuthPage }) => {
                 const auth = new AuthPage();
                 auth.isLoginMode = (mode === 'login');
+                auth.isForgotMode = false;
                 auth.init();
             });
         };
+
+        // Preload AuthPage module on hover so it's instant on click
+        const preloadAuth = () => import('./AuthPage.js').catch(() => {});
+        document.getElementById('navLoginBtn')?.addEventListener('mouseover', preloadAuth, { once: true });
+        document.getElementById('navSignupBtn')?.addEventListener('mouseover', preloadAuth, { once: true });
 
         window.GURUBIT_THEME.updateButtons();
 

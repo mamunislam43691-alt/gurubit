@@ -15,60 +15,52 @@ async function verifyToken(req, res, next) {
     if (!token) {
       return res.status(401).json({
         success: false,
-        error: {
-          code: 'UNAUTHORIZED',
-          message: 'Authentication required'
-        }
+        error: { code: 'UNAUTHORIZED', message: 'Authentication required' }
       });
+    }
+
+    // Handle guest tokens
+    if (String(token).startsWith('guest.')) {
+      const guestUid = String(token).replace('guest.', '');
+      const userDoc = await collections.users.doc(guestUid).get().catch(() => null);
+      if (!userDoc || !userDoc.exists) {
+        return res.status(401).json({ success: false, error: { code: 'GUEST_EXPIRED', message: 'Guest session expired' } });
+      }
+      const userData = userDoc.data();
+      if (userData.isBanned) {
+        return res.status(403).json({ success: false, error: { code: 'USER_BANNED', message: 'Your account has been banned' } });
+      }
+      req.user = { id: guestUid, ...userData };
+      return next();
     }
 
     // Verify token with Firebase
     const decodedToken = await auth.verifyIdToken(token);
     const uid = decodedToken.uid;
 
-    // Get user data from Firestore
     const userDoc = await collections.users.doc(uid).get();
-    
     if (!userDoc.exists) {
       return res.status(401).json({
         success: false,
-        error: {
-          code: 'USER_NOT_FOUND',
-          message: 'User not found'
-        }
+        error: { code: 'USER_NOT_FOUND', message: 'User not found' }
       });
     }
 
     const userData = userDoc.data();
-
-    // Check if user is banned
     if (userData.isBanned) {
       return res.status(403).json({
         success: false,
-        error: {
-          code: 'USER_BANNED',
-          message: 'Your account has been banned'
-        }
+        error: { code: 'USER_BANNED', message: 'Your account has been banned' }
       });
     }
 
-    // Attach user data to request
-    req.user = {
-      id: uid,
-      ...userData
-    };
-
+    req.user = { id: uid, ...userData };
     next();
 
   } catch (error) {
-    console.error('Token verification error:', error);
-    
     return res.status(401).json({
       success: false,
-      error: {
-        code: 'INVALID_TOKEN',
-        message: 'Invalid or expired token'
-      }
+      error: { code: 'INVALID_TOKEN', message: 'Invalid or expired token' }
     });
   }
 }

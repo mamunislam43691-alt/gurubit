@@ -22,6 +22,18 @@ async function verifyAuth(req, res, next) {
             });
         }
 
+        // Handle guest tokens
+        if (String(token).startsWith('guest.')) {
+            const guestUid = String(token).replace('guest.', '');
+            const { collections: cols } = require('../config/firebase');
+            const userDoc = await cols.users.doc(guestUid).get().catch(() => null);
+            if (!userDoc || !userDoc.exists) {
+                return res.status(401).json({ success: false, error: { message: 'Guest session expired' } });
+            }
+            req.userId = guestUid;
+            return next();
+        }
+
         const decodedToken = await auth.verifyIdToken(token);
         req.userId = decodedToken.uid;
         next();
@@ -347,12 +359,12 @@ router.post('/numbers/generate', verifyAuth, async (req, res) => {
                 }
 
                 if (bestServer) {
-                    console.log(`\n🔄 [Smart Range] Server "${catalogStore.getServer(serverId)?.name || serverId}" empty → switching to "${bestServer.name}" (${catalogStore.countAvailable(bestServer.id)} numbers, ${bestCount} OTPs)\n`);
-                    targetServerId = bestServer.id;
-                    available = catalogStore.countAvailable(bestServer.id);
-                } else {
-                    return res.status(400).json({ success: false, error: { message: 'Number Not Available. Please try a different country or range.' } });
-                }
+                console.log(`\n🔄 [Smart Range] Server "${catalogStore.getServer(serverId)?.name || serverId}" empty → switching to "${bestServer.name}" (${catalogStore.countAvailable(bestServer.id)} numbers, ${bestCount} OTPs)\n`);
+                targetServerId = bestServer.id;
+                available = catalogStore.countAvailable(bestServer.id);
+            } else {
+                return res.status(400).json({ success: false, error: { message: 'Number Not Available. Please try a different country or range.' } });
+            }
             }
 
             rawPhone = await catalogStore.takeNextPhoneFromServer(targetServerId, true);

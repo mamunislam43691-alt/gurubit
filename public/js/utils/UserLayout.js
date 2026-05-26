@@ -1,5 +1,6 @@
 /**
  * User shell — desktop sidebar + mobile bottom nav
+ * SPA navigation — no full page reloads
  */
 
 export const USER_NAV = [
@@ -9,14 +10,38 @@ export const USER_NAV = [
   { id: 'post',      label: 'Movement', href: '/post',      icon: 'bolt' }
 ];
 
+// Session cache — avoid repeated /api/auth/session calls
+let _cachedSession = null;
+let _sessionFetchPromise = null;
+
 export class UserLayout {
   static async ensureAuth(redirect = '/') {
-    const session = await fetch('/api/auth/session').then((r) => r.json()).catch(() => ({}));
+    // Return cached session immediately if available
+    if (_cachedSession) return _cachedSession;
+
+    // Deduplicate concurrent calls — with 5s timeout to prevent blank page
+    if (!_sessionFetchPromise) {
+      const fetchWithTimeout = Promise.race([
+        fetch('/api/auth/session').then(r => r.json()).catch(() => ({})),
+        new Promise(resolve => setTimeout(() => resolve({}), 5000))
+      ]);
+      _sessionFetchPromise = fetchWithTimeout
+        .finally(() => { _sessionFetchPromise = null; });
+    }
+
+    const session = await _sessionFetchPromise;
     if (!session.authenticated) {
       window.location.href = redirect;
       return null;
     }
+    _cachedSession = session.user;
     return session.user;
+  }
+
+  // Call this on logout to clear cache
+  static clearSessionCache() {
+    _cachedSession = null;
+    _sessionFetchPromise = null;
   }
 
   static profileMenuHtml(user) {
@@ -34,9 +59,9 @@ export class UserLayout {
             <p class="text-xs font-bold text-white truncate">${user?.name || 'User'}</p>
             <p class="text-[10px] text-gray-500 truncate">${user?.email || ''}</p>
           </div>
-          <a href="/profile" class="user-profile-item"><i class="fas fa-user w-4"></i> My Account</a>
-          <a href="/profile?edit=1" class="user-profile-item"><i class="fas fa-edit w-4"></i> Edit Profile</a>
-          <a href="/withdraw" class="user-profile-item"><i class="fas fa-wallet w-4"></i> Withdraw</a>
+          <a href="/profile" class="user-profile-item spa-link"><i class="fas fa-user w-4"></i> My Account</a>
+          <a href="/profile?edit=1" class="user-profile-item spa-link"><i class="fas fa-edit w-4"></i> Edit Profile</a>
+          <a href="/withdraw" class="user-profile-item spa-link"><i class="fas fa-wallet w-4"></i> Withdraw</a>
           <div class="border-t border-white/5 mt-1">
             <button type="button" id="userLogoutBtn" class="user-profile-item text-red-400 w-full text-left"><i class="fas fa-sign-out-alt w-4"></i> Logout</button>
           </div>
@@ -54,29 +79,32 @@ export class UserLayout {
     document.addEventListener('click', () => menu?.classList.add('hidden'));
     menu?.addEventListener('click', (e) => e.stopPropagation());
     document.getElementById('userLogoutBtn')?.addEventListener('click', async () => {
+      UserLayout.clearSessionCache();
       await fetch('/api/auth/logout', { method: 'POST' });
       window.location.href = '/';
     });
   }
 
   static renderShell({ activeId, title, bodyHtml, user }) {
-    document.getElementById('app').innerHTML = `
+    const app = document.getElementById('app');
+    document.getElementById('app-skeleton')?.remove();
+    app.innerHTML = `
       <div class="user-shell min-h-screen bg-dark text-gray-200">
 
         <!-- ── Desktop sidebar (hidden on mobile) ── -->
         <aside class="user-sidebar hidden md:flex" id="userSidebar">
-          <a href="/dashboard" class="user-sidebar-brand">
+          <a href="/dashboard" class="user-sidebar-brand spa-link">
             <img src="/assets/logo.svg" alt="" class="w-9 h-9">
             <span class="font-black gradient-text text-sm uppercase tracking-widest">GURUBIT</span>
           </a>
           <nav class="user-sidebar-nav flex-1">
             ${USER_NAV.map((n) => `
-              <a href="${n.href}" class="user-nav-link ${n.id === activeId ? 'is-active' : ''}">
+              <a href="${n.href}" class="user-nav-link spa-link ${n.id === activeId ? 'is-active' : ''}">
                 <i class="fas fa-${n.icon} w-5 text-center"></i>
                 <span>${n.label}</span>
               </a>
             `).join('')}
-            <a href="/faq" class="user-nav-link ${activeId === 'faq' ? 'is-active' : ''}">
+            <a href="/faq" class="user-nav-link spa-link ${activeId === 'faq' ? 'is-active' : ''}">
               <i class="fas fa-question-circle w-5 text-center"></i>
               <span>Help Center</span>
             </a>
@@ -91,9 +119,9 @@ export class UserLayout {
 
           <!-- Top bar -->
           <header class="user-topbar sticky top-0 z-40 flex items-center justify-between gap-3 px-4 py-3 border-b border-white/5"
-                  style="background:rgba(2,11,24,0.85);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)">
+                  style="background:rgba(2,11,24,0.92);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)">
             <!-- Mobile: logo left -->
-            <a href="/dashboard" class="flex items-center gap-2 md:hidden">
+            <a href="/dashboard" class="flex items-center gap-2 md:hidden spa-link">
               <img src="/assets/logo.svg" alt="" class="w-7 h-7">
               <span class="font-black gradient-text text-xs uppercase tracking-widest">GURUBIT</span>
             </a>
@@ -117,7 +145,7 @@ export class UserLayout {
         <!-- ── Mobile bottom navigation ── -->
         <nav class="mobile-bottom-nav md:hidden" id="mobileBottomNav">
           ${USER_NAV.map((n) => `
-            <a href="${n.href}" class="mobile-nav-item ${n.id === activeId ? 'is-active' : ''}">
+            <a href="${n.href}" class="mobile-nav-item spa-link ${n.id === activeId ? 'is-active' : ''}">
               <i class="fas fa-${n.icon} mobile-nav-icon"></i>
               <span class="mobile-nav-label">${n.label}</span>
             </a>
@@ -127,6 +155,21 @@ export class UserLayout {
       </div>`;
 
     UserLayout.bindProfileMenu();
+    UserLayout.bindSpaLinks();
     window.GURUBIT_THEME.updateButtons();
+  }
+
+  // SPA navigation — intercept clicks, use history API, no full reload
+  static bindSpaLinks() {
+    document.querySelectorAll('a.spa-link').forEach(a => {
+      a.addEventListener('click', (e) => {
+        const href = a.getAttribute('href');
+        if (!href || href.startsWith('http') || href.startsWith('mailto') || href.startsWith('#')) return;
+        e.preventDefault();
+        if (window.location.pathname === href.split('?')[0]) return; // already here
+        window.history.pushState({}, '', href);
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      });
+    });
   }
 }

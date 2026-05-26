@@ -139,6 +139,7 @@ export class LegalPage {
             faq: ['Frequently Asked Questions', 'FAQ', faqBody]
         };
         const [title, subtitle, body] = map[this.type];
+        document.getElementById('app-skeleton')?.remove();
         document.getElementById('app').innerHTML = legalShell(title, subtitle, body);
     }
 }

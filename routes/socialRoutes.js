@@ -18,6 +18,18 @@ async function verifyAuth(req, res, next) {
   try {
     const token = req.cookies.sessionToken || req.headers.authorization?.replace('Bearer ', '');
     if (!token) return res.status(401).json({ success: false, error: { message: 'Unauthorized' } });
+
+    // Handle guest tokens
+    if (String(token).startsWith('guest.')) {
+      const guestUid = String(token).replace('guest.', '');
+      const doc = await collections.users.doc(guestUid).get().catch(() => null);
+      if (!doc || !doc.exists) return res.status(401).json({ success: false, error: { message: 'Guest session expired' } });
+      req.userId = guestUid;
+      req.user = { ...doc.data(), id: guestUid };
+      if (req.user.isBanned) return res.status(403).json({ success: false, error: { message: 'Account banned' } });
+      return next();
+    }
+
     const decoded = await auth.verifyIdToken(token);
     req.userId = decoded.uid;
     const doc = await collections.users.doc(req.userId).get();

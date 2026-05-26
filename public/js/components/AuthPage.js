@@ -236,8 +236,8 @@ export class AuthPage {
         const notice = document.getElementById('modalNotice');
         if (!notice) return;
         notice.innerHTML = `
-            <div class="bg-green-500/10 border border-green-500/30 text-green-400 rounded-xl p-4 text-xs font-medium text-center leading-relaxed">
-                <i class="fas fa-check-circle mr-1"></i> ${html}
+            <div style="background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3);color:#86efac;border-radius:.65rem;padding:.65rem .85rem;font-size:.72rem;text-align:center;line-height:1.5;">
+                <i class="fas fa-check-circle" style="margin-right:4px;"></i>${html}
             </div>`;
     }
 
@@ -245,19 +245,13 @@ export class AuthPage {
         const notice = document.getElementById('modalNotice');
         if (!notice) return;
         notice.innerHTML = `
-            <div class="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 text-xs text-center text-gray-300 space-y-3">
-                <div class="flex items-center justify-center gap-2 text-yellow-400 font-bold text-sm">
-                    <i class="fas fa-envelope-open-text"></i>
-                    <span>Email Not Verified</span>
+            <div style="background:rgba(234,179,8,0.1);border:1px solid rgba(234,179,8,0.3);border-radius:.65rem;padding:.65rem .85rem;font-size:.72rem;text-align:center;color:#d1d5db;">
+                <div style="display:flex;align-items:center;justify-content:center;gap:.4rem;color:#fbbf24;font-weight:700;font-size:.78rem;margin-bottom:.4rem;">
+                    <i class="fas fa-envelope-open-text"></i><span>Email Not Verified</span>
                 </div>
-                <p class="text-gray-400 leading-relaxed">
-                    Check your inbox and tap the <strong class="text-white">Activate Now</strong> button in the GURUBIT email.<br>
-                    After activating, your agent must also approve your account.
-                </p>
-                <p class="text-gray-500">Didn't receive the email? Enter your password above and resend.</p>
-                <button type="button" id="resendVerifyBtn"
-                    class="text-primary font-black uppercase tracking-widest hover:underline text-xs">
-                    <i class="fas fa-paper-plane mr-1"></i>Resend Activation Email
+                <p style="color:#9ca3af;line-height:1.5;margin:0 0 .4rem;">Check your inbox and tap <strong style="color:#fff;">Activate Now</strong> in the GURUBIT email.</p>
+                <button type="button" id="resendVerifyBtn" style="color:#00d2ff;font-weight:800;font-size:.7rem;text-transform:uppercase;background:none;border:none;cursor:pointer;">
+                    <i class="fas fa-paper-plane" style="margin-right:3px;"></i>Resend Activation Email
                 </button>
             </div>`;
         document.getElementById('resendVerifyBtn')?.addEventListener('click', () => this.handleResendVerification());
@@ -274,81 +268,75 @@ export class AuthPage {
     renderModal() {
         const container = document.getElementById('app');
         let modal = document.getElementById('authModal');
-
         if (!modal) {
             modal = document.createElement('div');
             modal.id = 'authModal';
-            modal.className = 'fixed inset-0 z-[100] flex items-center justify-center p-4 overflow-y-auto';
-            modal.innerHTML = `<div id="authModalBackdrop" class="absolute inset-0 bg-black/35 backdrop-blur-[3px]"></div>`;
+            modal.className = 'fixed inset-0 z-[100] flex items-center justify-center p-3';
+            modal.style.cssText = 'overflow-y:auto;';
             container.appendChild(modal);
         }
 
+        const isSignup = !this.isLoginMode && !this.isForgotMode;
         modal.innerHTML = `
-            <motion.div id="authModalBackdrop" class="absolute inset-0 bg-black/35 backdrop-blur-[3px] cursor-pointer" aria-label="Close"></div>
-            <motion.div id="authModalPanel" class="relative z-10 w-full max-w-md my-8" style="animation: fadeIn 0.35s ease;">
-                <motion.div class="glass-card premium-shadow border-primary/20 overflow-hidden">
-                    <motion.div class="h-1 w-full" style="background: linear-gradient(90deg, #00d2ff, #3a7bd5, #7c3aed);"></div>
-                    <motion.div class="p-8 sm:p-10">
-                        <div class="text-center mb-8">
-                            <!-- Close button — top right -->
-                            <button type="button" id="modalCloseBtn"
-                                class="absolute top-3 right-3 w-9 h-9 rounded-full bg-white/8 hover:bg-red-500/20 border border-white/10 hover:border-red-400/40 flex items-center justify-center text-gray-400 hover:text-red-400 transition-all text-xl leading-none z-20"
-                                title="Close">
-                                <i class="fas fa-times text-sm"></i>
-                            </button>
-                            <!-- Help / FAQ icon — top left -->
-                            <a href="/faq" target="_blank"
-                                class="absolute top-3 left-3 w-9 h-9 rounded-full bg-white/8 hover:bg-primary/20 border border-white/10 hover:border-primary/40 flex items-center justify-center text-gray-400 hover:text-primary transition-all z-20"
-                                title="Help Center">
-                                <i class="fas fa-question text-sm"></i>
-                            </a>
-                            <img src="/assets/logo-icon.svg" alt="" class="w-12 h-12 mx-auto mb-4">
-                            <h2 class="text-2xl sm:text-3xl font-black text-white uppercase tracking-tight">
+            <div id="authModalBackdrop" class="absolute inset-0 cursor-pointer" style="background:rgba(0,0,0,0.55);backdrop-filter:blur(4px);"></div>
+            <div id="authModalPanel" class="relative z-10 w-full" style="max-width:400px;animation:fadeIn .22s ease;">
+                <div style="background:linear-gradient(135deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02));border:1px solid rgba(0,210,255,0.2);border-radius:1.25rem;overflow:hidden;box-shadow:0 25px 60px rgba(0,0,0,0.6);">
+                    <div style="height:3px;background:linear-gradient(90deg,#00d2ff,#3a7bd5,#7c3aed);"></div>
+
+                    <!-- Header: [?] [logo+title] [×] -->
+                    <div style="display:flex;align-items:center;padding:1rem 1rem 0;gap:.5rem;">
+                        <a href="/faq" target="_blank" id="helpBtn"
+                           style="width:32px;height:32px;min-width:32px;border-radius:50%;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;color:#6b7280;text-decoration:none;transition:all .2s;">
+                            <i class="fas fa-question-circle" style="font-size:13px;pointer-events:none;"></i>
+                        </a>
+                        <div style="flex:1;text-align:center;">
+                            <img src="/assets/logo-icon.svg" alt="" style="width:32px;height:32px;margin:0 auto 3px;display:block;">
+                            <h2 style="font-size:1rem;font-weight:900;color:#fff;text-transform:uppercase;letter-spacing:.05em;margin:0;line-height:1.2;">
                                 ${this.isForgotMode ? 'Reset Password' : this.isLoginMode ? 'Welcome Back' : 'Join GURUBIT'}
                             </h2>
-                            <p class="text-gray-400 text-sm mt-2 font-medium">
-                                ${this.isForgotMode ? 'We will email you a secure reset link' : this.isLoginMode ? 'Sign in to your account' : 'Create your free account'}
+                            <p style="font-size:.68rem;color:#6b7280;margin:2px 0 0;">
+                                ${this.isForgotMode ? 'Enter your email to reset' : this.isLoginMode ? 'Sign in to your account' : 'Create your free account'}
                             </p>
                         </div>
+                        <button type="button" id="modalCloseBtn"
+                            style="width:32px;height:32px;min-width:32px;border-radius:50%;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;color:#6b7280;cursor:pointer;transition:all .2s;">
+                            <i class="fas fa-times" style="font-size:12px;pointer-events:none;"></i>
+                        </button>
+                    </div>
 
-                        <motion.div id="modalNotice" class="mb-4"></motion.div>
-
-                        <form id="authForm" class="space-y-4">
+                    <!-- Body -->
+                    <div style="padding:.85rem 1.1rem 1.1rem;">
+                        <div id="modalNotice" style="margin-bottom:.6rem;"></div>
+                        <form id="authForm" style="display:flex;flex-direction:column;gap:.55rem;${isSignup ? 'max-height:58vh;overflow-y:auto;padding-right:2px;' : ''}">
                             ${this.isForgotMode ? this.renderForgotFields() : this.isLoginMode ? this.renderLoginFields() : this.renderSignupFields()}
-
                             ${this.errors.submit ? `
-                                <div class="bg-red-500/10 border border-red-500/25 text-red-300 rounded-xl px-4 py-3 text-xs text-center">
-                                    <i class="fas fa-exclamation-circle mr-1"></i>${this.errors.submit}
-                                </div>
-                            ` : ''}
-
-                            <button id="submitBtn" type="submit" class="neon-btn w-full py-4 text-xs uppercase tracking-[0.2em] flex items-center justify-center gap-2 mt-2 ${this.isLoading ? 'opacity-60 pointer-events-none' : ''}">
+                                <div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);color:#fca5a5;border-radius:.65rem;padding:.55rem .85rem;font-size:.72rem;text-align:center;">
+                                    <i class="fas fa-exclamation-circle" style="margin-right:4px;"></i>${this.errors.submit}
+                                </div>` : ''}
+                            <button id="submitBtn" type="submit"
+                                class="neon-btn ${this.isLoading ? 'opacity-60 pointer-events-none' : ''}"
+                                style="width:100%;padding:.75rem;font-size:.72rem;text-transform:uppercase;letter-spacing:.12em;display:flex;align-items:center;justify-content:center;gap:.4rem;margin-top:.15rem;">
                                 ${this.isLoading
-                ? '<i class="fas fa-circle-notch animate-spin"></i><span>Please wait...</span>'
-                : `<i class="fas fa-${this.isForgotMode ? 'paper-plane' : this.isLoginMode ? 'sign-in-alt' : 'user-plus'}"></i><span>${this.isForgotMode ? 'Send Reset Link' : this.isLoginMode ? 'Login' : 'Create Free Account'}</span>`}
+                                    ? '<i class="fas fa-circle-notch fa-spin"></i><span>Please wait...</span>'
+                                    : `<i class="fas fa-${this.isForgotMode ? 'paper-plane' : this.isLoginMode ? 'sign-in-alt' : 'user-plus'}"></i><span>${this.isForgotMode ? 'Send Reset Link' : this.isLoginMode ? 'Login' : 'Create Account'}</span>`}
                             </button>
                             ${this.isLoginMode && !this.isForgotMode && this.allowGuestLogin ? `
-                            <button type="button" id="guestLoginBtn" class="w-full py-3 mt-3 rounded-xl border border-primary/40 text-primary text-xs font-black uppercase tracking-widest hover:bg-primary/10 transition-all flex items-center justify-center gap-2">
-                                <i class="fas fa-user-secret"></i> Continue as Guest User
+                            <button type="button" id="guestLoginBtn"
+                                style="width:100%;padding:.65rem;border-radius:.65rem;border:1px solid rgba(0,210,255,0.3);color:#00d2ff;font-size:.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.1em;background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:.4rem;">
+                                <i class="fas fa-user-secret"></i> Continue as Guest
                             </button>
-                            <p class="text-[10px] text-gray-600 text-center">Testing only — no signup required</p>
-                            ` : ''}
+                            <p style="font-size:.62rem;color:#4b5563;text-align:center;margin:0;">Testing only — no signup required</p>` : ''}
                         </form>
-
-                        <motion.div class="mt-6 pt-5 border-t border-white/5 text-center space-y-3">
-                            ${this.isForgotMode ? `
-                                <button type="button" id="backToLoginBtn" class="text-sm font-bold text-primary hover:underline">← Back to Login</button>
-                            ` : `
-                                <button type="button" id="toggleModeBtn" class="text-sm font-bold text-gray-400 hover:text-primary transition-colors">
+                        <div style="margin-top:.75rem;padding-top:.75rem;border-top:1px solid rgba(255,255,255,0.06);text-align:center;">
+                            ${this.isForgotMode
+                                ? `<button type="button" id="backToLoginBtn" style="font-size:.78rem;font-weight:700;color:#00d2ff;background:none;border:none;cursor:pointer;">← Back to Login</button>`
+                                : `<button type="button" id="toggleModeBtn" style="font-size:.78rem;font-weight:700;color:#6b7280;background:none;border:none;cursor:pointer;">
                                     ${this.isLoginMode ? 'Need an account? Sign Up Free →' : 'Already have an account? Sign In →'}
-                                </button>
-                            `}
-                        </motion.div>
-                    </motion.div>
-                </motion.div>
-            </motion.div>
-        `.replaceAll('<motion.', '<').replaceAll('</motion.', '</');
-
+                                   </button>`}
+                        </div>
+                    </div>
+                </div>
+            </div>`;
         this.attachEventListeners();
     }
 
@@ -358,19 +346,19 @@ export class AuthPage {
             { id: 'identificationNumber', type: 'text', placeholder: 'Phone Number', icon: 'phone' },
             { id: 'email', type: 'email', placeholder: 'Email Address', icon: 'envelope' },
             { id: 'telegramNumber', type: 'text', placeholder: 'Telegram Username', icon: 'paper-plane' },
-            { id: 'cryptoAddress', type: 'text', placeholder: 'USDT TRC20 Wallet Address', icon: 'wallet' },
+            { id: 'cryptoAddress', type: 'text', placeholder: 'USDT TRC20 Wallet', icon: 'wallet' },
             { id: 'referralEmail', type: 'email', placeholder: 'Agent / Referral Email', icon: 'user-tie' }
         ];
         return `
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[40vh] overflow-y-auto pr-1">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;">
                 ${fields.map(f => this.renderField(f.id, f.type, f.placeholder, f.icon)).join('')}
             </div>
             ${this.renderField('password', 'password', 'Password (min. 8 chars)', 'lock')}
-            <label class="flex items-start gap-3 cursor-pointer text-xs text-gray-400">
-                <input type="checkbox" id="agreeTerms" class="mt-0.5 rounded border-gray-600" ${this.formData.agreeTerms ? 'checked' : ''}>
-                <span>I agree to <a href="/terms" target="_blank" class="text-primary hover:underline">Terms</a> and <a href="/privacy" target="_blank" class="text-primary hover:underline">Privacy Policy</a></span>
+            <label style="display:flex;align-items:flex-start;gap:.5rem;cursor:pointer;font-size:.72rem;color:#9ca3af;">
+                <input type="checkbox" id="agreeTerms" style="margin-top:2px;accent-color:#00d2ff;" ${this.formData.agreeTerms ? 'checked' : ''}>
+                <span>I agree to <a href="/terms" target="_blank" style="color:#00d2ff;">Terms</a> and <a href="/privacy" target="_blank" style="color:#00d2ff;">Privacy Policy</a></span>
             </label>
-            ${this.errors.agreeTerms ? `<p class="text-red-400 text-[10px]">${this.errors.agreeTerms}</p>` : ''}
+            ${this.errors.agreeTerms ? `<p style="color:#f87171;font-size:.65rem;margin:0;">${this.errors.agreeTerms}</p>` : ''}
         `;
     }
 
@@ -382,8 +370,8 @@ export class AuthPage {
         return `
             ${this.renderField('email', 'email', 'Email Address', 'envelope')}
             ${this.renderField('password', 'password', 'Password', 'lock')}
-            <div class="text-right">
-                <button type="button" id="forgotPasswordBtn" class="text-sm text-primary font-semibold hover:underline">Forgot password?</button>
+            <div style="text-align:right;">
+                <button type="button" id="forgotPasswordBtn" style="font-size:.75rem;color:#00d2ff;font-weight:600;background:none;border:none;cursor:pointer;">Forgot password?</button>
             </div>
         `;
     }
@@ -391,17 +379,16 @@ export class AuthPage {
     renderField(id, type, placeholder, icon) {
         const hasError = this.errors[id];
         return `
-            <div class="relative group">
-                <div class="absolute top-0 left-0 pl-4 h-[48px] flex items-center pointer-events-none text-gray-500 group-focus-within:text-primary transition-colors z-10">
-                    <i class="fas fa-${icon} text-sm"></i>
+            <div style="position:relative;">
+                <div style="position:absolute;left:0;top:0;width:40px;height:44px;display:flex;align-items:center;justify-content:center;pointer-events:none;color:#6b7280;z-index:2;">
+                    <i class="fas fa-${icon}" style="font-size:13px;"></i>
                 </div>
                 <input type="${type}" id="${id}" placeholder="${placeholder}"
                     value="${type !== 'password' ? (this.formData[id] || '') : ''}"
-                    style="padding-left:2.75rem;padding-right:1rem;padding-top:0.875rem;padding-bottom:0.875rem;height:48px;"
-                    class="input-field text-sm w-full ${hasError ? 'border-red-500/40' : ''}">
-                ${hasError ? `<p class="text-red-400 text-[10px] mt-1 ml-1">${hasError}</p>` : ''}
-            </div>
-        `;
+                    style="width:100%;height:44px;padding:0 .85rem 0 40px;background:rgba(0,0,0,0.4);border:1px solid ${hasError ? 'rgba(239,68,68,0.45)' : 'rgba(255,255,255,0.08)'};border-radius:.65rem;color:#fff;font-size:.82rem;outline:none;box-sizing:border-box;"
+                    class="${hasError ? '' : ''}">
+                ${hasError ? `<p style="color:#f87171;font-size:.65rem;margin:2px 0 0 4px;">${hasError}</p>` : ''}
+            </div>`;
     }
 
     async handleGuestLogin() {
@@ -455,30 +442,37 @@ export class AuthPage {
 
     async ensureLandingBehind() {
         if (document.querySelector('[data-page="landing"]')) return;
-        const { LandingPage } = await import('./LandingPage.js');
-        new LandingPage().init();
+        // Render landing page in background — non-blocking
+        import('./LandingPage.js').then(({ LandingPage }) => {
+            new LandingPage().init();
+        }).catch(() => {});
     }
 
     async init() {
-        await this.ensureLandingBehind();
-        try {
-            const res = await fetch('/api/auth/settings');
-            const data = await res.json();
-            if (data.success && data.settings) {
-                this.allowGuestLogin = data.settings.allowGuestLogin !== false;
-            } else {
-                this.allowGuestLogin = true;
-            }
-        } catch (e) {
-            console.error('Failed to load guest setting:', e);
-            this.allowGuestLogin = true;
-        }
+        // Show modal immediately — don't wait for landing page or settings
         const path = window.location.pathname;
         if (['/signup', '/login', '/forgot-password'].includes(path)) {
             if (path === '/signup') { this.isLoginMode = false; this.isForgotMode = false; }
             if (path === '/login') { this.isLoginMode = true; this.isForgotMode = false; }
             if (path === '/forgot-password') { this.isForgotMode = true; this.isLoginMode = false; }
         }
+
+        // Render modal instantly
         this.renderModal();
+
+        // Load landing behind and settings in parallel — non-blocking
+        this.ensureLandingBehind();
+        fetch('/api/auth/settings')
+            .then(r => r.json())
+            .then(data => {
+                if (data.success && data.settings) {
+                    const newVal = data.settings.allowGuestLogin !== false;
+                    if (newVal !== this.allowGuestLogin) {
+                        this.allowGuestLogin = newVal;
+                        this.renderModal(); // re-render only if changed
+                    }
+                }
+            })
+            .catch(() => {});
     }
 }

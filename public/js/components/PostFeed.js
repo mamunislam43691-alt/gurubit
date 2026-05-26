@@ -84,7 +84,7 @@ export class PostFeed {
       if (data.error?.code === 'LINK_DETECTED') {
         this.showLinkWarning(data.error.message);
       } else {
-        alert(data.error?.message || 'Failed to post');
+        this._showSuccessToast('❌ ' + (data.error?.message || 'Failed to post'), 'error');
       }
       return;
     }
@@ -96,9 +96,13 @@ export class PostFeed {
     this._showSuccessToast('✅ Post published successfully!');
   }
 
-  _showSuccessToast(msg) {
+  _showSuccessToast(msg, type = 'success') {
+    const colors = {
+      success: 'linear-gradient(135deg,#00d2ff,#3a7bd5)',
+      error: 'linear-gradient(135deg,#ef4444,#dc2626)'
+    };
     const t = document.createElement('div');
-    t.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(20px);background:linear-gradient(135deg,#00d2ff,#3a7bd5);color:#020b18;font-weight:800;font-size:.8rem;padding:.65rem 1.5rem;border-radius:9999px;opacity:0;pointer-events:none;transition:all .3s;z-index:9999;white-space:nowrap;';
+    t.style.cssText = `position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(20px);background:${colors[type] || colors.success};color:#020b18;font-weight:800;font-size:.82rem;padding:.7rem 1.6rem;border-radius:9999px;opacity:0;pointer-events:none;transition:all .3s cubic-bezier(.4,0,.2,1);z-index:9999;white-space:nowrap;box-shadow:0 8px 24px rgba(0,0,0,.4);`;
     t.textContent = msg;
     document.body.appendChild(t);
     requestAnimationFrame(() => {
@@ -109,7 +113,7 @@ export class PostFeed {
       t.style.opacity = '0';
       t.style.transform = 'translateX(-50%) translateY(20px)';
       setTimeout(() => t.remove(), 300);
-    }, 2500);
+    }, 2800);
   }
 
   showLinkWarning(msg) {

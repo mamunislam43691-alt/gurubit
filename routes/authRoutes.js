@@ -99,6 +99,11 @@ router.post('/signup', async (req, res) => {
  * Authenticate user and create session, enforcing email verification
  */
 router.post('/login', async (req, res) => {
+  // Hard timeout — never hang
+  res.setTimeout(8000, () => {
+    if (!res.headersSent) res.status(500).json({ success: false, error: { message: 'Server timeout. Please try again.' } });
+  });
+
   try {
     const { idToken } = req.body;
 
@@ -109,86 +114,115 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    const decodedToken = await auth.verifyIdToken(idToken);
-    const uid = decodedToken.uid;
-
+    // Handle guest tokens
     if (String(idToken).startsWith('guest.')) {
-      let userDoc = await collections.users.doc(uid).get();
-      if (!userDoc.exists) {
-        return res.status(401).json({ success: false, error: { message: 'Guest session expired' } });
-      }
-      const userData = userDoc.data();
+      const guestUid = String(idToken).replace('guest.', '');
+      let userData = null;
+      try {
+        const userDoc = await Promise.race([
+          collections.users.doc(guestUid).get(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+        ]);
+        if (userDoc?.exists) userData = userDoc.data();
+      } catch (_) {}
+
+      if (!userData) return res.status(401).json({ success: false, error: { message: 'Guest session expired' } });
+
       res.cookie('sessionToken', idToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         maxAge: 24 * 60 * 60 * 1000,
         sameSite: 'strict'
       });
-
-      console.log(`
-==================================================
-🔑 GUEST AUTHENTICATION SUCCESSFUL
---------------------------------------------------
-👤 Name:      ${userData.name}
-📧 Email:     ${userData.email}
-🆔 User ID:   ${uid}
-🛡️ Guest:     Yes
-📅 Timestamp: ${new Date().toLocaleString()}
-==================================================
-`);
-
       return res.json({
         success: true,
         message: 'Login successful',
-        user: { id: uid, name: userData.name, email: userData.email, isGuest: true }
+        user: { id: guestUid, name: userData.name, email: userData.email, isGuest: true }
       });
     }
+
+    let decodedToken;
+    try {
+      decodedToken = await auth.verifyIdToken(idToken);
+    } catch (_) {
+      return res.status(401).json({ success: false, error: { message: 'Invalid token. Please try again.' } });
+    }
+    const uid = decodedToken.uid;
 
     let emailVerified = decodedToken.email_verified === true;
     if (isFirebaseConfigured && typeof auth.getUser === 'function') {
-      const userRecord = await auth.getUser(uid);
-      emailVerified = userRecord.emailVerified;
+      try {
+        const userRecord = await Promise.race([
+          auth.getUser(uid),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+        ]);
+        emailVerified = userRecord.emailVerified;
+      } catch (_) {}
     }
 
-    // Check if this user is an agent (admin-created agents skip email verification)
+    // Check if this user is an agent
     let isAgentUser = false;
     try {
-      const preCheckDoc = await collections.users.doc(uid).get();
-      if (preCheckDoc.exists) {
-        isAgentUser = !!preCheckDoc.data().isAgent;
-      }
-    } catch {}
+      const preCheckDoc = await Promise.race([
+        collections.users.doc(uid).get(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+      ]);
+      if (preCheckDoc?.exists) isAgentUser = !!preCheckDoc.data().isAgent;
+    } catch (_) {}
 
-    // Email verification is not required — agent approval is the gate
-    // if (!emailVerified && isFirebaseConfigured && !isAgentUser) { ... }
-
-    let userDoc = await collections.users.doc(uid).get();
-
-    if (!userDoc.exists) {
-      const email = decodedToken.email || req.body.email || '';
-      const displayName = (email && email.split('@')[0]) || 'User';
-      await collections.users.doc(uid).set({
-        id: uid,
-        name: displayName,
-        email,
-        phone: '',
-        telegram: '',
-        cryptoAddress: '',
-        referralEmail: '',
-        earningsBalance: 0,
-        totalOtps: 0,
-        failedOtps: 0,
-        isBanned: false,
-        isAdmin: false,
-        profileComplete: false,
-        emailVerified: emailVerified,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+    // Fetch user doc with timeout
+    let userDoc = null;
+    try {
+      userDoc = await Promise.race([
+        collections.users.doc(uid).get(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+      ]);
+    } catch (_) {
+      // Firestore timeout — allow login with minimal data
+      res.cookie('sessionToken', idToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 24 * 60 * 60 * 1000,
+        sameSite: 'strict'
       });
-      userDoc = await collections.users.doc(uid).get();
+      return res.json({
+        success: true,
+        message: 'Login successful',
+        user: { id: uid, name: decodedToken.email?.split('@')[0] || 'User', email: decodedToken.email || '', isAdmin: false }
+      });
     }
 
-    const userData = userDoc.data();
+    if (!userDoc || !userDoc.exists) {
+      const email = decodedToken.email || req.body.email || '';
+      const displayName = (email && email.split('@')[0]) || 'User';
+      try {
+        await collections.users.doc(uid).set({
+          id: uid, name: displayName, email, phone: '', telegram: '',
+          cryptoAddress: '', referralEmail: '', earningsBalance: 0,
+          totalOtps: 0, failedOtps: 0, isBanned: false, isAdmin: false,
+          profileComplete: false, emailVerified: emailVerified,
+          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+        });
+        userDoc = await collections.users.doc(uid).get().catch(() => null);
+      } catch (_) {}
+    }
+
+    const userData = userDoc?.exists ? userDoc.data() : null;
+
+    // If no user data, allow login with minimal info
+    if (!userData) {
+      res.cookie('sessionToken', idToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 24 * 60 * 60 * 1000,
+        sameSite: 'strict'
+      });
+      return res.json({
+        success: true,
+        message: 'Login successful',
+        user: { id: uid, name: decodedToken.email?.split('@')[0] || 'User', email: decodedToken.email || '', isAdmin: false }
+      });
+    }
 
     // Update emailVerified status if needed (background, non-blocking)
     if (!userData.emailVerified) {
@@ -212,15 +246,12 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // Create session document
-    const sessionId = `session_${uid}_${Date.now()}`;
-    await collections.sessions.doc(sessionId).set({
-      id: sessionId,
-      userId: uid,
-      token: idToken,
+    // Create session document (non-blocking — don't wait)
+    collections.sessions.doc(`session_${uid}_${Date.now()}`).set({
+      userId: uid, token: idToken,
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       createdAt: new Date().toISOString()
-    });
+    }).catch(() => {});
 
     res.cookie('sessionToken', idToken, {
       httpOnly: true,
@@ -229,39 +260,33 @@ router.post('/login', async (req, res) => {
       sameSite: 'strict'
     });
 
-    console.log(`
-==================================================
-🔑 USER AUTHENTICATION SUCCESSFUL
---------------------------------------------------
-👤 Name:      ${userData.name}
-📧 Email:     ${userData.email}
-🆔 User ID:   ${uid}
-🛡️ Admin:     ${userData.isAdmin ? 'Yes' : 'No'}
-📅 Timestamp: ${new Date().toLocaleString()}
-==================================================
-`);
+    console.log(`✅ Login: ${userData.email} (${userData.isAdmin ? 'Admin' : 'User'})`);
 
-    res.json({
-      success: true,
-      message: 'Login successful',
-      user: {
-        id: uid,
-        name: userData.name,
-        email: userData.email,
-        isAdmin: userData.isAdmin
-      },
-      token: idToken
-    });
+    if (!res.headersSent) {
+      res.json({
+        success: true,
+        message: 'Login successful',
+        user: {
+          id: uid,
+          name: userData.name,
+          email: userData.email,
+          isAdmin: userData.isAdmin
+        },
+        token: idToken
+      });
+    }
 
   } catch (error) {
-    console.error('Login error:', error);
-    res.status(401).json({
-      success: false,
-      error: {
-        message: 'Authentication failed. Check your email and password, or verify your email first.',
-        code: 'AUTH_FAILED'
-      }
-    });
+    console.error('Login error:', error.message);
+    if (!res.headersSent) {
+      res.status(401).json({
+        success: false,
+        error: {
+          message: 'Authentication failed. Check your email and password.',
+          code: 'AUTH_FAILED'
+        }
+      });
+    }
   }
 });
 
@@ -490,14 +515,72 @@ router.post('/logout', async (req, res) => {
  * GET /api/auth/session
  */
 router.get('/session', async (req, res) => {
+  // Set a hard timeout — never hang the client
+  res.setTimeout(4000, () => {
+    if (!res.headersSent) res.json({ success: true, authenticated: false });
+  });
+
   try {
     const token = req.cookies.sessionToken || req.headers.authorization?.replace('Bearer ', '');
     if (!token) return res.json({ success: true, authenticated: false });
-    const decodedToken = await auth.verifyIdToken(token);
-    const uid = decodedToken.uid;
-    const userDoc = await collections.users.doc(uid).get();
-    if (!userDoc.exists) return res.json({ success: true, authenticated: false });
-    const userData = userDoc.data();
+
+    // Handle guest tokens — no Firestore needed for token check
+    if (String(token).startsWith('guest.')) {
+      const guestUid = String(token).replace('guest.', '');
+      let userData = null;
+      try {
+        const userDoc = await Promise.race([
+          collections.users.doc(guestUid).get(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+        ]);
+        if (userDoc?.exists) userData = userDoc.data();
+      } catch (_) {}
+
+      if (!userData) return res.json({ success: true, authenticated: false });
+      if (userData.isBanned) return res.json({ success: true, authenticated: false });
+      return res.json({
+        success: true,
+        authenticated: true,
+        user: {
+          id: guestUid,
+          name: userData.name,
+          email: userData.email,
+          isAdmin: false,
+          isAgent: false,
+          isGuest: true,
+          profilePhotoUrl: null
+        }
+      });
+    }
+
+    // Verify Firebase token
+    let uid;
+    try {
+      const decodedToken = await auth.verifyIdToken(token);
+      uid = decodedToken.uid;
+    } catch (_) {
+      return res.json({ success: true, authenticated: false });
+    }
+
+    // Fetch user from Firestore with timeout
+    let userData = null;
+    try {
+      const userDoc = await Promise.race([
+        collections.users.doc(uid).get(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+      ]);
+      if (userDoc?.exists) userData = userDoc.data();
+    } catch (_) {
+      // Firestore timeout or quota — return authenticated with minimal data
+      return res.json({
+        success: true,
+        authenticated: true,
+        user: { id: uid, name: 'User', email: '', isAdmin: false, isAgent: false, isGuest: false, profilePhotoUrl: null }
+      });
+    }
+
+    if (!userData) return res.json({ success: true, authenticated: false });
+
     res.json({
       success: true,
       authenticated: true,
@@ -512,7 +595,7 @@ router.get('/session', async (req, res) => {
       }
     });
   } catch (error) {
-    res.json({ success: true, authenticated: false });
+    if (!res.headersSent) res.json({ success: true, authenticated: false });
   }
 });
 

@@ -908,288 +908,66 @@
         .user-sidebar .user-nav-link span { display: inline !important; }
         .user-sidebar-brand span { display: inline !important; }
 
-        /* THEME TOGGLE BUTTON ANIMATION */
-        .theme-toggle-btn {
-            cursor: pointer;
-            outline: none !important;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        /* ── Auth modal input icon fix ── */
+        #authModal .relative.group input.input-field {
+            padding-left: 2.85rem !important;
+            padding-right: 1rem !important;
+            height: 48px !important;
+            line-height: 1.5 !important;
         }
-        .theme-toggle-btn:hover {
-            transform: rotate(15deg) scale(1.08);
-        }
-        .theme-toggle-btn:active {
-            transform: scale(0.95);
-        }
-
-        /* LIGHT THEME OVERRIDES */
-        html.light {
-            --dark: #f8fafc;
-            --dark-light: #ffffff;
-            --dark-lighter: #f1f5f9;
-            --glass: rgba(0, 0, 0, 0.02);
-            --glass-border: rgba(0, 0, 0, 0.06);
-            --primary: #0284c7;
-            --secondary: #1d4ed8;
+        #authModal .relative.group .absolute {
+            width: 2.85rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
         }
 
-        html.light body {
-            background: radial-gradient(ellipse at top right, #e2e8f0 0%, #f8fafc 60%) !important;
-            color: #334155 !important;
+        /* ── Auth modal scrollable for signup ── */
+        #authModalPanel form.overflow-y-auto {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(0,210,255,0.3) transparent;
+        }
+        #authModalPanel form.overflow-y-auto::-webkit-scrollbar { width: 4px; }
+        #authModalPanel form.overflow-y-auto::-webkit-scrollbar-thumb {
+            background: rgba(0,210,255,0.3);
+            border-radius: 4px;
         }
 
-        /* Nav and Footer Overrides */
-        html.light nav {
-            background-color: rgba(255, 255, 255, 0.75) !important;
-            border-color: rgba(0, 0, 0, 0.06) !important;
+        /* ── Number not available modal animation ── */
+        @keyframes slideUpFade {
+            from { opacity: 0; transform: translateY(20px) scale(0.96); }
+            to   { opacity: 1; transform: translateY(0) scale(1); }
         }
-        
-        html.light footer {
-            background-color: rgba(255, 255, 255, 0.75) !important;
-            border-color: rgba(0, 0, 0, 0.06) !important;
+        #noNumModal > div { animation: slideUpFade .25s ease; }
+
+        /* ── Toast animation ── */
+        .gurubit-toast.show {
+            opacity: 1 !important;
+            transform: translateX(-50%) translateY(0) !important;
         }
 
-        /* Text Overrides for High Contrast */
-        html.light .text-white { color: #0f172a !important; }
-        html.light .text-gray-200 { color: #1e293b !important; }
-        html.light .text-gray-300 { color: #334155 !important; }
-        html.light .text-gray-400 { color: #475569 !important; }
-        html.light .text-gray-500 { color: #64748b !important; }
-        html.light .text-gray-600 { color: #78889b !important; }
-        
-        html.light h1, html.light h2, html.light h3, html.light h4, html.light h5, html.light h6 {
-            color: #0f172a !important;
-        }
-
-        /* Sidebar & Layout Elements */
-        html.light .user-sidebar, 
-        html.light .admin-sidebar {
-            background: #ffffff !important;
-            border-right: 1px solid rgba(0, 0, 0, 0.06) !important;
-        }
-        
-        html.light .user-topbar, 
-        html.light .admin-topbar {
-            background: rgba(255, 255, 255, 0.8) !important;
-            border-bottom: 1px solid rgba(0, 0, 0, 0.06) !important;
-            backdrop-filter: blur(14px) !important;
-            -webkit-backdrop-filter: blur(14px) !important;
-        }
-
-        html.light .user-nav-link {
-            color: #475569 !important;
-        }
-        html.light .user-nav-link:hover {
-            color: var(--primary) !important;
-            background: rgba(2, 132, 199, 0.05) !important;
-        }
-        html.light .user-nav-link.is-active {
-            color: var(--primary) !important;
-            background: rgba(2, 132, 199, 0.08) !important;
-            border-left-color: var(--primary) !important;
-        }
-
-        html.light .admin-nav-link {
-            color: #475569 !important;
-        }
-        html.light .admin-nav-link:hover {
-            color: var(--primary) !important;
-            background: rgba(2, 132, 199, 0.05) !important;
-        }
-        html.light .admin-nav-link.is-active {
-            color: var(--primary) !important;
-            background: rgba(2, 132, 199, 0.08) !important;
-        }
-
-        /* Cards & Glassmorphism */
-        html.light .glass-card,
-        html.light .user-dash-card,
-        html.light .admin-dash-card {
-            background: rgba(255, 255, 255, 0.8) !important;
-            border: 1px solid rgba(0, 0, 0, 0.06) !important;
-            backdrop-filter: blur(16px) !important;
-            -webkit-backdrop-filter: blur(16px) !important;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.03) !important;
-        }
-
-        html.light .admin-dash-card-head,
-        html.light .user-dash-card-head {
-            background: linear-gradient(90deg, #f5c400, #e6a800) !important;
-            color: #111 !important;
-        }
-
-        /* Background Overrides */
-        html.light .bg-dark { background-color: #f8fafc !important; }
-        html.light .bg-dark-light { background-color: #ffffff !important; }
-        html.light .bg-dark-lighter { background-color: #f1f5f9 !important; }
-        
-        html.light .bg-black\/20 { background-color: rgba(0, 0, 0, 0.03) !important; }
-        html.light .bg-black\/40 { background-color: rgba(255, 255, 255, 0.4) !important; }
-        html.light .bg-black\/50 { background-color: rgba(255, 255, 255, 0.7) !important; }
-        html.light .bg-black\/60 { background-color: rgba(255, 255, 255, 0.6) !important; }
-
-        html.light .bg-white\/5 { background-color: rgba(0, 0, 0, 0.02) !important; }
-        html.light .bg-white\/10 { background-color: rgba(0, 0, 0, 0.04) !important; }
-        html.light .hover\:bg-white\/5:hover { background-color: rgba(0, 0, 0, 0.03) !important; }
-
-        html.light .border-white\/5 { border-color: rgba(0, 0, 0, 0.05) !important; }
-        html.light .border-white\/10 { border-color: rgba(0, 0, 0, 0.08) !important; }
-        html.light .border-white\/20 { border-color: rgba(0, 0, 0, 0.12) !important; }
-
-        /* Form Fields */
-        html.light .input-field {
-            background: #ffffff !important;
-            border: 1px solid #cbd5e1 !important;
-            color: #0f172a !important;
-        }
-        html.light .input-field:focus {
-            border-color: var(--primary) !important;
-            box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15) !important;
-        }
-        html.light .input-field::placeholder {
-            color: #94a3b8 !important;
-        }
-
-        /* Buttons styling */
-        html.light .neon-btn {
-            color: #ffffff !important;
-            box-shadow: 0 4px 12px rgba(2, 132, 199, 0.2) !important;
-        }
-        html.light .neon-btn:hover {
-            box-shadow: 0 6px 20px rgba(2, 132, 199, 0.35) !important;
-        }
-
-        /* Tables & Lists */
-        html.light .number-history-table thead th,
-        html.light .live-sms-table thead th {
-            background: #f1f5f9 !important;
-            color: #475569 !important;
-            border-bottom: 1px solid #e2e8f0 !important;
-        }
-        html.light .number-history-table tbody td,
-        html.light .live-sms-table tbody td {
-            border-top: 1px solid #e2e8f0 !important;
-            border-bottom: 1px solid #e2e8f0 !important;
-            color: #334155 !important;
-        }
-        html.light .number-history-table,
-        html.light .live-sms-table {
-            border-bottom: 1px solid #e2e8f0 !important;
-        }
-        html.light .live-sms-row:hover {
-            background: rgba(2, 132, 199, 0.03) !important;
-        }
-
-        /* Custom components */
-        html.light .logo-marquee-item {
-            background: linear-gradient(135deg, rgba(0,0,0,0.02), rgba(0,0,0,0.01)) !important;
-            border: 1px solid rgba(0,0,0,0.06) !important;
-        }
-        html.light .logo-marquee-item:hover {
-            border-color: var(--primary) !important;
-        }
-
-        html.light .user-profile-dropdown {
-            background: #ffffff !important;
-            border: 1px solid rgba(0, 0, 0, 0.08) !important;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08) !important;
-        }
-        html.light .user-profile-item {
-            color: #334155 !important;
-        }
-        html.light .user-profile-item:hover {
-            background: rgba(2, 132, 199, 0.05) !important;
-            color: var(--primary) !important;
-        }
-
-        html.light .radio-option {
-            background: #ffffff !important;
-            border: 1px solid #e2e8f0 !important;
-            color: #334155 !important;
-        }
-        html.light .radio-option:hover {
-            border-color: var(--primary) !important;
-            background: rgba(2, 132, 199, 0.03) !important;
-        }
-        html.light .radio-option input[type="radio"] {
-            border-color: #cbd5e1 !important;
-            background: #f8fafc !important;
-        }
-
-        /* Chat bubble override for support widget visitor */
-        html.light .support-msg-bubble {
-            background: #ffffff !important;
-            border: 1px solid #e2e8f0 !important;
-            color: #1e293b !important;
-        }
-        html.light .support-msg-visitor .support-msg-bubble {
-            background: linear-gradient(135deg, #0284c7 0%, #1d4ed8 100%) !important;
-            color: #ffffff !important;
-            border: none !important;
-        }
-        html.light .support-panel-header {
-            background: linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%) !important;
-            border-bottom: 1px solid #cbd5e1 !important;
-            color: #0f172a !important;
-        }
-        html.light .support-panel-header p {
-            color: #0f172a !important;
-        }
-        html.light .support-panel-header span {
-            color: #475569 !important;
-        }
-        html.light .support-compose {
-            border-top: 1px solid #e2e8f0 !important;
-            background: #ffffff !important;
-        }
-
-        /* Responsive overrides for light topbar sticky background */
+        /* ── Live SMS feed mobile fix ── */
         @media (max-width: 767px) {
-            html.light .user-topbar,
-            html.light .admin-topbar {
-                background: rgba(255, 255, 255, 0.92) !important;
-            }
+            .live-sms-table { display: none; }
         }
+
+        /* ── Smooth page transitions ── */
+        #app { animation: fadeIn 0.2s ease; }
+
     </style>
 </head>
 <body class="min-h-screen">
-    <!-- Loader -->
-    <div id="app-loader">
-        <img src="/assets/logo.svg" alt="GURUBIT" class="w-16 h-16 logo-glow animate-float">
-        <div class="spinner"></div>
-        <p class="stat-label">Initializing GURUBIT...</p>
-    </div>
 
     <!-- App root -->
-    <div id="app" style="opacity:0; transition: opacity 0.25s ease;"></div>
+    <div id="app"><div id="app-skeleton" style="min-height:100vh;background:#020b18;display:flex;align-items:center;justify-content:center;"><div style="text-align:center;"><img src="/assets/logo.svg" alt="" style="width:48px;height:48px;margin:0 auto 16px;display:block;filter:drop-shadow(0 0 12px rgba(0,210,255,0.5));"><div style="width:32px;height:32px;border:3px solid rgba(0,210,255,0.15);border-top:3px solid #00d2ff;border-radius:50%;animation:spin 0.7s linear infinite;margin:0 auto;"></div></div></div></div>
     
     <!-- Main application script -->
     <script type="module">
-        // Hide loader as soon as app.js starts executing — don't wait for data
-        function hideLoader() {
-            const loader = document.getElementById('app-loader');
-            const app = document.getElementById('app');
-            if (loader && !loader._hidden) {
-                loader._hidden = true;
-                // Show app immediately, then fade out loader
-                if (app) app.style.opacity = '1';
-                loader.classList.add('fade-out');
-                setTimeout(() => { loader.remove(); }, 300);
-            }
-        }
-
-        import('/js/app.js?v=6')
-            .then((module) => {
-                // Hide loader immediately when JS is loaded — before data fetches
-                hideLoader();
-                return module.GURUBIT_APP_READY || Promise.resolve();
-            })
-            .catch((err) => {
-                console.error('Failed to load application:', err);
-                hideLoader();
-            });
-
-        // Fallback: force hide loader after 1.2s no matter what
-        setTimeout(hideLoader, 1200);
+        import('/js/app.js?v=8').catch(function(err) {
+            console.error('App load error:', err);
+            document.getElementById('app-skeleton')?.remove();
+        });
     </script>
     
     <!-- Performance Optimization Module -->

@@ -24,6 +24,17 @@ export const ADMIN_NAV = [
 
 export class AdminLayout {
   static async ensureAuth() {
+    // Use cached admin if available — no extra fetch
+    const cached = getCachedAdmin();
+    if (cached) {
+      const path = window.location.pathname;
+      if (!adminCanAccess(path, cached)) {
+        window.location.href = cached.defaultPath || '/admin/support';
+        return null;
+      }
+      return cached;
+    }
+
     const admin = await fetchAdminMe();
     if (!admin) {
       window.location.href = '/admin';
@@ -55,8 +66,9 @@ export class AdminLayout {
     }[me?.role] || 'Admin';
 
     const container = document.getElementById('app');
+    document.getElementById('app-skeleton')?.remove();
     container.innerHTML = `
-      <motion.div class="admin-shell min-h-screen bg-dark text-gray-200">
+      <div class="admin-shell min-h-screen bg-dark text-gray-200">
         <div id="adminSidebarBackdrop" class="admin-sidebar-backdrop" aria-hidden="true"></div>
         <aside id="adminSidebar" class="admin-sidebar">
           <div class="admin-sidebar-brand">
@@ -68,16 +80,16 @@ export class AdminLayout {
           </div>
           <nav class="admin-sidebar-nav">
             ${nav.map((item) => `
-              <a href="${item.href}" class="admin-nav-link ${item.id === activeId ? 'is-active' : ''}">
+              <a href="${item.href}" class="admin-nav-link spa-link ${item.id === activeId ? 'is-active' : ''}">
                 <i class="fas fa-${item.icon} w-5"></i>
                 <span>${item.label}</span>
               </a>
             `).join('')}
           </nav>
-          <motion.div class="admin-sidebar-footer">
+          <div class="admin-sidebar-footer">
             <p class="text-[10px] text-gray-600 truncate">${me?.displayName || me?.username || ''}</p>
             <button type="button" id="adminShellLogout" class="text-[10px] font-bold text-red-400/80 hover:text-red-400 uppercase tracking-widest mt-2">Logout</button>
-          </motion.div>
+          </div>
         </aside>
 
         <div class="admin-main">
@@ -98,9 +110,8 @@ export class AdminLayout {
           </header>
           <main class="admin-content">${bodyHtml}</main>
         </div>
-      </motion.div>
-    `.replaceAll('<motion.', '<').replaceAll('</motion.', '</');
-
+      </div>
+    `;
     document.getElementById('adminShellLogout')?.addEventListener('click', async () => {
       clearAdminCache();
       await fetch('/api/admin/logout', { method: 'POST' });
@@ -124,6 +135,19 @@ export class AdminLayout {
     adminBackdrop?.addEventListener('click', closeAdminNav);
     document.querySelectorAll('.admin-nav-link').forEach((a) => {
       a.addEventListener('click', closeAdminNav);
+    });
+
+    // SPA navigation for admin links
+    document.querySelectorAll('a.spa-link').forEach(a => {
+      a.addEventListener('click', (e) => {
+        const href = a.getAttribute('href');
+        if (!href || href.startsWith('http') || href.startsWith('mailto') || href.startsWith('#')) return;
+        e.preventDefault();
+        closeAdminNav();
+        if (window.location.pathname === href.split('?')[0]) return;
+        window.history.pushState({}, '', href);
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      });
     });
   }
 

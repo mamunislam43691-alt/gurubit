@@ -28,8 +28,8 @@ export class AgentLayout {
       ? 'api'
       : activeId || 'overview';
 
+    document.getElementById('app-skeleton')?.remove();
     document.getElementById('app').innerHTML = `
-      <motion.div class="user-shell min-h-screen bg-dark text-gray-200">
         <button type="button" id="agentNavToggle" class="user-nav-toggle" aria-label="Menu"><i class="fas fa-bars"></i></button>
         <div id="agentSidebarBackdrop" class="agent-sidebar-backdrop" aria-hidden="true"></div>
         <aside class="user-sidebar" id="agentSidebar">

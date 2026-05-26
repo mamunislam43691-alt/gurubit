@@ -189,6 +189,7 @@ export class ProfilePage {
   }
 
   render() {
+    document.getElementById('app-skeleton')?.remove();
     document.getElementById('app').innerHTML = `
       <div class="min-h-screen bg-dark text-gray-200">
         <header class="border-b border-white/5 px-6 py-4 flex items-center justify-between">

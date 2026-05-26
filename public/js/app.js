@@ -232,6 +232,8 @@ class Router {
 
 // Initialize app
 let liveSupportWidget = null;
+let _appRouter = null; // global router reference for SPA navigation
+
 window.GURUBIT_APP_READY = new Promise((resolve, reject) => {
   window.__GURUBIT_APP_RESOLVE__ = resolve;
   window.__GURUBIT_APP_REJECT__ = reject;
@@ -253,16 +255,49 @@ async function initLiveSupport() {
   liveSupportWidget.init();
 }
 
+// Show skeleton while navigating — prevents blank flash
+function showNavigationSkeleton() {
+  const app = document.getElementById('app');
+  if (!app) return;
+  // Only show skeleton if app currently has a shell (user/admin layout)
+  const hasShell = app.querySelector('.user-shell, .admin-shell');
+  if (!hasShell) return;
+  // Inject a loading overlay on top of existing content — no blank
+  let overlay = document.getElementById('nav-skeleton');
+  if (overlay) return;
+  overlay = document.createElement('div');
+  overlay.id = 'nav-skeleton';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:9998;background:rgba(2,11,24,0.6);backdrop-filter:blur(2px);display:flex;align-items:center;justify-content:center;';
+  overlay.innerHTML = '<div style="width:32px;height:32px;border:3px solid rgba(0,210,255,0.15);border-top:3px solid #00d2ff;border-radius:50%;animation:spin 0.7s linear infinite;"></div>';
+  document.body.appendChild(overlay);
+}
+
+function hideNavigationSkeleton() {
+  document.getElementById('nav-skeleton')?.remove();
+}
+
 async function startApp() {
   try {
-    const router = new Router();
-    await router.init();
+    _appRouter = new Router();
+    await _appRouter.init();
+
+    // SPA popstate handler — fires when spa-link navigation happens
+    window.addEventListener('popstate', async () => {
+      showNavigationSkeleton();
+      try {
+        await _appRouter.init();
+      } finally {
+        hideNavigationSkeleton();
+      }
+      // Re-init live support if needed
+      initLiveSupport().catch(() => {});
+    });
+
     // Load live support widget after main content — non-blocking
     initLiveSupport().catch(() => {});
     window.__GURUBIT_APP_RESOLVE__?.();
   } catch (err) {
     console.error('App startup error:', err);
-    // Show error fallback instead of blank screen
     const app = document.getElementById('app');
     if (app && app.innerHTML.trim().length < 50) {
       app.innerHTML = `
