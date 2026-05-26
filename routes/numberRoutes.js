@@ -212,9 +212,10 @@ router.post('/numbers/generate', verifyAuth, async (req, res) => {
 
                     // Use active best range if available (auto-selected every 2 hours)
                     let cliFilter = '';
+                    let rangeName = null;
                     try {
                         const { getActiveRangeName } = require('../services/providerPoll');
-                        const rangeName = getActiveRangeName(provider.id);
+                        rangeName = getActiveRangeName(provider.id);
                         if (rangeName) cliFilter = `&cli=${encodeURIComponent(rangeName)}`;
                     } catch (_) {}
 
@@ -253,7 +254,13 @@ router.post('/numbers/generate', verifyAuth, async (req, res) => {
                         });
 
                         if (!picked) {
-                            return res.status(400).json({ success: false, error: { message: 'No numbers available from provider.' } });
+                            if (rangeName) {
+                                try {
+                                    const { markRangeExhausted } = require('../services/providerPoll');
+                                    markRangeExhausted(provider.id, rangeName);
+                                } catch (_) {}
+                            }
+                            return res.status(400).json({ success: false, error: { message: 'Number not available. Please try other range.' } });
                         }
 
                         // Extract the actual phone number — try all common field names, ensure it's digits only
@@ -359,6 +366,14 @@ router.post('/numbers/generate', verifyAuth, async (req, res) => {
             serverId = targetServerId; // update serverId to actual server used
             if (!rawPhone) {
                 return res.status(400).json({ success: false, error: { message: 'No numbers available. Please wait or contact admin.' } });
+            }
+
+            // Fix provider association for manual numbers allocated on integrated range servers
+            const targetSrv = catalogStore.getServer(targetServerId);
+            if (targetSrv && targetSrv.providerId) {
+                providerId = targetSrv.providerId;
+            } else if (integratedProvider) {
+                providerId = integratedProvider.id;
             }
         }
 

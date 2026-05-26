@@ -197,6 +197,18 @@ export class AuthPage {
                     return;
                 }
             } else if (isFirebaseConfigured && auth) {
+                // Pre-validate referral email to prevent orphaned Firebase Auth users
+                const valRes = await fetch('/api/auth/validate-referral', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ referralEmail: this.formData.referralEmail })
+                });
+                if (!valRes.ok) {
+                    let valErr;
+                    try { valErr = await valRes.json(); } catch (e) { valErr = {}; }
+                    throw new Error(valErr.error?.message || 'Referral email validation failed. Please check the agent email.');
+                }
+
                 const cred = await createUserWithEmailAndPassword(auth, this.formData.email, this.formData.password);
                 const signupRes = await fetch('/api/auth/signup', {
                     method: 'POST',

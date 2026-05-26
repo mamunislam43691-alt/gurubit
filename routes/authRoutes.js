@@ -95,6 +95,65 @@ router.post('/signup', async (req, res) => {
 });
 
 /**
+ * POST /api/auth/validate-referral
+ * Validates if the referral email belongs to a registered agent
+ */
+router.post('/validate-referral', async (req, res) => {
+  try {
+    const { referralEmail } = req.body;
+    const agentEmail = String(referralEmail || '').toLowerCase().trim();
+
+    if (!agentEmail) {
+      return res.status(400).json({
+        success: false,
+        error: { message: 'Please enter a referral / agent email address.' }
+      });
+    }
+
+    const usersSnap = await collections.users.get();
+    let agentFound = false;
+    let totalAgents = 0;
+    
+    usersSnap.forEach((doc) => {
+      const u = doc.data();
+      if (u.isAgent) {
+        totalAgents++;
+        if (u.email?.toLowerCase() === agentEmail) {
+          agentFound = true;
+        }
+      }
+    });
+
+    if (totalAgents === 0) {
+      console.log(`ℹ️ No agents exist in the database yet. Bypassing referral validation for: ${agentEmail}`);
+      return res.json({
+        success: true,
+        message: 'No agents registered yet. Bypassing validation.'
+      });
+    }
+
+    if (!agentFound) {
+      return res.status(400).json({
+        success: false,
+        error: { message: 'Please use a valid agent email address.' }
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Referral / agent email is valid.'
+    });
+
+  } catch (error) {
+    console.error('Validate referral error:', error);
+    res.status(500).json({
+      success: false,
+      error: { message: 'Could not validate referral email.' }
+    });
+  }
+});
+
+/**
  * POST /api/auth/login
  * Authenticate user and create session, enforcing email verification
  */

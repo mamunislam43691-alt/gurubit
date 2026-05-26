@@ -1162,10 +1162,12 @@
         }
 
         import('/js/app.js?v=5')
-            .then((module) => {
-                // Hide loader immediately when JS is loaded — before data fetches
+            .then(async (module) => {
+                // Wait until the initial page component has fully loaded and rendered
+                if (module.GURUBIT_APP_READY) {
+                    await module.GURUBIT_APP_READY;
+                }
                 hideLoader();
-                return module.GURUBIT_APP_READY || Promise.resolve();
             })
             .catch((err) => {
                 console.error('Failed to load application:', err);
