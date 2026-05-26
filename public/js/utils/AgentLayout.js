@@ -49,9 +49,6 @@ export class AgentLayout {
           <header class="user-topbar flex justify-between items-center">
             <h1 class="text-lg font-black text-white uppercase tracking-wide">${title}</h1>
             <div class="flex items-center gap-4">
-              <button id="agentThemeToggleBtn" type="button" class="theme-toggle-btn w-9 h-9 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 flex items-center justify-center text-gray-400 hover:text-white transition-all">
-                <i class="fas fa-sun text-sm"></i>
-              </button>
               ${UserLayout.profileMenuHtml(user)}
             </div>
           </header>
@@ -60,10 +57,6 @@ export class AgentLayout {
       </motion.div>`.replaceAll('<motion.', '<').replaceAll('</motion.', '</');
 
     UserLayout.bindProfileMenu();
-    document.getElementById('agentThemeToggleBtn')?.addEventListener('click', () => {
-      window.GURUBIT_THEME.toggle();
-    });
-    window.GURUBIT_THEME.updateButtons();
 
     const sidebar = document.getElementById('agentSidebar');
     const backdrop = document.getElementById('agentSidebarBackdrop');

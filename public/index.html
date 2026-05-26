@@ -47,50 +47,7 @@
     <!-- Tailwind CSS (Compiled) -->
     <link rel="stylesheet" href="/css/output.css">
     
-    <!-- Theme Manager -->
-    <script>
-        (function() {
-            const savedTheme = localStorage.getItem('theme') || 'dark';
-            if (savedTheme === 'light') {
-                document.documentElement.classList.add('light');
-            } else {
-                document.documentElement.classList.remove('light');
-            }
-        })();
-        
-        window.GURUBIT_THEME = {
-            current: 'dark',
-            init() {
-                const saved = localStorage.getItem('theme') || 'dark';
-                this.set(saved);
-            },
-            set(theme) {
-                this.current = theme;
-                if (theme === 'light') {
-                    document.documentElement.classList.add('light');
-                } else {
-                    document.documentElement.classList.remove('light');
-                }
-                localStorage.setItem('theme', theme);
-                this.updateButtons();
-            },
-            toggle() {
-                const target = this.current === 'dark' ? 'light' : 'dark';
-                this.set(target);
-            },
-            updateButtons() {
-                document.querySelectorAll('.theme-toggle-btn').forEach(btn => {
-                    const isLight = this.current === 'light';
-                    btn.innerHTML = isLight 
-                        ? '<i class="fas fa-moon"></i>' 
-                        : '<i class="fas fa-sun"></i>';
-                    btn.title = isLight ? 'Switch to Dark Mode' : 'Switch to Light Mode';
-                });
-            }
-        };
-        // Initialize immediately
-        window.GURUBIT_THEME.init();
-    </script>
+
     
     <style>
         * {

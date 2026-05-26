@@ -4,12 +4,14 @@
 
 import { UserLayout } from '../utils/UserLayout.js';
 import { AgentLayout } from '../utils/AgentLayout.js';
+import { showToast } from '../utils/uiHelpers.js';
 
 export class PostFeed {
   constructor() {
     this.user = null;
     this.posts = [];
-    this.tab = 'discover'; // discover | following | flash
+    this.announcements = [];
+    this.tab = 'discover'; // discover | following | announcements
     this.showComposer = false;
     this.pendingImagePreview = null;
     this.composerText = '';
@@ -48,6 +50,11 @@ export class PostFeed {
     if (data.success) this.posts = data.posts;
   }
 
+  async loadAnnouncements() {
+    const data = await fetch('/api/social/announcements').then((r) => r.json()).catch(() => ({}));
+    if (data.success) this.announcements = data.announcements || [];
+  }
+
   async submitPost() {
     const text = document.getElementById('postInput')?.value?.trim() || '';
     const file = document.getElementById('postImage')?.files?.[0];
@@ -82,6 +89,7 @@ export class PostFeed {
       }
       return;
     }
+    showToast('Post published successfully! 🎉');
     this.showComposer = false;
     this.pendingImagePreview = null;
     await this.loadFeed();
@@ -189,6 +197,26 @@ export class PostFeed {
       </article>`;
   }
 
+  renderAnnouncements() {
+    if (!this.announcements.length) {
+      return `
+        <div class="text-center py-16 text-gray-600">
+          <i class="fas fa-bullhorn text-4xl mb-3 block"></i>
+          <p class="text-sm">No announcements yet</p>
+        </div>`;
+    }
+    return this.announcements.map((a) => `
+      <div class="px-4 py-4 border-b border-white/5 bg-dark-card rounded-2xl mb-3 border border-white/5 hover:border-primary/20 transition-all">
+        <div class="flex items-start gap-2 mb-1.5">
+          <span class="text-[10px] font-black text-primary bg-primary/10 px-2 py-0.5 rounded uppercase tracking-wider">TOP</span>
+          <p class="font-bold text-white text-sm leading-snug">${this.esc(a.title)}</p>
+        </div>
+        <p class="text-xs text-gray-400 leading-relaxed mb-2.5">${this.esc(a.body || '')}</p>
+        <p class="text-[10px] text-gray-600">${this.timeAgo(a.createdAt)}</p>
+      </div>
+    `).join('');
+  }
+
   renderBody() {
     const filtered = this.tab === 'following'
       ? this.posts.filter((p) => p.following)
@@ -201,7 +229,7 @@ export class PostFeed {
           ${[
             { id: 'discover', label: 'Discover' },
             { id: 'following', label: 'Following' },
-            { id: 'flash', label: 'Flash' }
+            { id: 'announcements', label: 'Announcements' }
           ].map((t) => `
             <button type="button" data-feed-tab="${t.id}"
               class="flex-1 py-3 text-xs font-bold uppercase tracking-wide transition-all border-b-2 ${this.tab === t.id ? 'text-primary border-primary' : 'text-gray-500 border-transparent hover:text-gray-300'}">
@@ -214,13 +242,15 @@ export class PostFeed {
         </div>
 
         <!-- Feed -->
-        <div id="feedList">
-          ${filtered.length
-            ? filtered.map((p) => this.renderPost(p)).join('')
-            : `<div class="text-center py-16 text-gray-600">
-                <i class="fas fa-wind text-4xl mb-3 block"></i>
-                <p class="text-sm">${this.tab === 'following' ? 'Follow someone to see their posts here' : 'No posts yet. Be the first!'}</p>
-              </div>`}
+        <div id="feedList" class="pt-4">
+          ${this.tab === 'announcements'
+            ? this.renderAnnouncements()
+            : (filtered.length
+              ? filtered.map((p) => this.renderPost(p)).join('')
+              : `<div class="text-center py-16 text-gray-600">
+                  <i class="fas fa-wind text-4xl mb-3 block"></i>
+                  <p class="text-sm">${this.tab === 'following' ? 'Follow someone to see their posts here' : 'No posts yet. Be the first!'}</p>
+                </div>`)}
         </div>
       </div>
 
@@ -244,7 +274,13 @@ export class PostFeed {
   _bindEvents() {
     // Tabs
     document.querySelectorAll('[data-feed-tab]').forEach((btn) => {
-      btn.addEventListener('click', () => { this.tab = btn.dataset.feedTab; this.render(); });
+      btn.addEventListener('click', async () => {
+        this.tab = btn.dataset.feedTab;
+        if (this.tab === 'announcements') {
+          await this.loadAnnouncements();
+        }
+        this.render();
+      });
     });
 
     // FAB
@@ -306,7 +342,7 @@ export class PostFeed {
   async init() {
     this.user = await UserLayout.ensureAuth();
     if (!this.user) return;
-    await this.loadFeed();
+    await Promise.all([this.loadFeed(), this.loadAnnouncements()]);
     this.render();
   }
 }

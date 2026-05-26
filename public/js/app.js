@@ -240,6 +240,7 @@ window.GURUBIT_APP_READY = new Promise((resolve, reject) => {
 function hideLiveSupportWidget() {
   document.getElementById('liveSupportRoot')?.remove();
   liveSupportWidget = null;
+  window.liveSupportWidget = null;
 }
 
 async function initLiveSupport() {
@@ -250,6 +251,7 @@ async function initLiveSupport() {
   if (liveSupportWidget) return;
   const { LiveSupportWidget } = await import('./components/LiveSupportWidget.js');
   liveSupportWidget = new LiveSupportWidget();
+  window.liveSupportWidget = liveSupportWidget;
   liveSupportWidget.init();
 }
 

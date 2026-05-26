@@ -192,7 +192,7 @@ export class NumberSelection {
 
   async generateNumber() {
     if (!this.selectedCountry || !this.selectedServer) {
-      alert('Select country and server');
+      showToast('Please select a country and range.', 'error');
       return;
     }
     this.isGenerating = true;
@@ -231,14 +231,14 @@ export class NumberSelection {
           num.format || this.numberFormat,
           this.selectedCountry?.code
         );
-        await copyText(copyVal, 'Number copied to clipboard');
+        await copyText(copyVal, 'Number generated and copied! 📋');
         // Don't recreate WS — it's already running from init()
         this.render();
       } else {
-        alert(data.error?.message || 'Failed');
+        showToast('Number not available, please wait. Select another country or range and try.', 'error');
       }
     } catch {
-      alert('Request failed');
+      showToast('Request failed. Select another country or range and try again.', 'error');
     } finally {
       this.isGenerating = false;
       this.render();
@@ -279,9 +279,18 @@ export class NumberSelection {
     const st = numberStatus(n);
     if (st === 'successful') {
       const message = n.smsMessage || '';
-      // Detect platform from SMS content (most reliable source)
       const platform = detectServiceLabel(message) || 'Verification';
-      return `<span class="text-emerald-400 text-xs font-medium">${this.esc(platform)} <span class="text-gray-400 font-normal">Your verification code is</span> <span class="text-white font-black font-mono">****</span></span>`;
+      const meta = appIconMeta(platform);
+      return `
+        <div class="flex items-center gap-2 p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 max-w-xs shadow-lg shadow-emerald-500/5 animate-pulse-slow">
+          <div class="w-6 h-6 rounded flex items-center justify-center text-white text-[10px] shrink-0" style="background: ${meta.bg}">
+            <i class="${meta.icon}"></i>
+          </div>
+          <div class="min-w-0 flex-1">
+            <p class="text-[9px] font-bold text-emerald-400 uppercase tracking-widest leading-none mb-0.5">${platform}</p>
+            <p class="text-[11px] text-gray-300 truncate leading-tight font-medium">${this.esc(message)}</p>
+          </div>
+        </div>`;
     }
     if (st === 'failed') {
       return '<span class="text-red-400 text-xs">—</span>';

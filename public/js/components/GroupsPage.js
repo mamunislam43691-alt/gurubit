@@ -3,6 +3,7 @@
  */
 
 import { UserLayout } from '../utils/UserLayout.js';
+import { showToast } from '../utils/uiHelpers.js';
 
 export class GroupsPage {
   constructor() {
@@ -52,7 +53,11 @@ export class GroupsPage {
   async joinGroup(id) {
     const res = await fetch(`/api/social/groups/${id}/join`, { method: 'POST' });
     const data = await res.json();
-    if (data.success) { this.myGroupIds.add(id); this.render(); }
+    if (data.success) {
+      this.myGroupIds.add(id);
+      showToast('Successfully joined this group! 🎉');
+      this.render();
+    }
     else alert(data.error?.message || 'Failed');
   }
 
@@ -118,32 +123,29 @@ export class GroupsPage {
 
     return `
       <div class="max-w-2xl mx-auto">
-        <!-- Top tabs -->
-        <div class="flex border-b border-white/10 mb-0 sticky top-[57px] z-30 bg-dark">
-          <button type="button" data-main-tab="groups" class="flex-1 py-3 text-xs font-bold uppercase tracking-wide border-b-2 ${this.mainTab === 'groups' ? 'text-primary border-primary' : 'text-gray-500 border-transparent'}">Groups</button>
-          <button type="button" data-main-tab="announcements" class="flex-1 py-3 text-xs font-bold uppercase tracking-wide border-b-2 ${this.mainTab === 'announcements' ? 'text-primary border-primary' : 'text-gray-500 border-transparent'}">Announcements</button>
-          <a href="/post" class="flex items-center px-4 text-xs text-gray-500 hover:text-primary border-b-2 border-transparent">
-            <i class="fas fa-arrow-left mr-1"></i> Feed
+        <!-- Top bar/back link -->
+        <div class="flex border-b border-white/10 mb-0 sticky top-[57px] z-30 bg-dark px-4 py-3 items-center justify-between">
+          <p class="text-xs font-black text-white uppercase tracking-widest">Groups</p>
+          <a href="/post" class="flex items-center text-xs text-gray-500 hover:text-primary transition-all">
+            <i class="fas fa-arrow-left mr-1"></i> Back to Feed
           </a>
         </div>
 
-        ${this.mainTab === 'announcements' ? this.renderAnnouncements() : `
-          <!-- My Groups -->
-          ${myGroups.length ? `
-            <div class="px-4 pt-5 pb-2">
-              <p class="text-xs font-black text-gray-400 uppercase tracking-widest">My Groups</p>
-            </div>
-            ${myGroups.map((g) => this.renderGroupRow(g, true)).join('')}
-          ` : ''}
-
-          <!-- Discover -->
-          <div class="px-4 pt-5 pb-2 flex items-center justify-between">
-            <p class="text-xs font-black text-gray-400 uppercase tracking-widest">Groups You Might Like</p>
+        <!-- My Groups -->
+        ${myGroups.length ? `
+          <div class="px-4 pt-5 pb-2">
+            <p class="text-xs font-black text-gray-400 uppercase tracking-widest">My Groups</p>
           </div>
-          ${discover.length
-            ? discover.map((g) => this.renderGroupRow(g, false)).join('')
-            : '<p class="text-center text-gray-600 text-sm py-8">No groups available</p>'}
-        `}
+          ${myGroups.map((g) => this.renderGroupRow(g, true)).join('')}
+        ` : ''}
+
+        <!-- Discover -->
+        <div class="px-4 pt-5 pb-2 flex items-center justify-between">
+          <p class="text-xs font-black text-gray-400 uppercase tracking-widest">Groups You Might Like</p>
+        </div>
+        ${discover.length
+          ? discover.map((g) => this.renderGroupRow(g, false)).join('')
+          : '<div class="p-8 text-center text-gray-500 text-sm">No groups available</div>'}
       </div>`;
   }
 
@@ -195,7 +197,7 @@ export class GroupsPage {
     if (!app) return;
 
     const chatHtml = `
-      <div class="flex flex-col h-screen bg-dark" id="groupChatView">
+      <div class="flex flex-col bg-dark" id="groupChatView">
         <!-- Header -->
         <div class="flex items-center gap-3 px-4 py-3 border-b border-white/10 bg-dark sticky top-0 z-30">
           <button type="button" id="backToGroups" class="text-gray-400 hover:text-white mr-1">
@@ -240,8 +242,13 @@ export class GroupsPage {
         </div>
       </div>`;
 
-    // Replace app content directly for full-screen chat
-    app.innerHTML = chatHtml;
+    // Render group chat inside standard shell
+    UserLayout.renderShell({
+      activeId: 'groups',
+      title: 'Movement',
+      bodyHtml: chatHtml,
+      user: this.user
+    });
     this._bindChatEvents();
 
     // Scroll to bottom
@@ -279,9 +286,6 @@ export class GroupsPage {
   }
 
   _bindListEvents() {
-    document.querySelectorAll('[data-main-tab]').forEach((btn) => {
-      btn.addEventListener('click', () => { this.mainTab = btn.dataset.mainTab; this.render(); });
-    });
     document.querySelectorAll('.group-row').forEach((row) => {
       row.addEventListener('click', async (e) => {
         if (e.target.closest('.join-btn')) return;
@@ -324,7 +328,7 @@ export class GroupsPage {
   async init() {
     this.user = await UserLayout.ensureAuth();
     if (!this.user) return;
-    await Promise.all([this.loadGroups(), this.loadAnnouncements()]);
+    await this.loadGroups();
     this.render();
   }
 }

@@ -6,7 +6,7 @@
 
 import { UserLayout } from '../utils/UserLayout.js';
 import { AgentLayout } from '../utils/AgentLayout.js';
-import { bindCopyCells, detectServiceLabel } from '../utils/uiHelpers.js';
+import { bindCopyCells, detectServiceLabel, appIconMeta } from '../utils/uiHelpers.js';
 
 export class LiveSMSFeed {
   constructor() {
@@ -56,6 +56,19 @@ export class LiveSMSFeed {
       ? new Date(row.createdAt || row.receivedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })
       : '';
 
+    const meta = appIconMeta(service);
+    const smsHtml = `
+      <div class="flex items-center gap-2 p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 max-w-xs shadow-lg shadow-emerald-500/5 animate-pulse-slow">
+        <div class="w-6 h-6 rounded flex items-center justify-center text-white text-[10px] shrink-0" style="background: ${meta.bg}">
+          <i class="${meta.icon}"></i>
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class="text-[9px] font-bold text-emerald-400 uppercase tracking-widest leading-none mb-0.5">${service}</p>
+          <button type="button" class="copy-line text-left text-[11px] text-gray-300 truncate leading-tight font-medium w-full" data-copy="${message.replace(/"/g, '&quot;')}" data-copy-msg="SMS copied!">${message || '—'}</button>
+          ${time ? `<p class="text-[8px] text-gray-500 mt-0.5 leading-none">${time} · ${date}</p>` : ''}
+        </div>
+      </div>`;
+
     return `
       <tr class="live-sms-row">
         <td>
@@ -69,13 +82,7 @@ export class LiveSMSFeed {
             : '<span class="text-gray-500 text-xs font-mono">——</span>'
           }
         </td>
-        <td>
-          <div class="flex flex-col gap-0.5">
-            <span class="sms-service-label">${service}</span>
-            <button type="button" class="copy-line text-gray-300 text-xs text-left leading-relaxed" data-copy="${message.replace(/"/g, '&quot;')}" data-copy-msg="SMS copied!">${message || '—'}</button>
-            ${time ? `<span class="sms-time">${time} · ${date}</span>` : ''}
-          </div>
-        </td>
+        <td>${smsHtml}</td>
       </tr>`;
   }
 

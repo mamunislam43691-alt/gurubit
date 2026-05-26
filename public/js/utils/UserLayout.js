@@ -97,10 +97,6 @@ export class UserLayout {
             <h1 class="hidden md:block text-base font-black text-white uppercase tracking-wide">${title}</h1>
             <!-- Right actions -->
             <div class="flex items-center gap-2">
-              <button id="userThemeToggleBtn" type="button"
-                class="theme-toggle-btn w-8 h-8 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-gray-400 hover:text-white transition-all text-xs">
-                <i class="fas fa-sun"></i>
-              </button>
               ${UserLayout.profileMenuHtml(user)}
             </div>
           </header>
@@ -127,10 +123,5 @@ export class UserLayout {
       </div>`;
 
     UserLayout.bindProfileMenu();
-
-    document.getElementById('userThemeToggleBtn')?.addEventListener('click', () => {
-      window.GURUBIT_THEME.toggle();
-    });
-    window.GURUBIT_THEME.updateButtons();
   }
 }

@@ -75,9 +75,6 @@ export class LandingPage {
                             <a href="/faq" class="hover:text-primary">Help</a>
                         </motion.div>
                         <motion.div class="flex items-center gap-3">
-                            <button id="landingThemeToggleBtn" type="button" class="theme-toggle-btn w-9 h-9 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 flex items-center justify-center text-gray-400 hover:text-white transition-all mr-1">
-                                <i class="fas fa-sun text-sm"></i>
-                            </button>
                             <button id="navLoginBtn" class="px-5 py-2.5 text-xs font-black uppercase tracking-widest border border-white/15 rounded-lg text-gray-200 hover:border-primary/50 hover:text-white transition-all">Login</button>
                             <button id="navSignupBtn" class="neon-btn px-5 py-2.5 text-xs uppercase tracking-widest">Sign up</button>
                         </motion.div>
@@ -261,11 +258,6 @@ export class LandingPage {
                 auth.init();
             });
         };
-
-        document.getElementById('landingThemeToggleBtn')?.addEventListener('click', () => {
-            window.GURUBIT_THEME.toggle();
-        });
-        window.GURUBIT_THEME.updateButtons();
 
         document.getElementById('navLoginBtn')?.addEventListener('click', () => openModal('login'));
         document.getElementById('navSignupBtn')?.addEventListener('click', () => openModal('signup'));

@@ -288,7 +288,13 @@ export class AuthPage {
             <motion.div id="authModalPanel" class="relative z-10 w-full max-w-md my-8" style="animation: fadeIn 0.35s ease;">
                 <motion.div class="glass-card premium-shadow border-primary/20 overflow-hidden">
                     <motion.div class="h-1 w-full" style="background: linear-gradient(90deg, #00d2ff, #3a7bd5, #7c3aed);"></div>
-                    <motion.div class="p-8 sm:p-10">
+                    <motion.div class="relative p-8 sm:p-10">
+                        <button type="button" id="authCloseBtn" class="absolute top-4 right-4 text-gray-500 hover:text-red-400 transition-all duration-300 w-8 h-8 rounded-full border border-white/10 hover:border-red-400/30 flex items-center justify-center bg-white/5" title="Close">
+                            <i class="fas fa-times text-sm"></i>
+                        </button>
+                        <button type="button" id="authHelpBtn" class="absolute top-4 right-14 text-gray-500 hover:text-primary transition-all duration-300 w-8 h-8 rounded-full border border-white/10 hover:border-primary/30 flex items-center justify-center bg-white/5" title="Get Help / Support">
+                            <i class="fas fa-question text-sm"></i>
+                        </button>
                         <motion.div class="text-center mb-8">
                             <img src="/assets/logo-icon.svg" alt="" class="w-12 h-12 mx-auto mb-4 logo-glow">
                             <h2 class="text-2xl sm:text-3xl font-black text-white uppercase tracking-tight">
@@ -385,7 +391,7 @@ export class AuthPage {
                 </motion.div>
                 <input type="${type}" id="${id}" placeholder="${placeholder}"
                     value="${type !== 'password' ? (this.formData[id] || '') : ''}"
-                    class="input-field pl-12 py-3.5 text-sm ${hasError ? 'border-red-500/40' : ''}">
+                    class="input-field py-3.5 text-sm ${hasError ? 'border-red-500/40' : ''}" style="padding-left: 3rem !important;">
                 ${hasError ? `<p class="text-red-400 text-[10px] mt-1 ml-1">${hasError}</p>` : ''}
             </motion.div>
         `.replaceAll('<motion.', '<').replaceAll('</motion.', '</');
@@ -407,6 +413,14 @@ export class AuthPage {
     }
 
     attachEventListeners() {
+        document.getElementById('authCloseBtn')?.addEventListener('click', () => this.closeModal());
+        document.getElementById('authHelpBtn')?.addEventListener('click', () => {
+            if (window.liveSupportWidget) {
+                window.liveSupportWidget.toggle();
+            } else {
+                console.warn('Support widget not initialized yet');
+            }
+        });
         document.getElementById('guestLoginBtn')?.addEventListener('click', () => this.handleGuestLogin());
         document.getElementById('authForm')?.addEventListener('submit', (e) => {
             if (this.isForgotMode) this.handleForgotPassword(e);

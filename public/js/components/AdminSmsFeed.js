@@ -5,6 +5,7 @@
  */
 
 import { AdminLayout } from './AdminLayout.js';
+import { appIconMeta, detectServiceLabel } from '../utils/uiHelpers.js';
 
 export class AdminSmsFeed {
   constructor() {
@@ -76,6 +77,7 @@ export class AdminSmsFeed {
     
     // Get full SMS content (not truncated for display)
     const sms = (m.content || m.message || '').slice(0, 140);
+    const escapedSms = String(sms || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     
     // Determine status badge - handle number request rows (matched is null)
     let statusBadge;
@@ -88,6 +90,19 @@ export class AdminSmsFeed {
       statusBadge = `<span class="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-blue-500/15 text-blue-400 border border-blue-500/25 whitespace-nowrap">🔔 Pending</span>`;
     }
 
+    const platform = detectServiceLabel(m.content || m.message || '') || 'Verification';
+    const meta = appIconMeta(platform);
+    const smsHtml = `
+      <div class="flex items-center gap-2 p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 max-w-sm shadow-lg shadow-emerald-500/5 animate-pulse-slow">
+        <div class="w-6 h-6 rounded flex items-center justify-center text-white text-[10px] shrink-0" style="background: ${meta.bg}">
+          <i class="${meta.icon}"></i>
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class="text-[9px] font-bold text-emerald-400 uppercase tracking-widest leading-none mb-0.5">${platform}</p>
+          <p class="text-[11px] text-gray-300 truncate leading-tight font-medium">${escapedSms}</p>
+        </div>
+      </div>`;
+
     return `
       <tr class="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors cursor-pointer" data-id="${m.id || ''}">
         <td class="px-4 py-3 text-xs text-gray-300 whitespace-nowrap">${m.country || '—'}</td>
@@ -97,7 +112,7 @@ export class AdminSmsFeed {
             ? `<span class="font-mono text-sm font-black text-white bg-primary/10 border border-primary/25 px-2 py-0.5 rounded">${otp}</span>`
             : `<span class="text-gray-600 text-xs">—</span>`}
         </td>
-        <td class="px-4 py-3 text-xs text-gray-400 max-w-sm">${sms || '—'}</td>
+        <td class="px-4 py-3">${smsHtml}</td>
         <td class="px-4 py-3">${statusBadge}</td>
         <td class="px-4 py-3 text-xs text-gray-600 font-mono whitespace-nowrap">${time}</td>
       </tr>`;

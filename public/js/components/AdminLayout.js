@@ -13,7 +13,7 @@ export const ADMIN_NAV = [
   { id: 'sms-feed', label: 'SMS Feed', href: '/admin/sms-feed', icon: 'signal', perm: 'provider' },
   { id: 'leaderboard', label: 'Leaderboard', href: '/admin/leaderboard', icon: 'trophy', perm: 'leaderboard' },
   { id: 'withdraw', label: 'Withdraw', href: '/admin/withdrawals', icon: 'wallet', perm: 'withdraw' },
-  { id: 'guru', label: 'Post', href: '/admin/guru', icon: 'comments', perm: 'users' },
+  { id: 'guru', label: 'Movement', href: '/admin/guru', icon: 'bolt', perm: 'users' },
   { id: 'broadcast', label: 'Broadcast', href: '/admin/broadcast', icon: 'bullhorn', perm: 'broadcast' },
   { id: 'support', label: 'Support', href: '/admin/support', icon: 'headset', perm: 'support' },
   { id: 'staff', label: 'Admin Management', href: '/admin/staff', icon: 'user-shield', perm: 'staff', superOnly: true },
@@ -90,9 +90,6 @@ export class AdminLayout {
               ${subtitle ? `<p class="text-xs text-gray-500 mt-0.5">${subtitle}</p>` : ''}
             </div>
             <div class="flex items-center gap-4">
-              <button id="adminThemeToggleBtn" type="button" class="theme-toggle-btn w-9 h-9 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 flex items-center justify-center text-gray-400 hover:text-white transition-all">
-                <i class="fas fa-sun text-sm"></i>
-              </button>
               <div class="hidden sm:flex items-center gap-2 text-[10px] font-bold text-green-500 uppercase">
                 <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
                 System Online
@@ -109,10 +106,6 @@ export class AdminLayout {
       await fetch('/api/admin/logout', { method: 'POST' });
       window.location.href = '/admin';
     });
-    document.getElementById('adminThemeToggleBtn')?.addEventListener('click', () => {
-      window.GURUBIT_THEME.toggle();
-    });
-    window.GURUBIT_THEME.updateButtons();
     const adminSidebar = document.getElementById('adminSidebar');
     const adminBackdrop = document.getElementById('adminSidebarBackdrop');
     const closeAdminNav = () => {
