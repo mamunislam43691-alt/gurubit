@@ -197,18 +197,6 @@ export class AuthPage {
                     return;
                 }
             } else if (isFirebaseConfigured && auth) {
-                // Pre-validate referral email to prevent orphaned Firebase Auth users
-                const valRes = await fetch('/api/auth/validate-referral', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ referralEmail: this.formData.referralEmail })
-                });
-                if (!valRes.ok) {
-                    let valErr;
-                    try { valErr = await valRes.json(); } catch (e) { valErr = {}; }
-                    throw new Error(valErr.error?.message || 'Referral email validation failed. Please check the agent email.');
-                }
-
                 const cred = await createUserWithEmailAndPassword(auth, this.formData.email, this.formData.password);
                 const signupRes = await fetch('/api/auth/signup', {
                     method: 'POST',
@@ -300,22 +288,28 @@ export class AuthPage {
             <motion.div id="authModalPanel" class="relative z-10 w-full max-w-md my-8" style="animation: fadeIn 0.35s ease;">
                 <motion.div class="glass-card premium-shadow border-primary/20 overflow-hidden">
                     <motion.div class="h-1 w-full" style="background: linear-gradient(90deg, #00d2ff, #3a7bd5, #7c3aed);"></div>
-                    <motion.div class="relative p-8 sm:p-10">
-                        <button type="button" id="authCloseBtn" class="absolute top-4 right-4 text-gray-500 hover:text-red-400 transition-all duration-300 w-8 h-8 rounded-full border border-white/10 hover:border-red-400/30 flex items-center justify-center bg-white/5" title="Close">
-                            <i class="fas fa-times text-sm"></i>
-                        </button>
-                        <button type="button" id="authHelpBtn" class="absolute top-4 right-14 text-gray-500 hover:text-primary transition-all duration-300 w-8 h-8 rounded-full border border-white/10 hover:border-primary/30 flex items-center justify-center bg-white/5" title="Get Help / Support">
-                            <i class="fas fa-question text-sm"></i>
-                        </button>
-                        <motion.div class="text-center mb-8">
-                            <img src="/assets/logo-icon.svg" alt="" class="w-12 h-12 mx-auto mb-4 logo-glow">
+                    <motion.div class="p-8 sm:p-10">
+                        <div class="text-center mb-8">
+                            <!-- Close button — top right -->
+                            <button type="button" id="modalCloseBtn"
+                                class="absolute top-3 right-3 w-9 h-9 rounded-full bg-white/8 hover:bg-red-500/20 border border-white/10 hover:border-red-400/40 flex items-center justify-center text-gray-400 hover:text-red-400 transition-all text-xl leading-none z-20"
+                                title="Close">
+                                <i class="fas fa-times text-sm"></i>
+                            </button>
+                            <!-- Help / FAQ icon — top left -->
+                            <a href="/faq" target="_blank"
+                                class="absolute top-3 left-3 w-9 h-9 rounded-full bg-white/8 hover:bg-primary/20 border border-white/10 hover:border-primary/40 flex items-center justify-center text-gray-400 hover:text-primary transition-all z-20"
+                                title="Help Center">
+                                <i class="fas fa-question text-sm"></i>
+                            </a>
+                            <img src="/assets/logo-icon.svg" alt="" class="w-12 h-12 mx-auto mb-4">
                             <h2 class="text-2xl sm:text-3xl font-black text-white uppercase tracking-tight">
                                 ${this.isForgotMode ? 'Reset Password' : this.isLoginMode ? 'Welcome Back' : 'Join GURUBIT'}
                             </h2>
                             <p class="text-gray-400 text-sm mt-2 font-medium">
                                 ${this.isForgotMode ? 'We will email you a secure reset link' : this.isLoginMode ? 'Sign in to your account' : 'Create your free account'}
                             </p>
-                        </motion.div>
+                        </div>
 
                         <motion.div id="modalNotice" class="mb-4"></motion.div>
 
@@ -397,16 +391,17 @@ export class AuthPage {
     renderField(id, type, placeholder, icon) {
         const hasError = this.errors[id];
         return `
-            <motion.div class="relative group">
-                <motion.div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-600 group-focus-within:text-primary transition-colors">
+            <div class="relative group">
+                <div class="absolute top-0 left-0 pl-4 h-[48px] flex items-center pointer-events-none text-gray-500 group-focus-within:text-primary transition-colors z-10">
                     <i class="fas fa-${icon} text-sm"></i>
-                </motion.div>
+                </div>
                 <input type="${type}" id="${id}" placeholder="${placeholder}"
                     value="${type !== 'password' ? (this.formData[id] || '') : ''}"
-                    class="input-field py-3.5 text-sm ${hasError ? 'border-red-500/40' : ''}" style="padding-left: 3rem !important;">
+                    style="padding-left:2.75rem;padding-right:1rem;padding-top:0.875rem;padding-bottom:0.875rem;height:48px;"
+                    class="input-field text-sm w-full ${hasError ? 'border-red-500/40' : ''}">
                 ${hasError ? `<p class="text-red-400 text-[10px] mt-1 ml-1">${hasError}</p>` : ''}
-            </motion.div>
-        `.replaceAll('<motion.', '<').replaceAll('</motion.', '</');
+            </div>
+        `;
     }
 
     async handleGuestLogin() {
@@ -425,14 +420,7 @@ export class AuthPage {
     }
 
     attachEventListeners() {
-        document.getElementById('authCloseBtn')?.addEventListener('click', () => this.closeModal());
-        document.getElementById('authHelpBtn')?.addEventListener('click', () => {
-            if (window.liveSupportWidget) {
-                window.liveSupportWidget.toggle();
-            } else {
-                console.warn('Support widget not initialized yet');
-            }
-        });
+        document.getElementById('modalCloseBtn')?.addEventListener('click', () => this.closeModal());
         document.getElementById('guestLoginBtn')?.addEventListener('click', () => this.handleGuestLogin());
         document.getElementById('authForm')?.addEventListener('submit', (e) => {
             if (this.isForgotMode) this.handleForgotPassword(e);

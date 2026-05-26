@@ -45,16 +45,11 @@ async function saveSmtpToFirestore(cfg) {
 function getTransporter() {
   if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) return null;
   const nodemailer = require('nodemailer');
-  const port = parseInt(process.env.SMTP_PORT || '587', 10);
-  const secure = process.env.SMTP_SECURE === 'true' || port === 465;
   return nodemailer.createTransport({
     host: process.env.SMTP_HOST,
-    port,
-    secure,
-    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-    tls: {
-      rejectUnauthorized: false
-    }
+    port: parseInt(process.env.SMTP_PORT || '587', 10),
+    secure: process.env.SMTP_SECURE === 'true',
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
   });
 }
 

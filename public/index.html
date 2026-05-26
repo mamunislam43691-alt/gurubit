@@ -47,7 +47,22 @@
     <!-- Tailwind CSS (Compiled) -->
     <link rel="stylesheet" href="/css/output.css">
     
-
+    <!-- Theme: always dark — lighting system removed -->
+    <script>
+        // Theme system disabled — always dark mode
+        window.GURUBIT_THEME = {
+            current: 'dark',
+            init() { document.documentElement.classList.remove('light'); },
+            set() {},
+            toggle() {},
+            updateButtons() {
+                document.querySelectorAll('.theme-toggle-btn').forEach(btn => {
+                    btn.style.display = 'none';
+                });
+            }
+        };
+        window.GURUBIT_THEME.init();
+    </script>
     
     <style>
         * {
@@ -1145,7 +1160,7 @@
     </div>
 
     <!-- App root -->
-    <div id="app" style="opacity:0; transition: opacity 0.3s ease;"></div>
+    <div id="app" style="opacity:0; transition: opacity 0.25s ease;"></div>
     
     <!-- Main application script -->
     <script type="module">
@@ -1155,27 +1170,26 @@
             const app = document.getElementById('app');
             if (loader && !loader._hidden) {
                 loader._hidden = true;
-                loader.classList.add('fade-out');
+                // Show app immediately, then fade out loader
                 if (app) app.style.opacity = '1';
-                setTimeout(() => { loader.remove(); }, 400);
+                loader.classList.add('fade-out');
+                setTimeout(() => { loader.remove(); }, 300);
             }
         }
 
-        import('/js/app.js?v=5')
-            .then(async (module) => {
-                // Wait until the initial page component has fully loaded and rendered
-                if (module.GURUBIT_APP_READY) {
-                    await module.GURUBIT_APP_READY;
-                }
+        import('/js/app.js?v=6')
+            .then((module) => {
+                // Hide loader immediately when JS is loaded — before data fetches
                 hideLoader();
+                return module.GURUBIT_APP_READY || Promise.resolve();
             })
             .catch((err) => {
                 console.error('Failed to load application:', err);
                 hideLoader();
             });
 
-        // Fallback: force hide loader after 1.5s no matter what
-        setTimeout(hideLoader, 1500);
+        // Fallback: force hide loader after 1.2s no matter what
+        setTimeout(hideLoader, 1200);
     </script>
     
     <!-- Performance Optimization Module -->

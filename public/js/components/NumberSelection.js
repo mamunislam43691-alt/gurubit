@@ -192,7 +192,7 @@ export class NumberSelection {
 
   async generateNumber() {
     if (!this.selectedCountry || !this.selectedServer) {
-      showToast('Please select a country and range.', 'error');
+      this._showNotification('⚠️ Please select a country and range first', 'warning');
       return;
     }
     this.isGenerating = true;
@@ -231,18 +231,73 @@ export class NumberSelection {
           num.format || this.numberFormat,
           this.selectedCountry?.code
         );
-        await copyText(copyVal, 'Number generated and copied! 📋');
+        await copyText(copyVal, 'Number copied to clipboard');
         // Don't recreate WS — it's already running from init()
         this.render();
+        this._showNotification('✅ Number generated & copied!', 'success');
       } else {
-        showToast('Number not available, please wait. Select another country or range and try.', 'error');
+        const errMsg = data.error?.message || 'Failed to generate number';
+        const isNoNumbers = errMsg.toLowerCase().includes('no number') || errMsg.toLowerCase().includes('not available') || errMsg.toLowerCase().includes('no range');
+        if (isNoNumbers) {
+          this._showNoNumbersNotification();
+        } else {
+          this._showNotification(`⚠️ ${errMsg}`, 'warning');
+        }
       }
     } catch {
-      showToast('Request failed. Select another country or range and try again.', 'error');
+      this._showNotification('⚠️ Request failed. Please check your connection.', 'warning');
     } finally {
       this.isGenerating = false;
       this.render();
     }
+  }
+
+  _showNotification(msg, type = 'info') {
+    // Remove existing
+    document.getElementById('numNotification')?.remove();
+    const colors = {
+      success: 'linear-gradient(135deg,#00d2ff,#3a7bd5)',
+      warning: 'linear-gradient(135deg,#f59e0b,#d97706)',
+      error: 'linear-gradient(135deg,#ef4444,#dc2626)',
+      info: 'linear-gradient(135deg,#6366f1,#4f46e5)'
+    };
+    const t = document.createElement('div');
+    t.id = 'numNotification';
+    t.style.cssText = `position:fixed;top:80px;left:50%;transform:translateX(-50%) translateY(-20px);background:${colors[type] || colors.info};color:#020b18;font-weight:800;font-size:.8rem;padding:.65rem 1.5rem;border-radius:9999px;opacity:0;pointer-events:none;transition:all .3s;z-index:9999;white-space:nowrap;box-shadow:0 8px 24px rgba(0,0,0,.4);`;
+    t.textContent = msg;
+    document.body.appendChild(t);
+    requestAnimationFrame(() => {
+      t.style.opacity = '1';
+      t.style.transform = 'translateX(-50%) translateY(0)';
+    });
+    setTimeout(() => {
+      t.style.opacity = '0';
+      t.style.transform = 'translateX(-50%) translateY(-20px)';
+      setTimeout(() => t.remove(), 300);
+    }, 3000);
+  }
+
+  _showNoNumbersNotification() {
+    // Remove existing
+    document.getElementById('noNumModal')?.remove();
+    const m = document.createElement('div');
+    m.id = 'noNumModal';
+    m.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);';
+    m.innerHTML = `
+      <div style="background:linear-gradient(135deg,rgba(255,255,255,.06),rgba(255,255,255,.02));border:1px solid rgba(255,255,255,.1);border-radius:1.5rem;padding:2rem;max-width:360px;width:100%;text-align:center;animation:fadeIn .25s ease;">
+        <div style="width:56px;height:56px;border-radius:50%;background:rgba(245,158,11,.15);display:flex;align-items:center;justify-content:center;margin:0 auto 1rem;">
+          <i class="fas fa-exclamation-triangle" style="color:#f59e0b;font-size:1.5rem;"></i>
+        </div>
+        <h3 style="color:#fff;font-weight:900;font-size:1rem;margin-bottom:.5rem;text-transform:uppercase;letter-spacing:.05em;">Number Not Available</h3>
+        <p style="color:#94a3b8;font-size:.8rem;line-height:1.6;margin-bottom:.5rem;">No numbers are available in this range right now.</p>
+        <p style="color:#64748b;font-size:.75rem;line-height:1.5;margin-bottom:1.5rem;">Please try selecting a different country or range and try again.</p>
+        <button id="noNumClose" style="background:linear-gradient(135deg,#00d2ff,#3a7bd5);color:#020b18;border:none;padding:.75rem 2rem;border-radius:.75rem;font-weight:900;cursor:pointer;font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;width:100%;">Try Another Range</button>
+      </div>`;
+    document.body.appendChild(m);
+    m.querySelector('#noNumClose')?.addEventListener('click', () => m.remove());
+    m.addEventListener('click', (e) => { if (e.target === m) m.remove(); });
+    // Auto-dismiss after 5s
+    setTimeout(() => { m.style.opacity = '0'; m.style.transition = 'opacity .3s'; setTimeout(() => m.remove(), 300); }, 5000);
   }
 
   formatRelative(iso) {
@@ -279,18 +334,9 @@ export class NumberSelection {
     const st = numberStatus(n);
     if (st === 'successful') {
       const message = n.smsMessage || '';
+      // Detect platform from SMS content (most reliable source)
       const platform = detectServiceLabel(message) || 'Verification';
-      const meta = appIconMeta(platform);
-      return `
-        <div class="flex items-center gap-2 p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 max-w-xs shadow-lg shadow-emerald-500/5 animate-pulse-slow">
-          <div class="w-6 h-6 rounded flex items-center justify-center text-white text-[10px] shrink-0" style="background: ${meta.bg}">
-            <i class="${meta.icon}"></i>
-          </div>
-          <div class="min-w-0 flex-1">
-            <p class="text-[9px] font-bold text-emerald-400 uppercase tracking-widest leading-none mb-0.5">${platform}</p>
-            <p class="text-[11px] text-gray-300 truncate leading-tight font-medium">${this.esc(message)}</p>
-          </div>
-        </div>`;
+      return `<span class="text-emerald-400 text-xs font-medium">${this.esc(platform)} <span class="text-gray-400 font-normal">Your verification code is</span> <span class="text-white font-black font-mono">****</span></span>`;
     }
     if (st === 'failed') {
       return '<span class="text-red-400 text-xs">—</span>';

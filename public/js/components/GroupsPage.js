@@ -3,7 +3,6 @@
  */
 
 import { UserLayout } from '../utils/UserLayout.js';
-import { showToast } from '../utils/uiHelpers.js';
 
 export class GroupsPage {
   constructor() {
@@ -55,10 +54,28 @@ export class GroupsPage {
     const data = await res.json();
     if (data.success) {
       this.myGroupIds.add(id);
-      showToast('Successfully joined this group! 🎉');
       this.render();
+      // Show success toast
+      const g = this.groups.find(x => x.id === id);
+      this._showToast(`✅ You joined ${g?.name || 'the group'}!`);
     }
     else alert(data.error?.message || 'Failed');
+  }
+
+  _showToast(msg) {
+    const t = document.createElement('div');
+    t.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(20px);background:linear-gradient(135deg,#00d2ff,#3a7bd5);color:#020b18;font-weight:800;font-size:.8rem;padding:.65rem 1.5rem;border-radius:9999px;opacity:0;pointer-events:none;transition:all .3s;z-index:9999;white-space:nowrap;';
+    t.textContent = msg;
+    document.body.appendChild(t);
+    requestAnimationFrame(() => {
+      t.style.opacity = '1';
+      t.style.transform = 'translateX(-50%) translateY(0)';
+    });
+    setTimeout(() => {
+      t.style.opacity = '0';
+      t.style.transform = 'translateX(-50%) translateY(20px)';
+      setTimeout(() => t.remove(), 300);
+    }, 2500);
   }
 
   async leaveGroup(id) {
@@ -123,29 +140,32 @@ export class GroupsPage {
 
     return `
       <div class="max-w-2xl mx-auto">
-        <!-- Top bar/back link -->
-        <div class="flex border-b border-white/10 mb-0 sticky top-[57px] z-30 bg-dark px-4 py-3 items-center justify-between">
-          <p class="text-xs font-black text-white uppercase tracking-widest">Groups</p>
-          <a href="/post" class="flex items-center text-xs text-gray-500 hover:text-primary transition-all">
-            <i class="fas fa-arrow-left mr-1"></i> Back to Feed
+        <!-- Top tabs -->
+        <div class="flex border-b border-white/10 mb-0 sticky top-[57px] z-30 bg-dark">
+          <button type="button" data-main-tab="groups" class="flex-1 py-3 text-xs font-bold uppercase tracking-wide border-b-2 ${this.mainTab === 'groups' ? 'text-primary border-primary' : 'text-gray-500 border-transparent'}">Groups</button>
+          <button type="button" data-main-tab="announcements" class="flex-1 py-3 text-xs font-bold uppercase tracking-wide border-b-2 ${this.mainTab === 'announcements' ? 'text-primary border-primary' : 'text-gray-500 border-transparent'}">Announcements</button>
+          <a href="/post" class="flex items-center px-4 text-xs text-gray-500 hover:text-primary border-b-2 border-transparent">
+            <i class="fas fa-arrow-left mr-1"></i> Feed
           </a>
         </div>
 
-        <!-- My Groups -->
-        ${myGroups.length ? `
-          <div class="px-4 pt-5 pb-2">
-            <p class="text-xs font-black text-gray-400 uppercase tracking-widest">My Groups</p>
-          </div>
-          ${myGroups.map((g) => this.renderGroupRow(g, true)).join('')}
-        ` : ''}
+        ${this.mainTab === 'announcements' ? this.renderAnnouncements() : `
+          <!-- My Groups -->
+          ${myGroups.length ? `
+            <div class="px-4 pt-5 pb-2">
+              <p class="text-xs font-black text-gray-400 uppercase tracking-widest">My Groups</p>
+            </div>
+            ${myGroups.map((g) => this.renderGroupRow(g, true)).join('')}
+          ` : ''}
 
-        <!-- Discover -->
-        <div class="px-4 pt-5 pb-2 flex items-center justify-between">
-          <p class="text-xs font-black text-gray-400 uppercase tracking-widest">Groups You Might Like</p>
-        </div>
-        ${discover.length
-          ? discover.map((g) => this.renderGroupRow(g, false)).join('')
-          : '<div class="p-8 text-center text-gray-500 text-sm">No groups available</div>'}
+          <!-- Discover -->
+          <div class="px-4 pt-5 pb-2 flex items-center justify-between">
+            <p class="text-xs font-black text-gray-400 uppercase tracking-widest">Groups You Might Like</p>
+          </div>
+          ${discover.length
+            ? discover.map((g) => this.renderGroupRow(g, false)).join('')
+            : '<p class="text-center text-gray-600 text-sm py-8">No groups available</p>'}
+        `}
       </div>`;
   }
 
@@ -196,22 +216,31 @@ export class GroupsPage {
     const app = document.getElementById('app');
     if (!app) return;
 
+    // Build same mobile bottom nav as UserLayout for consistency
+    const { USER_NAV } = { USER_NAV: [
+      { id: 'dashboard', label: 'Dashboard', href: '/dashboard', icon: 'home' },
+      { id: 'numbers',   label: 'Number',    href: '/numbers',   icon: 'mobile-alt' },
+      { id: 'live-feed', label: 'Live SMS',  href: '/live-feed', icon: 'satellite-dish' },
+      { id: 'post',      label: 'Movement',  href: '/post',      icon: 'bolt' }
+    ]};
+
     const chatHtml = `
-      <div class="flex flex-col bg-dark" id="groupChatView">
-        <!-- Header -->
-        <div class="flex items-center gap-3 px-4 py-3 border-b border-white/10 bg-dark sticky top-0 z-30">
-          <button type="button" id="backToGroups" class="text-gray-400 hover:text-white mr-1">
-            <i class="fas fa-arrow-left"></i>
+      <div class="flex flex-col h-screen bg-dark" id="groupChatView">
+        <!-- Header — same style as UserLayout topbar -->
+        <header class="flex items-center gap-3 px-4 py-3 border-b border-white/10 sticky top-0 z-30"
+                style="background:rgba(2,11,24,0.92);backdrop-filter:blur(16px);">
+          <button type="button" id="backToGroups" class="w-8 h-8 rounded-xl bg-white/5 flex items-center justify-center text-gray-400 hover:text-white transition-all shrink-0">
+            <i class="fas fa-arrow-left text-sm"></i>
           </button>
-          <div class="w-9 h-9 rounded-xl bg-primary/20 flex items-center justify-center text-primary font-black">
+          <div class="w-9 h-9 rounded-xl bg-primary/20 flex items-center justify-center text-primary font-black shrink-0">
             ${(g?.name || 'G').charAt(0).toUpperCase()}
           </div>
           <div class="flex-1 min-w-0">
             <p class="font-bold text-white text-sm truncate">${this.esc(g?.name || 'Group')}</p>
             <p class="text-[10px] text-gray-500">${g?.memberCount || 0} members · ${g?.activeCount || 0} online</p>
           </div>
-          <button type="button" id="leaveGroupBtn" class="text-xs text-red-400 font-bold uppercase hover:text-red-300 transition-all">Leave</button>
-        </div>
+          <button type="button" id="leaveGroupBtn" class="text-xs text-red-400 font-bold uppercase hover:text-red-300 transition-all px-2 py-1 rounded-lg hover:bg-red-500/10">Leave</button>
+        </header>
 
         <!-- Messages -->
         <div id="groupMsgBox" class="flex-1 overflow-y-auto px-4 py-3 space-y-3 pb-4">
@@ -230,7 +259,7 @@ export class GroupsPage {
           </div>` : ''}
 
         <!-- Input -->
-        <div class="px-3 py-3 border-t border-white/10 bg-dark flex items-end gap-2">
+        <div class="px-3 py-3 border-t border-white/10 flex items-end gap-2" style="background:rgba(2,11,24,0.92);">
           <label class="w-9 h-9 flex items-center justify-center rounded-xl bg-white/5 cursor-pointer text-gray-400 hover:text-primary transition-all shrink-0">
             <i class="fas fa-image text-sm"></i>
             <input type="file" id="groupImage" accept="image/*" class="hidden">
@@ -240,15 +269,18 @@ export class GroupsPage {
             <i class="fas fa-paper-plane text-sm"></i>
           </button>
         </div>
+
+        <!-- Mobile bottom nav — same as UserLayout -->
+        <nav class="mobile-bottom-nav md:hidden" style="position:relative;bottom:auto;">
+          <a href="/dashboard" class="mobile-nav-item"><i class="fas fa-home mobile-nav-icon"></i><span class="mobile-nav-label">Dashboard</span></a>
+          <a href="/numbers" class="mobile-nav-item"><i class="fas fa-mobile-alt mobile-nav-icon"></i><span class="mobile-nav-label">Number</span></a>
+          <a href="/live-feed" class="mobile-nav-item"><i class="fas fa-satellite-dish mobile-nav-icon"></i><span class="mobile-nav-label">Live SMS</span></a>
+          <a href="/post" class="mobile-nav-item is-active"><i class="fas fa-bolt mobile-nav-icon"></i><span class="mobile-nav-label">Movement</span></a>
+        </nav>
       </div>`;
 
-    // Render group chat inside standard shell
-    UserLayout.renderShell({
-      activeId: 'groups',
-      title: 'Movement',
-      bodyHtml: chatHtml,
-      user: this.user
-    });
+    // Replace app content directly for full-screen chat
+    app.innerHTML = chatHtml;
     this._bindChatEvents();
 
     // Scroll to bottom
@@ -286,6 +318,9 @@ export class GroupsPage {
   }
 
   _bindListEvents() {
+    document.querySelectorAll('[data-main-tab]').forEach((btn) => {
+      btn.addEventListener('click', () => { this.mainTab = btn.dataset.mainTab; this.render(); });
+    });
     document.querySelectorAll('.group-row').forEach((row) => {
       row.addEventListener('click', async (e) => {
         if (e.target.closest('.join-btn')) return;
@@ -328,7 +363,7 @@ export class GroupsPage {
   async init() {
     this.user = await UserLayout.ensureAuth();
     if (!this.user) return;
-    await this.loadGroups();
+    await Promise.all([this.loadGroups(), this.loadAnnouncements()]);
     this.render();
   }
 }

@@ -57,6 +57,7 @@ export class AgentLayout {
       </motion.div>`.replaceAll('<motion.', '<').replaceAll('</motion.', '</');
 
     UserLayout.bindProfileMenu();
+    window.GURUBIT_THEME.updateButtons();
 
     const sidebar = document.getElementById('agentSidebar');
     const backdrop = document.getElementById('agentSidebarBackdrop');

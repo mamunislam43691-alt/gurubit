@@ -106,6 +106,7 @@ export class AdminLayout {
       await fetch('/api/admin/logout', { method: 'POST' });
       window.location.href = '/admin';
     });
+    window.GURUBIT_THEME.updateButtons();
     const adminSidebar = document.getElementById('adminSidebar');
     const adminBackdrop = document.getElementById('adminSidebarBackdrop');
     const closeAdminNav = () => {

@@ -6,7 +6,7 @@
 
 import { UserLayout } from '../utils/UserLayout.js';
 import { AgentLayout } from '../utils/AgentLayout.js';
-import { bindCopyCells, detectServiceLabel, appIconMeta } from '../utils/uiHelpers.js';
+import { bindCopyCells, detectServiceLabel } from '../utils/uiHelpers.js';
 
 export class LiveSMSFeed {
   constructor() {
@@ -56,19 +56,6 @@ export class LiveSMSFeed {
       ? new Date(row.createdAt || row.receivedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })
       : '';
 
-    const meta = appIconMeta(service);
-    const smsHtml = `
-      <div class="flex items-center gap-2 p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 max-w-xs shadow-lg shadow-emerald-500/5 animate-pulse-slow">
-        <div class="w-6 h-6 rounded flex items-center justify-center text-white text-[10px] shrink-0" style="background: ${meta.bg}">
-          <i class="${meta.icon}"></i>
-        </div>
-        <div class="min-w-0 flex-1">
-          <p class="text-[9px] font-bold text-emerald-400 uppercase tracking-widest leading-none mb-0.5">${service}</p>
-          <button type="button" class="copy-line text-left text-[11px] text-gray-300 truncate leading-tight font-medium w-full" data-copy="${message.replace(/"/g, '&quot;')}" data-copy-msg="SMS copied!">${message || '—'}</button>
-          ${time ? `<p class="text-[8px] text-gray-500 mt-0.5 leading-none">${time} · ${date}</p>` : ''}
-        </div>
-      </div>`;
-
     return `
       <tr class="live-sms-row">
         <td>
@@ -82,7 +69,13 @@ export class LiveSMSFeed {
             : '<span class="text-gray-500 text-xs font-mono">——</span>'
           }
         </td>
-        <td>${smsHtml}</td>
+        <td>
+          <div class="flex flex-col gap-0.5">
+            <span class="sms-service-label">${service}</span>
+            <button type="button" class="copy-line text-gray-300 text-xs text-left leading-relaxed" data-copy="${message.replace(/"/g, '&quot;')}" data-copy-msg="SMS copied!">${message || '—'}</button>
+            ${time ? `<span class="sms-time">${time} · ${date}</span>` : ''}
+          </div>
+        </td>
       </tr>`;
   }
 
@@ -95,17 +88,50 @@ export class LiveSMSFeed {
         </div>`;
     }
 
+    const rows = this.messages;
+
+    // Mobile card view
+    const mobileCards = rows.length
+      ? rows.map((row) => {
+          const service = row.service || row.platformName || detectServiceLabel(row.message || row.smsMessage || '') || 'Verification';
+          const message = row.message || row.smsMessage || row.content || '';
+          const otp = row.otpCode || row.otp || null;
+          const num = row.phoneNumber || '+•• ••• •••';
+          const country = row.country || row.countryName || '—';
+          const time = row.createdAt || row.receivedAt
+            ? new Date(row.createdAt || row.receivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            : '';
+          return `
+            <div class="px-4 py-3 border-b border-white/5 hover:bg-white/[0.02] transition-all">
+              <div class="flex items-center justify-between gap-2 mb-1.5">
+                <button type="button" class="copy-line copy-line--phone font-mono text-primary text-sm font-black" data-copy="${num}" data-copy-msg="Number copied!">${num}</button>
+                ${otp ? `<button type="button" class="otp-copy-btn copy-line text-sm" data-copy="${otp}" data-copy-msg="OTP copied!">${otp}</button>` : ''}
+              </div>
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="sms-service-label">${service}</span>
+                <span class="text-gray-500 text-[10px]">${country}</span>
+                ${time ? `<span class="sms-time ml-auto">${time}</span>` : ''}
+              </div>
+              ${message ? `<button type="button" class="copy-line text-gray-400 text-xs text-left leading-relaxed mt-1 block w-full truncate" data-copy="${message.replace(/"/g, '&quot;')}" data-copy-msg="SMS copied!">${message}</button>` : ''}
+            </div>`;
+        }).join('')
+      : `<div class="p-12 text-center">
+          <i class="fas fa-satellite-dish text-3xl text-gray-600 mb-3 block"></i>
+          <p class="text-gray-500 text-sm">Waiting for live SMS...</p>
+        </div>`;
+
     return `
       <div class="glass-card live-feed-panel overflow-hidden border-primary/15">
         <div class="flex items-center justify-between px-5 py-3 border-b border-white/5">
           <div class="flex items-center gap-2">
             <span class="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
             <span class="text-xs font-bold text-green-400 uppercase tracking-widest">Live</span>
-            <span class="text-xs text-gray-500">${this.messages.length} message${this.messages.length !== 1 ? 's' : ''}</span>
+            <span class="text-xs text-gray-500" id="liveFeedCount">${rows.length} message${rows.length !== 1 ? 's' : ''}</span>
           </div>
           <span class="text-xs text-gray-600">Tap to copy</span>
         </div>
-        <div class="overflow-x-auto">
+        <!-- Desktop table -->
+        <div class="hidden md:block overflow-x-auto">
           <table class="live-sms-table w-full text-left">
             <thead>
               <tr>
@@ -117,18 +143,21 @@ export class LiveSMSFeed {
               </tr>
             </thead>
             <tbody id="liveFeedTbody">
-              ${this.messages.length
-                ? this.messages.map(r => this.renderRow(r)).join('')
+              ${rows.length
+                ? rows.map(r => this.renderRow(r)).join('')
                 : `<tr><td colspan="5" class="p-12 text-center">
                     <div class="flex flex-col items-center gap-3">
                       <i class="fas fa-satellite-dish text-3xl text-gray-600"></i>
                       <p class="text-gray-500 text-sm">Waiting for live SMS...</p>
-                      <p class="text-gray-600 text-xs">Messages will appear here as they arrive from providers</p>
                     </div>
                   </td></tr>`
               }
             </tbody>
           </table>
+        </div>
+        <!-- Mobile cards -->
+        <div class="md:hidden" id="liveFeedCards">
+          ${mobileCards}
         </div>
       </div>`;
   }
@@ -210,8 +239,10 @@ export class LiveSMSFeed {
     this.messages.unshift(msg);
     if (this.messages.length > 100) this.messages.pop();
 
-    // Fast DOM update — just prepend row without full re-render
+    // Fast DOM update — prepend row (desktop) and card (mobile) without full re-render
     const tbody = document.getElementById('liveFeedTbody');
+    const cardsEl = document.getElementById('liveFeedCards');
+
     if (tbody) {
       // Remove "no messages" placeholder if present
       const placeholder = tbody.querySelector('td[colspan]');
@@ -221,13 +252,45 @@ export class LiveSMSFeed {
       tr.className = 'live-sms-row animate-fade-in';
       tr.innerHTML = this.renderRow(msg).replace(/<tr[^>]*>/, '').replace('</tr>', '');
       tbody.prepend(tr);
-
-      // Update count
-      const countEl = document.querySelector('.live-feed-panel .text-gray-500');
-      if (countEl) countEl.textContent = `${this.messages.length} message${this.messages.length !== 1 ? 's' : ''}`;
-
       bindCopyCells(tbody);
-    } else {
+    }
+
+    if (cardsEl) {
+      // Remove "no messages" placeholder
+      const placeholder = cardsEl.querySelector('.p-12');
+      if (placeholder) cardsEl.innerHTML = '';
+
+      const service = msg.service || msg.platformName || detectServiceLabel(msg.message || msg.smsMessage || '') || 'Verification';
+      const message = msg.message || msg.smsMessage || msg.content || '';
+      const otp = msg.otpCode || msg.otp || null;
+      const num = msg.phoneNumber || '+•• ••• •••';
+      const country = msg.country || msg.countryName || '—';
+      const time = msg.createdAt || msg.receivedAt
+        ? new Date(msg.createdAt || msg.receivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : '';
+
+      const card = document.createElement('div');
+      card.className = 'px-4 py-3 border-b border-white/5 hover:bg-white/[0.02] transition-all animate-fade-in';
+      card.innerHTML = `
+        <div class="flex items-center justify-between gap-2 mb-1.5">
+          <button type="button" class="copy-line copy-line--phone font-mono text-primary text-sm font-black" data-copy="${num}" data-copy-msg="Number copied!">${num}</button>
+          ${otp ? `<button type="button" class="otp-copy-btn copy-line text-sm" data-copy="${otp}" data-copy-msg="OTP copied!">${otp}</button>` : ''}
+        </div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="sms-service-label">${service}</span>
+          <span class="text-gray-500 text-[10px]">${country}</span>
+          ${time ? `<span class="sms-time ml-auto">${time}</span>` : ''}
+        </div>
+        ${message ? `<button type="button" class="copy-line text-gray-400 text-xs text-left leading-relaxed mt-1 block w-full truncate" data-copy="${message.replace(/"/g, '&quot;')}" data-copy-msg="SMS copied!">${message}</button>` : ''}`;
+      cardsEl.prepend(card);
+      bindCopyCells(cardsEl);
+    }
+
+    // Update count
+    const countEl = document.getElementById('liveFeedCount');
+    if (countEl) countEl.textContent = `${this.messages.length} message${this.messages.length !== 1 ? 's' : ''}`;
+
+    if (!tbody && !cardsEl) {
       this.render();
     }
   }

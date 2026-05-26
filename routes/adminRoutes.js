@@ -1055,7 +1055,6 @@ router.get('/range-live', verifyAdmin, async (req, res) => {
     res.status(500).json({ success: false, error: { message: err.message } });
   }
 });
-/**
  * Rank users by successful OTPs
  */
 router.get('/leaderboard', verifyAdmin, async (req, res) => {

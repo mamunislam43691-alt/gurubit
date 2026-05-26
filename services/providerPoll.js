@@ -117,36 +117,11 @@ function startRetryTracker(phoneNumber, parsed, wss) {
   retryTrackers.set(phoneNumber, tracker);
 }
 
-// ─── Auto Range Selector & Self-Healing Bot ─────────────────────────────────
+// ─── Auto Range Selector ────────────────────────────────────────────────────
+// Every 2 hours: fetch CLI ranges, pick the one with most OTPs, store as active range
+// Map: providerId → { rangeName, selectedAt, otpCount }
 const activeRanges = new Map();
-const exhaustedRanges = new Map(); // "providerId:rangeName" -> timestamp of exhaustion
-const providerRangesCache = new Map(); // providerId -> Array of ranges fetched from API
 const RANGE_REFRESH_MS = 2 * 60 * 60 * 1000; // 2 hours
-
-function isRangeExhausted(providerId, rangeName) {
-  const key = `${providerId}:${rangeName}`;
-  const exhaustedTime = exhaustedRanges.get(key);
-  if (!exhaustedTime) return false;
-  
-  // Cooldown period: 10 minutes. After 10 mins, try it again in case it got numbers.
-  if (Date.now() - exhaustedTime > 10 * 60 * 1000) {
-    exhaustedRanges.delete(key);
-    return false;
-  }
-  return true;
-}
-
-function markRangeExhausted(providerId, rangeName) {
-  const key = `${providerId}:${rangeName}`;
-  exhaustedRanges.set(key, Date.now());
-  console.log(`⚠️  [Range Exhausted] Range "${rangeName}" marked as exhausted for provider "${providerId}". Cooldown started.`);
-  
-  // Immediately trigger a range re-evaluation to switch to another non-exhausted range
-  const provider = providerStore.list().find(p => p.id === providerId);
-  if (provider) {
-    refreshBestRange(provider).catch(() => {});
-  }
-}
 
 async function refreshBestRange(provider) {
   try {
@@ -160,38 +135,27 @@ async function refreshBestRange(provider) {
     const ranges = body.data || [];
     if (ranges.length === 0) return;
 
-    // Cache the list of ranges
-    providerRangesCache.set(provider.id, ranges);
-
-    // Pick range with highest count (excluding exhausted ones)
-    let best = null;
+    // Pick range with highest OTP count (or highest number count as fallback)
+    let best = ranges[0];
     for (const r of ranges) {
-      if (isRangeExhausted(provider.id, r.name)) {
-        continue; // Skip ranges marked as exhausted
-      }
-      if (!best || (r.count || 0) > (best.count || 0)) {
-        best = r;
-      }
-    }
-
-    // Fallback if all ranges are marked as exhausted
-    if (!best) {
-      best = ranges[0];
+      const rScore = (r.otpCount || r.count || 0);
+      const bScore = (best.otpCount || best.count || 0);
+      if (rScore > bScore) best = r;
     }
 
     const prev = activeRanges.get(provider.id);
     activeRanges.set(provider.id, {
       rangeName: best.name,
       selectedAt: Date.now(),
-      otpCount: best.count || 0
+      otpCount: best.otpCount || best.count || 0
     });
 
     if (!prev || prev.rangeName !== best.name) {
-      console.log(`\n🔄 [Auto Range Bot] "${provider.serviceName}" → Selected Good Range: ${best.name} (${best.count || '?'} OTPs)\n`);
+      console.log(`\n🔄 [Auto Range] "${provider.serviceName}" → Best range: ${best.name} (${best.otpCount || best.count || '?'} OTPs)\n`);
     }
   } catch (err) {
     if (process.env.DEBUG_POLLING === 'true') {
-      console.warn(`[Auto Range Bot] Failed to refresh range for ${provider.serviceName}:`, err.message);
+      console.warn(`[Auto Range] Failed to refresh range for ${provider.serviceName}:`, err.message);
     }
   }
 }
@@ -199,12 +163,10 @@ async function refreshBestRange(provider) {
 async function maybeRefreshRanges() {
   const providers = providerStore.list().filter(p => p.providerType === 'integrated');
   for (const provider of providers) {
-    // If admin set a manual range but it's exhausted, we must refresh/auto-select
-    const adminRangeExhausted = provider.cliRange && isRangeExhausted(provider.id, provider.cliRange);
-    
-    // Auto-refresh auto-selected best range if expired
+    // Skip auto-refresh if admin has set a manual CLI range
+    if (provider.cliRange) continue;
     const current = activeRanges.get(provider.id);
-    const needsRefresh = !current || (Date.now() - current.selectedAt) > RANGE_REFRESH_MS || adminRangeExhausted;
+    const needsRefresh = !current || (Date.now() - current.selectedAt) > RANGE_REFRESH_MS;
     if (needsRefresh) {
       await refreshBestRange(provider);
     }
@@ -213,31 +175,10 @@ async function maybeRefreshRanges() {
 
 function getActiveRangeName(providerId) {
   const provider = providerStore.list().find(p => p.id === providerId);
-  
-  // 1. If admin forced a range and it is NOT exhausted, use it
-  if (provider?.cliRange) {
-    if (!isRangeExhausted(providerId, provider.cliRange)) {
-      return provider.cliRange;
-    }
-    console.log(`⚠️ [Range Fallback] Admin-forced range "${provider.cliRange}" is exhausted. Bot is falling back to auto-selected range.`);
-  }
-  
-  // 2. Otherwise use the auto-selected best range if NOT exhausted
-  const autoRange = activeRanges.get(providerId);
-  if (autoRange && !isRangeExhausted(providerId, autoRange.rangeName)) {
-    return autoRange.rangeName;
-  }
-  
-  // 3. Fallback: find first non-exhausted range from cache
-  const cached = providerRangesCache.get(providerId) || [];
-  for (const r of cached) {
-    if (!isRangeExhausted(providerId, r.name)) {
-      return r.name;
-    }
-  }
-  
-  // 4. Ultimate fallback to the autoRange if absolutely everything is exhausted
-  return autoRange?.rangeName || null;
+  // If admin set a manual CLI range, always use that
+  if (provider?.cliRange) return provider.cliRange;
+  // Otherwise use auto-selected best range
+  return activeRanges.get(providerId)?.rangeName || null;
 }
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -854,4 +795,4 @@ function getProviderStatuses() {
   return { ...connectionStatuses };
 }
 
-module.exports = { pollOnce, pollIntegratedAPI, startProviderPoller, getProviderStatuses, getActiveRangeName, pollStats, markRangeExhausted };
+module.exports = { pollOnce, pollIntegratedAPI, startProviderPoller, getProviderStatuses, getActiveRangeName, pollStats };

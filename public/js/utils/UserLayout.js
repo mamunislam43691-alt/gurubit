@@ -76,6 +76,10 @@ export class UserLayout {
                 <span>${n.label}</span>
               </a>
             `).join('')}
+            <a href="/faq" class="user-nav-link ${activeId === 'faq' ? 'is-active' : ''}">
+              <i class="fas fa-question-circle w-5 text-center"></i>
+              <span>Help Center</span>
+            </a>
           </nav>
           <div class="p-4 border-t border-white/5">
             <p class="text-[10px] text-gray-600 truncate">${user?.name || ''}</p>
@@ -123,5 +127,6 @@ export class UserLayout {
       </div>`;
 
     UserLayout.bindProfileMenu();
+    window.GURUBIT_THEME.updateButtons();
   }
 }

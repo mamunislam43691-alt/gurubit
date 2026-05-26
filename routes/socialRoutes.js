@@ -255,12 +255,16 @@ router.post('/groups/:id/messages', verifyAuth, async (req, res) => {
 
 const ANN_FS = () => db.collection(ANN_COL);
 
-router.get('/announcements', verifyAuth, async (req, res) => {
-  const snap = await ANN_FS().get();
-  const items = [];
-  snap.forEach(doc => items.push(doc.data()));
-  items.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  res.json({ success: true, announcements: items });
+router.get('/announcements', async (req, res) => {
+  try {
+    const snap = await ANN_FS().get();
+    const items = [];
+    snap.forEach(doc => items.push(doc.data()));
+    items.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    res.json({ success: true, announcements: items });
+  } catch (e) {
+    res.json({ success: true, announcements: [] });
+  }
 });
 
 router.post('/announcements', verifyAuth, async (req, res) => {

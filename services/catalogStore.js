@@ -121,6 +121,15 @@ async function clearServerData(serverId) {
 }
 
 async function addServerNumbers(serverId, raw) {
+  // Always reload from Firestore first to avoid overwriting with stale cache
+  try {
+    const doc = await serversCol().doc(serverId).get();
+    if (doc.exists) {
+      const fresh = doc.data();
+      _servers.set(serverId, fresh);
+    }
+  } catch (_) {}
+
   const s = _servers.get(serverId);
   if (!s) return null;
   if (!s.numbers) s.numbers = [];
@@ -129,17 +138,43 @@ async function addServerNumbers(serverId, raw) {
     : String(raw || '').split(/[\n,;]+/).map(x => normalizePhoneInput(x)).filter(Boolean);
   const added = [];
   lines.forEach(phoneNumber => {
-    if (!s.numbers.includes(phoneNumber)) { s.numbers.push(phoneNumber); added.push(phoneNumber); }
+    const normalized = normalizePhoneInput(phoneNumber);
+    if (normalized && !s.numbers.includes(normalized)) {
+      s.numbers.push(normalized);
+      added.push(normalized);
+    }
   });
   s.availableNumbers = s.numbers.length;
   await serversCol().doc(serverId).set(s);
   _servers.set(serverId, s);
+  console.log(`[CatalogStore] Added ${added.length} numbers to server "${s.name}" (${serverId}). Total: ${s.numbers.length}`);
   return { server: { ...s, numbers: [...s.numbers] }, added };
 }
 
-async function takeNextPhoneFromServer(serverId) {
+async function takeNextPhoneFromServer(serverId, consume = true) {
+  // Always reload from Firestore to get latest numbers (avoids stale cache)
+  try {
+    const doc = await serversCol().doc(serverId).get();
+    if (doc.exists) {
+      const fresh = doc.data();
+      _servers.set(serverId, fresh);
+    }
+  } catch (_) {}
+
   const s = _servers.get(serverId);
   if (!s || !s.numbers?.length) return null;
+
+  if (!consume) {
+    // Rotate: return first number without removing it
+    const phoneNumber = s.numbers[0];
+    // Move to end for round-robin
+    s.numbers.push(s.numbers.shift());
+    s.availableNumbers = s.numbers.length;
+    await serversCol().doc(serverId).set(s);
+    _servers.set(serverId, s);
+    return phoneNumber;
+  }
+
   const phoneNumber = s.numbers.shift();
   s.availableNumbers = s.numbers.length;
   await serversCol().doc(serverId).set(s);
@@ -161,7 +196,8 @@ async function returnNumberToServer(serverId, phoneNumber) {
 }
 
 function countAvailable(serverId) {
-  return _servers.get(serverId)?.numbers?.length || 0;
+  const s = _servers.get(serverId);
+  return s?.numbers?.length || s?.availableNumbers || 0;
 }
 
 // ── Platforms ─────────────────────────────────────────────────────────────────

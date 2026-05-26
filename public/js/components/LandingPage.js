@@ -74,10 +74,10 @@ export class LandingPage {
                             <a href="/live-feed" class="hover:text-primary">Live Feed</a>
                             <a href="/faq" class="hover:text-primary">Help</a>
                         </motion.div>
-                        <motion.div class="flex items-center gap-3">
+                        <div class="flex items-center gap-3">
                             <button id="navLoginBtn" class="px-5 py-2.5 text-xs font-black uppercase tracking-widest border border-white/15 rounded-lg text-gray-200 hover:border-primary/50 hover:text-white transition-all">Login</button>
                             <button id="navSignupBtn" class="neon-btn px-5 py-2.5 text-xs uppercase tracking-widest">Sign up</button>
-                        </motion.div>
+                        </div>
                     </motion.div>
                 </nav>
 
@@ -258,6 +258,8 @@ export class LandingPage {
                 auth.init();
             });
         };
+
+        window.GURUBIT_THEME.updateButtons();
 
         document.getElementById('navLoginBtn')?.addEventListener('click', () => openModal('login'));
         document.getElementById('navSignupBtn')?.addEventListener('click', () => openModal('signup'));

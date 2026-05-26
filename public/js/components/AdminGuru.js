@@ -260,7 +260,7 @@ export class AdminGuru {
 
   renderBody() {
     const tabs = [
-      { id: 'posts', label: 'Posts', icon: 'comment-dots' },
+      { id: 'posts', label: 'Movement', icon: 'bolt' },
       { id: 'groups', label: 'Groups', icon: 'users' },
       { id: 'announcements', label: 'Announcements', icon: 'bullhorn' },
       { id: 'ai', label: 'AI Mod', icon: 'robot' }
