@@ -110,6 +110,74 @@ export class AdminGuru {
     await this.load();
   }
 
+  async editGroup(id) {
+    const form = document.getElementById(`edit-group-${id}`);
+    if (form) form.classList.toggle('hidden');
+  }
+
+  async saveGroup(id) {
+    const name = document.getElementById(`edit-name-${id}`)?.value?.trim();
+    const description = document.getElementById(`edit-desc-${id}`)?.value?.trim();
+    const logoFile = document.getElementById(`edit-logo-${id}`)?.files?.[0];
+    let icon = null;
+    if (logoFile) icon = await this.fileToDataUrl(logoFile);
+    const body = { name, description };
+    if (icon) body.icon = icon;
+    const res = await fetch(`/api/admin/guru/groups/${id}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (data.success) { await this.load(); }
+    else alert(data.error?.message || 'Failed');
+  }
+
+  async viewGroupChat(id) {
+    const chatDiv = document.getElementById(`group-chat-${id}`);
+    if (!chatDiv) return;
+    chatDiv.classList.toggle('hidden');
+    if (!chatDiv.classList.contains('hidden')) {
+      await this.loadGroupMessages(id);
+    }
+  }
+
+  async loadGroupMessages(groupId) {
+    const container = document.getElementById(`group-msgs-${groupId}`);
+    if (!container) return;
+    const res = await fetch(`/api/social/groups/${groupId}/messages`);
+    const data = await res.json();
+    if (data.success && data.messages.length) {
+      container.innerHTML = data.messages.map(m => `
+        <div class="flex items-start gap-2">
+          <div class="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-primary text-[9px] font-black shrink-0">
+            ${(m.userName||'?').charAt(0).toUpperCase()}
+          </div>
+          <div class="flex-1 bg-white/5 rounded-xl px-3 py-1.5">
+            <p class="text-[10px] font-bold text-primary">${this.esc(m.userName)}</p>
+            <p class="text-xs text-gray-300">${this.esc(m.text||'')}</p>
+          </div>
+        </div>
+      `).join('');
+    } else {
+      container.innerHTML = '<p class="text-gray-500 text-xs text-center py-4">No messages yet</p>';
+    }
+  }
+
+  async sendGroupMessage(groupId) {
+    const input = document.getElementById(`admin-msg-${groupId}`);
+    const text = input?.value?.trim();
+    if (!text) return;
+    const res = await fetch(`/api/admin/guru/groups/${groupId}/message`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text })
+    });
+    const data = await res.json();
+    if (data.success) {
+      if (input) input.value = '';
+      await this.loadGroupMessages(groupId);
+    } else alert(data.error?.message || 'Failed');
+  }
+
   async createAnnouncement() {
     const title = document.getElementById('annTitle')?.value?.trim();
     const body = document.getElementById('annBody')?.value?.trim();
@@ -204,12 +272,49 @@ export class AdminGuru {
       <!-- Groups list -->
       <div class="space-y-3">
         ${this.groups.map((g) => `
-          <div class="glass-card p-4 flex items-center justify-between gap-3">
-            <div>
-              <p class="font-bold text-white">${this.esc(g.name)}</p>
-              <p class="text-xs text-gray-400 mt-0.5">${g.memberCount || 0} members · ${g.messageCount || 0} messages · ${g.activeCount || 0} active</p>
+          <div class="glass-card p-4">
+            <div class="flex items-center justify-between gap-3 mb-3">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center text-primary font-black text-lg border border-white/10 overflow-hidden">
+                  ${g.icon ? `<img src="${g.icon}" class="w-full h-full object-cover">` : (g.name||'G').charAt(0).toUpperCase()}
+                </div>
+                <div>
+                  <p class="font-bold text-white">${this.esc(g.name)}</p>
+                  <p class="text-xs text-gray-400 mt-0.5">${g.memberCount||0} members · ${g.messageCount||0} messages · ${g.activeCount||0} active</p>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <button type="button" data-view-group="${g.id}" class="text-xs text-primary font-bold uppercase hover:underline">View Chat</button>
+                <button type="button" data-edit-group="${g.id}" data-group-name="${this.esc(g.name)}" class="text-xs text-yellow-400 font-bold uppercase hover:underline">Edit</button>
+                <button type="button" data-del-group="${g.id}" class="text-xs text-red-400 font-bold uppercase hover:underline">Delete</button>
+              </div>
             </div>
-            <button type="button" data-del-group="${g.id}" class="text-xs text-red-400 font-bold uppercase hover:underline">Delete</button>
+            <!-- Edit form (hidden by default) -->
+            <div id="edit-group-${g.id}" class="hidden border-t border-white/10 pt-3 mt-1">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
+                <input type="text" id="edit-name-${g.id}" class="input-field text-sm" value="${this.esc(g.name)}" placeholder="Group name">
+                <input type="text" id="edit-desc-${g.id}" class="input-field text-sm" value="${this.esc(g.description||'')}" placeholder="Description">
+              </div>
+              <div class="flex items-center gap-3 mb-2">
+                <label class="text-xs text-primary font-bold uppercase cursor-pointer">
+                  <i class="fas fa-image mr-1"></i> Change Logo
+                  <input type="file" id="edit-logo-${g.id}" accept="image/*" class="hidden">
+                </label>
+                ${g.icon ? `<img src="${g.icon}" class="w-8 h-8 rounded-lg object-cover border border-white/10">` : ''}
+              </div>
+              <button type="button" data-save-group="${g.id}" class="neon-btn px-4 py-1.5 text-xs uppercase">Save Changes</button>
+            </div>
+            <!-- Group messages preview -->
+            <div id="group-chat-${g.id}" class="hidden border-t border-white/10 pt-3 mt-1">
+              <div class="max-h-64 overflow-y-auto space-y-2 mb-3" id="group-msgs-${g.id}">
+                <p class="text-gray-500 text-xs text-center py-4">Loading messages...</p>
+              </div>
+              <!-- Admin send message -->
+              <div class="flex items-center gap-2">
+                <input type="text" id="admin-msg-${g.id}" class="input-field flex-1 text-sm py-2" placeholder="Send message as admin...">
+                <button type="button" data-send-group="${g.id}" class="neon-btn px-4 py-2 text-xs uppercase shrink-0">Send</button>
+              </div>
+            </div>
           </div>
         `).join('') || '<p class="text-gray-500 text-sm text-center py-8">No groups yet</p>'}
       </div>`;
@@ -303,6 +408,15 @@ export class AdminGuru {
     // Groups
     document.getElementById('createGroupBtn')?.addEventListener('click', () => this.createGroup());
     document.querySelectorAll('[data-del-group]').forEach((btn) => btn.addEventListener('click', () => this.deleteGroup(btn.dataset.delGroup)));
+    document.querySelectorAll('[data-edit-group]').forEach((btn) => btn.addEventListener('click', () => this.editGroup(btn.dataset.editGroup)));
+    document.querySelectorAll('[data-save-group]').forEach((btn) => btn.addEventListener('click', () => this.saveGroup(btn.dataset.saveGroup)));
+    document.querySelectorAll('[data-view-group]').forEach((btn) => btn.addEventListener('click', () => this.viewGroupChat(btn.dataset.viewGroup)));
+    document.querySelectorAll('[data-send-group]').forEach((btn) => btn.addEventListener('click', () => this.sendGroupMessage(btn.dataset.sendGroup)));
+    this.groups.forEach(g => {
+      document.getElementById(`admin-msg-${g.id}`)?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') this.sendGroupMessage(g.id);
+      });
+    });
 
     // Announcements
     document.getElementById('createAnnBtn')?.addEventListener('click', () => this.createAnnouncement());

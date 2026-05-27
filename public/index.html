@@ -960,13 +960,18 @@
 <body class="min-h-screen">
 
     <!-- App root -->
-    <div id="app"><div id="app-skeleton" style="min-height:100vh;background:#020b18;display:flex;align-items:center;justify-content:center;"><div style="text-align:center;"><img src="/assets/logo.svg" alt="" style="width:48px;height:48px;margin:0 auto 16px;display:block;filter:drop-shadow(0 0 12px rgba(0,210,255,0.5));"><div style="width:32px;height:32px;border:3px solid rgba(0,210,255,0.15);border-top:3px solid #00d2ff;border-radius:50%;animation:spin 0.7s linear infinite;margin:0 auto;"></div></div></div></div>
+    <div id="app"></div>
+    
+    <!-- Global helper for skeleton removal (no-op) -->
+    <script>
+      // Skeleton removed - instant page loads
+      window.removeAppSkeleton = function() {};
+    </script>
     
     <!-- Main application script -->
     <script type="module">
-        import('/js/app.js?v=8').catch(function(err) {
+        import('/js/app.js?v=9').catch(function(err) {
             console.error('App load error:', err);
-            document.getElementById('app-skeleton')?.remove();
         });
     </script>
     

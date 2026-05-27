@@ -570,6 +570,27 @@ router.get('/settings/system', verifyAdminPerm('settings'), async (req, res) => 
   });
 });
 
+/** Cache sync stats */
+router.get('/settings/cache', verifyAdminPerm('settings'), async (req, res) => {
+  try {
+    const cacheSync = require('../services/cacheSync');
+    res.json({ success: true, cache: cacheSync.getStats() });
+  } catch (error) {
+    res.status(500).json({ success: false, error: { message: error.message } });
+  }
+});
+
+/** Force cache sync */
+router.post('/settings/cache/sync', verifyAdminPerm('settings'), async (req, res) => {
+  try {
+    const cacheSync = require('../services/cacheSync');
+    const result = await cacheSync.forceSyncAll();
+    res.json({ success: true, result });
+  } catch (error) {
+    res.status(500).json({ success: false, error: { message: error.message } });
+  }
+});
+
 router.get('/settings/config', verifyAdminPerm('settings'), async (req, res) => {
   try {
     const doc = await collections.guruSettings.doc('system').get();
@@ -1182,6 +1203,43 @@ router.delete('/guru/groups/:id', verifyAdmin, async (req, res) => {
   const { collections: cols } = require('../config/firebase');
   await cols.guruGroups.doc(req.params.id).delete();
   res.json({ success: true });
+});
+
+// Admin: edit group (name, description, icon/logo)
+router.put('/guru/groups/:id', verifyAdmin, async (req, res) => {
+  try {
+    const { collections: cols } = require('../config/firebase');
+    const { name, description, icon } = req.body || {};
+    const ref = cols.guruGroups.doc(req.params.id);
+    const doc = await ref.get();
+    if (!doc.exists) return res.status(404).json({ success: false, error: { message: 'Group not found' } });
+    const patch = { updatedAt: new Date().toISOString() };
+    if (name?.trim()) patch.name = name.trim();
+    if (description !== undefined) patch.description = description || '';
+    if (icon) patch.icon = icon; // base64 logo
+    await ref.update(patch);
+    res.json({ success: true, group: { ...doc.data(), ...patch } });
+  } catch (e) {
+    res.status(500).json({ success: false, error: { message: e.message } });
+  }
+});
+
+// Admin: send message to group
+router.post('/guru/groups/:id/message', verifyAdmin, async (req, res) => {
+  try {
+    const { text } = req.body || {};
+    if (!text?.trim()) return res.status(400).json({ success: false, error: { message: 'Message required' } });
+    const session = req.adminSession;
+    const result = await postStore.addGroupMessage(req.params.id, {
+      userId: 'admin',
+      userName: session?.displayName || 'Admin',
+      text: text.trim(),
+      imageUrl: null
+    });
+    res.json({ success: true, message: result });
+  } catch (e) {
+    res.status(500).json({ success: false, error: { message: e.message } });
+  }
 });
 
 router.put('/users/:id/suspend', verifyAdmin, async (req, res) => {

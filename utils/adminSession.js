@@ -1,10 +1,16 @@
 /**
  * Admin session, roles & permissions
+ * Sessions stored in memory — persists across requests within same process
+ * On server restart, admin must re-login (this is expected behavior)
  */
 
 const crypto = require('crypto');
 
+// Persistent session store — survives within process lifetime
 const adminSessions = new Map();
+
+// Session TTL: 7 days (long enough to avoid frequent re-logins)
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 const ROLE_PERMISSIONS = {
   super_admin: ['*'],
@@ -58,13 +64,24 @@ function createAdminSession(meta) {
     username: meta.username || 'admin',
     staffId: meta.staffId || null,
     displayName: meta.displayName || meta.username || 'Admin',
-    createdAt: Date.now()
+    permissions: meta.permissions || ROLE_PERMISSIONS[meta.role || 'admin'] || [],
+    defaultPath: meta.defaultPath || getDefaultPathForRole(meta.role || 'admin'),
+    createdAt: Date.now(),
+    expiresAt: Date.now() + SESSION_TTL_MS
   });
   return token;
 }
 
 function getAdminSession(token) {
-  return token ? adminSessions.get(token) || null : null;
+  if (!token) return null;
+  const session = adminSessions.get(token);
+  if (!session) return null;
+  // Check expiry
+  if (session.expiresAt && Date.now() > session.expiresAt) {
+    adminSessions.delete(token);
+    return null;
+  }
+  return session;
 }
 
 function isAdminSessionValid(token) {

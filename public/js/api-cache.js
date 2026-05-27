@@ -8,12 +8,12 @@ class APICache {
     this.cache = new Map();
     this.timers = new Map();
     this.defaults = {
-      dashboard: 30000,        // 30 seconds
-      numbers: 10000,          // 10 seconds
-      sms: 5000,              // 5 seconds
-      user: 60000,            // 1 minute
-      countries: 3600000,     // 1 hour
-      default: 30000          // 30 seconds default
+      dashboard: 60000,        // 1 minute
+      numbers: 30000,          // 30 seconds
+      sms: 15000,              // 15 seconds
+      user: 120000,            // 2 minutes
+      countries: 7200000,      // 2 hours
+      default: 60000           // 1 minute default
     };
   }
 

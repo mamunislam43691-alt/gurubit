@@ -396,8 +396,8 @@ router.post('/numbers/generate', verifyAuth, async (req, res) => {
 
         const numberId = `num_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         const allocatedAt = new Date();
-        const expiresAt = new Date(allocatedAt.getTime() + 10 * 60 * 1000);  // 10 minutes from now
-        
+        const expiresAt = new Date(allocatedAt.getTime() + 20 * 60 * 1000); // 20 minutes
+
         const numberData = {
             id: numberId,
             userId: userId,
@@ -415,10 +415,9 @@ router.post('/numbers/generate', verifyAuth, async (req, res) => {
             allocatedAt: allocatedAt.toISOString(),
             expiresAt: expiresAt.toISOString(),
             smsMessage: null,
-            providerId,
-            providerSessionId,
-            createdAt: new Date().toISOString(),
-            expiresAt: new Date(Date.now() + 20 * 60 * 1000).toISOString()
+            providerId: providerId || null,
+            providerSessionId: providerSessionId || null,
+            createdAt: allocatedAt.toISOString()
         };
 
         // Save number to database with error handling

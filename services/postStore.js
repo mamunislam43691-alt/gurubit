@@ -86,21 +86,24 @@ async function createPost({ user, text, imageUrl, videoUrl, link, isAdminPost, i
   }
 
   const id = `post_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  // Sanitize all fields — no undefined values allowed in Firestore
   const post = {
     id,
-    userId: user.id,
+    userId: user.id || '',
     userName: user.name || 'User',
     userEmail: user.email || '',
-    isAdmin: admin,
-    isAgent: !!user.isAgent,
-    blueVerified: !!user.blueVerified,
+    isAdmin: admin === true,           // always boolean, never undefined
+    isAgent: user.isAgent === true,    // always boolean
+    blueVerified: user.blueVerified === true, // always boolean
     text: String(text || '').trim(),
-    imageUrl: imgCheck.imageUrl,
-    videoUrl: admin ? videoUrl || null : null,
-    link: admin ? link || null : null,
+    imageUrl: imgCheck.imageUrl || null,
+    videoUrl: (admin && videoUrl) ? videoUrl : null,
+    link: (admin && link) ? link : null,
     isPromoted: false,
-    isAdminPinned: !!isAdminPinned && admin,
+    isAdminPinned: (!!isAdminPinned && admin) === true,
     reportCount: 0,
+    likes: 0,
+    views: 0,
     createdAt: new Date().toISOString(),
     deleted: false
   };

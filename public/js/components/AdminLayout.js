@@ -14,7 +14,6 @@ export const ADMIN_NAV = [
   { id: 'leaderboard', label: 'Leaderboard', href: '/admin/leaderboard', icon: 'trophy', perm: 'leaderboard' },
   { id: 'withdraw', label: 'Withdraw', href: '/admin/withdrawals', icon: 'wallet', perm: 'withdraw' },
   { id: 'guru', label: 'Movement', href: '/admin/guru', icon: 'bolt', perm: 'users' },
-  { id: 'broadcast', label: 'Broadcast', href: '/admin/broadcast', icon: 'bullhorn', perm: 'broadcast' },
   { id: 'support', label: 'Support', href: '/admin/support', icon: 'headset', perm: 'support' },
   { id: 'staff', label: 'Admin Management', href: '/admin/staff', icon: 'user-shield', perm: 'staff', superOnly: true },
   { id: 'costs', label: 'Cost Manage', href: '/admin/costs', icon: 'coins', perm: 'costs' },

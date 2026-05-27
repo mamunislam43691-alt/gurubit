@@ -462,6 +462,13 @@ async function startServer() {
         console.log('✅ Providers loaded from Firestore');
       } catch (e) { console.warn('Provider load:', e.message); }
 
+      // Start cache sync scheduler - syncs with Firestore every 2-5 hours
+      try {
+        const cacheSync = require('./services/cacheSync');
+        cacheSync.startScheduler();
+        console.log('✅ Cache sync scheduler started (syncs every 2-5 hours)');
+      } catch (e) { console.warn('Cache sync:', e.message); }
+
       // Load SMTP config from Firestore (persists across restarts)
       try {
         await require('./services/emailSender').loadSmtpFromFirestore();

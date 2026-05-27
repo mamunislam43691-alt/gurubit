@@ -28,7 +28,7 @@ export async function fetchAdminMe() {
   // Return cached admin immediately
   if (cachedAdmin) return cachedAdmin;
 
-  // Deduplicate concurrent calls — with 5s timeout
+  // Deduplicate concurrent calls — with 3s timeout for faster response
   if (!_adminFetchPromise) {
     _adminFetchPromise = Promise.race([
       fetch('/api/admin/me').then(res => {
@@ -41,7 +41,7 @@ export async function fetchAdminMe() {
         }
         return null;
       }).catch(() => null),
-      new Promise(resolve => setTimeout(() => resolve(null), 5000))
+      new Promise(resolve => setTimeout(() => resolve(null), 3000))
     ]).finally(() => { _adminFetchPromise = null; });
   }
 

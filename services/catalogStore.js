@@ -126,6 +126,11 @@ async function addServerNumbers(serverId, raw) {
     const doc = await serversCol().doc(serverId).get();
     if (doc.exists) {
       const fresh = doc.data();
+      // Sanitize existing numbers
+      fresh.numbers = Array.isArray(fresh.numbers)
+        ? fresh.numbers.filter(n => n && typeof n === 'string' && n.trim().length > 0)
+        : [];
+      fresh.availableNumbers = fresh.numbers.length;
       _servers.set(serverId, fresh);
     }
   } catch (_) {}
@@ -145,40 +150,77 @@ async function addServerNumbers(serverId, raw) {
     }
   });
   s.availableNumbers = s.numbers.length;
-  await serversCol().doc(serverId).set(s);
-  _servers.set(serverId, s);
-  console.log(`[CatalogStore] Added ${added.length} numbers to server "${s.name}" (${serverId}). Total: ${s.numbers.length}`);
-  return { server: { ...s, numbers: [...s.numbers] }, added };
+
+  // Sanitize before saving to Firestore
+  const sanitized = {
+    ...s,
+    numbers: s.numbers.filter(n => n && typeof n === 'string' && n.trim().length > 0),
+    availableNumbers: s.numbers.length
+  };
+
+  await serversCol().doc(serverId).set(sanitized);
+  _servers.set(serverId, sanitized);
+  console.log(`[CatalogStore] Added ${added.length} numbers to server "${s.name}" (${serverId}). Total: ${sanitized.availableNumbers}`);
+  return { server: { ...sanitized, numbers: [...sanitized.numbers] }, added };
 }
 
 async function takeNextPhoneFromServer(serverId, consume = true) {
-  // Always reload from Firestore to get latest numbers (avoids stale cache)
+  // Always reload from Firestore to get latest numbers (avoids stale cache race condition)
   try {
     const doc = await serversCol().doc(serverId).get();
     if (doc.exists) {
       const fresh = doc.data();
+      // Sanitize: remove any undefined/null/empty entries from numbers array
+      if (Array.isArray(fresh.numbers)) {
+        fresh.numbers = fresh.numbers.filter(n => n && typeof n === 'string' && n.trim().length > 0);
+      } else {
+        fresh.numbers = [];
+      }
+      fresh.availableNumbers = fresh.numbers.length;
       _servers.set(serverId, fresh);
     }
-  } catch (_) {}
+  } catch (err) {
+    console.error('[CatalogStore] takeNextPhone reload error:', err.message);
+  }
 
   const s = _servers.get(serverId);
   if (!s || !s.numbers?.length) return null;
 
+  let phoneNumber;
+
   if (!consume) {
     // Rotate: return first number without removing it
-    const phoneNumber = s.numbers[0];
-    // Move to end for round-robin
+    phoneNumber = s.numbers[0];
     s.numbers.push(s.numbers.shift());
-    s.availableNumbers = s.numbers.length;
-    await serversCol().doc(serverId).set(s);
-    _servers.set(serverId, s);
-    return phoneNumber;
+  } else {
+    // Consume: remove from pool permanently
+    phoneNumber = s.numbers.shift();
   }
 
-  const phoneNumber = s.numbers.shift();
   s.availableNumbers = s.numbers.length;
-  await serversCol().doc(serverId).set(s);
-  _servers.set(serverId, s);
+
+  // Save back to Firestore — sanitize before saving
+  const sanitized = {
+    ...s,
+    numbers: s.numbers.filter(n => n && typeof n === 'string' && n.trim().length > 0),
+    availableNumbers: s.numbers.length
+  };
+
+  try {
+    await serversCol().doc(serverId).set(sanitized);
+    _servers.set(serverId, sanitized);
+    console.log(`[CatalogStore] ${consume ? 'Consumed' : 'Rotated'} number ${phoneNumber} from server "${s.name}". Remaining: ${sanitized.availableNumbers}`);
+  } catch (err) {
+    console.error('[CatalogStore] Failed to save after takeNextPhone:', err.message);
+    // Revert in-memory on failure
+    if (consume) {
+      sanitized.numbers.unshift(phoneNumber);
+      sanitized.availableNumbers = sanitized.numbers.length;
+      _servers.set(serverId, sanitized);
+    }
+    return null;
+  }
+
   return phoneNumber;
 }
 

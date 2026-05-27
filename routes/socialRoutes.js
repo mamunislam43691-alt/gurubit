@@ -100,6 +100,75 @@ router.post('/posts/:id/report', verifyAuth, async (req, res) => {
   res.json({ success: true, suspendedUntil });
 });
 
+// ── Likes ─────────────────────────────────────────────────────────────────────
+
+router.post('/posts/:id/like', verifyAuth, async (req, res) => {
+  try {
+    const ref = collections.guruPosts.doc(req.params.id);
+    const doc = await ref.get();
+    if (!doc.exists) return res.status(404).json({ success: false });
+
+    const likeRef = db.collection('guruLikes').doc(`${req.params.id}_${req.userId}`);
+    const likeDoc = await likeRef.get();
+
+    if (likeDoc.exists) {
+      await likeRef.delete();
+      const current = doc.data().likes || 0;
+      await ref.update({ likes: Math.max(0, current - 1) });
+      return res.json({ success: true, liked: false });
+    } else {
+      await likeRef.set({ postId: req.params.id, userId: req.userId, createdAt: new Date().toISOString() });
+      const current = doc.data().likes || 0;
+      await ref.update({ likes: current + 1 });
+      return res.json({ success: true, liked: true });
+    }
+  } catch (e) {
+    res.status(500).json({ success: false, error: { message: e.message } });
+  }
+});
+
+// ── Comments ──────────────────────────────────────────────────────────────────
+
+router.get('/posts/:id/comments', verifyAuth, async (req, res) => {
+  try {
+    const snap = await db.collection('guruComments')
+      .where('postId', '==', req.params.id)
+      .get();
+    const comments = [];
+    snap.forEach(d => comments.push(d.data()));
+    comments.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    res.json({ success: true, comments });
+  } catch (e) {
+    res.json({ success: true, comments: [] });
+  }
+});
+
+router.post('/posts/:id/comments', verifyAuth, async (req, res) => {
+  try {
+    const { text } = req.body || {};
+    if (!text?.trim()) return res.status(400).json({ success: false, error: { message: 'Comment required' } });
+    if (postStore.hasLink(text) && !req.user.isAdmin) {
+      return res.status(400).json({ success: false, error: { message: 'Links not allowed in comments' } });
+    }
+    const id = `cmt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const comment = {
+      id, postId: req.params.id,
+      userId: req.userId, userName: req.user.name || 'User',
+      text: text.trim(), createdAt: new Date().toISOString()
+    };
+    await db.collection('guruComments').doc(id).set(comment);
+    // Increment comment count on post
+    const postRef = collections.guruPosts.doc(req.params.id);
+    const postDoc = await postRef.get();
+    if (postDoc.exists) {
+      await postRef.update({ commentCount: (postDoc.data().commentCount || 0) + 1 });
+    }
+    res.json({ success: true, comment });
+  } catch (e) {
+    res.status(500).json({ success: false, error: { message: e.message } });
+  }
+});
+
 router.post('/users/:id/follow', verifyAuth, async (req, res) => {
   const r = await postStore.toggleFollow(req.userId, req.params.id);
   res.json({ success: true, ...r });

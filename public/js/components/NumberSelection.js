@@ -233,7 +233,8 @@ export class NumberSelection {
           num.format || this.numberFormat,
           this.selectedCountry?.code
         );
-        await copyText(copyVal, 'Number copied to clipboard');
+        // Copy silently — no toast popup
+        try { await navigator.clipboard.writeText(copyVal); } catch (_) {}
         // Don't recreate WS — it's already running from init()
         this.render();
         this._showNotification('✅ Number generated & copied!', 'success');
@@ -467,10 +468,10 @@ export class NumberSelection {
 
     return `
       <section class="agent-page-section">
-        <h2 class="agent-section-title text-sm"><i class="fas fa-mobile-alt mr-2"></i>Number
-          <span class="ws-status-badge ml-3" id="wsStatusBadge">
+        <h2 class="agent-section-title text-sm flex items-center gap-2 flex-wrap"><i class="fas fa-mobile-alt mr-1"></i>Number
+          <span class="ws-status-badge" id="wsStatusBadge">
             <span class="ws-dot ws-dot--off" id="wsStatusDot"></span>
-            <span class="text-xs text-gray-400" id="wsStatusText">Connecting...</span>
+            <span class="text-xs text-gray-400 hidden sm:inline" id="wsStatusText">Connecting...</span>
           </span>
         </h2>
         <div class="number-controls glass-card p-3 mb-3">
@@ -531,9 +532,8 @@ export class NumberSelection {
   render() {
     const layout = this.user?.isAgent ? AgentLayout : UserLayout;
     layout.renderShell({ activeId: 'numbers', title: 'Number', bodyHtml: this.renderBody(), user: this.user });
-    // Restore WS status after re-render
-    const isConnected = this.ws && this.ws.readyState === WebSocket.OPEN;
-    this.updateWsStatus(isConnected);
+    // Restore WS status after re-render — use GWS, not this.ws
+    this.updateWsStatus(window.GWS?.isConnected() === true);
     document.getElementById('countrySelect')?.addEventListener('change', (e) => this.handleCountryChange(e.target.value));
     document.getElementById('serverSelect')?.addEventListener('change', (e) => this.handleServerChange(e.target.value));
     document.getElementById('countrySelectDesktop')?.addEventListener('change', (e) => this.handleCountryChange(e.target.value));

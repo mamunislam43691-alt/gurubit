@@ -19,11 +19,11 @@ export class UserLayout {
     // Return cached session immediately if available
     if (_cachedSession) return _cachedSession;
 
-    // Deduplicate concurrent calls — with 5s timeout to prevent blank page
+    // Deduplicate concurrent calls — with 3s timeout for faster fallback
     if (!_sessionFetchPromise) {
       const fetchWithTimeout = Promise.race([
         fetch('/api/auth/session').then(r => r.json()).catch(() => ({})),
-        new Promise(resolve => setTimeout(() => resolve({}), 5000))
+        new Promise(resolve => setTimeout(() => resolve({}), 3000))
       ]);
       _sessionFetchPromise = fetchWithTimeout
         .finally(() => { _sessionFetchPromise = null; });
@@ -104,10 +104,6 @@ export class UserLayout {
                 <span>${n.label}</span>
               </a>
             `).join('')}
-            <a href="/faq" class="user-nav-link spa-link ${activeId === 'faq' ? 'is-active' : ''}">
-              <i class="fas fa-question-circle w-5 text-center"></i>
-              <span>Help Center</span>
-            </a>
           </nav>
           <div class="p-4 border-t border-white/5">
             <p class="text-[10px] text-gray-600 truncate">${user?.name || ''}</p>
