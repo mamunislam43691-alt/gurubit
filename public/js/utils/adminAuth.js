@@ -24,11 +24,25 @@ const PATH_PERMISSION = {
 let cachedAdmin = null;
 let _adminFetchPromise = null;
 
+// Persist admin session in sessionStorage for instant navigation
+function _saveToSession(admin) {
+  try { sessionStorage.setItem('_gadmin', JSON.stringify(admin)); } catch (_) {}
+}
+function _loadFromSession() {
+  try {
+    const raw = sessionStorage.getItem('_gadmin');
+    return raw ? JSON.parse(raw) : null;
+  } catch (_) { return null; }
+}
+
+// Pre-load from sessionStorage on module init — instant
+cachedAdmin = _loadFromSession();
+
 export async function fetchAdminMe() {
-  // Return cached admin immediately
+  // Return cached admin immediately — no network call
   if (cachedAdmin) return cachedAdmin;
 
-  // Deduplicate concurrent calls — with 3s timeout for faster response
+  // Deduplicate concurrent calls — with 2s timeout for faster response
   if (!_adminFetchPromise) {
     _adminFetchPromise = Promise.race([
       fetch('/api/admin/me').then(res => {
@@ -37,11 +51,12 @@ export async function fetchAdminMe() {
       }).then(data => {
         if (data?.success && data.admin) {
           cachedAdmin = data.admin;
+          _saveToSession(cachedAdmin);
           return cachedAdmin;
         }
         return null;
       }).catch(() => null),
-      new Promise(resolve => setTimeout(() => resolve(null), 3000))
+      new Promise(resolve => setTimeout(() => resolve(null), 2000))
     ]).finally(() => { _adminFetchPromise = null; });
   }
 
@@ -49,12 +64,14 @@ export async function fetchAdminMe() {
 }
 
 export function getCachedAdmin() {
+  if (!cachedAdmin) cachedAdmin = _loadFromSession();
   return cachedAdmin;
 }
 
 export function clearAdminCache() {
   cachedAdmin = null;
   _adminFetchPromise = null;
+  try { sessionStorage.removeItem('_gadmin'); } catch (_) {}
 }
 
 export function adminCanAccess(path, admin = cachedAdmin) {

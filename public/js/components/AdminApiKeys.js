@@ -500,6 +500,8 @@ export class AdminApiKeys {
   async init() {
     this.admin = await AdminLayout.ensureAuth();
     if (!this.admin) return;
+    // Render shell immediately — data loads in background
+    this.render();
     await this.loadData();
     this.setupWebSocket();
   }

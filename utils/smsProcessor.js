@@ -300,8 +300,6 @@ async function checkExpiredNumbers(wss) {
                     updatedAt: now
                 });
 
-                // Number is permanently consumed — not returned to pool on expiry
-
                 if (wss && data.userId) {
                     wss.broadcast({
                         type: 'number_expired',
@@ -332,20 +330,7 @@ async function checkExpiredNumbers(wss) {
             }
         }
 
-        // Delete history older than 24 hours
-        const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-        const oldSnapshot = await collections.phoneNumbers.get();
-        const oldDocs = oldSnapshot.docs.filter((doc) => {
-            const data = doc.data();
-            const time = data.createdAt || data.receivedAt || now;
-            return new Date(time) < new Date(oneDayAgo);
-        });
-        for (const doc of oldDocs) {
-            await collections.phoneNumbers.doc(doc.id).delete();
-        }
-        if (oldDocs.length > 0 && process.env.DEBUG_SMS === 'true') {
-            console.log(`Cleaned up ${oldDocs.length} numbers older than 24 hours`);
-        }
+        // Note: 24h cleanup is handled automatically by phoneStore's internal interval
 
     } catch (error) {
         console.error('Error checking expired numbers:', error);

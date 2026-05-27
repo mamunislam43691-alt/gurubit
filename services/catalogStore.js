@@ -1,85 +1,153 @@
 /**
- * Countries, servers, phone inventory — Firestore backed with in-memory cache
- * Cache refreshed on every write for sync compatibility
+ * Countries, servers, phone inventory — LOCAL JSON backed with in-memory cache
+ * Numbers are stored ONLY in data/catalog.json — NOT in Firebase/Firestore.
+ * Firestore is NOT used for catalog data (countries, servers, platforms, numbers).
  */
 
-const { db } = require('../config/firebase');
+const fs   = require('fs');
+const path = require('path');
 
-const C_COUNTRIES = 'catalogCountries';
-const C_SERVERS   = 'catalogServers';
-const C_PLATFORMS = 'catalogPlatforms';
+const CATALOG_FILE = path.join(__dirname, '..', 'data', 'catalog.json');
 
 // In-memory caches
 let _countries = new Map();
 let _servers   = new Map();
 let _platforms = new Map();
 
-function countriesCol()  { return db.collection(C_COUNTRIES); }
-function serversCol()    { return db.collection(C_SERVERS); }
-function platformsCol()  { return db.collection(C_PLATFORMS); }
-
-async function _loadAll() {
-  const [cs, ss, ps] = await Promise.all([
-    countriesCol().get(),
-    serversCol().get(),
-    platformsCol().get()
-  ]);
-  _countries.clear(); cs.forEach(d => _countries.set(d.id, d.data()));
-  _servers.clear();   ss.forEach(d => _servers.set(d.id, d.data()));
-  _platforms.clear(); ps.forEach(d => _platforms.set(d.id, d.data()));
-}
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function normalizePhoneInput(raw) {
   return String(raw || '').trim().replace(/\s+/g, '');
 }
 
-// ── Startup load ──────────────────────────────────────────────────────────────
-async function loadCatalog() { await _loadAll(); }
-async function persistCatalog() { /* no-op: Firestore is source of truth */ }
+/** Read catalog.json from disk into memory */
+function _loadFromLocalJson() {
+  try {
+    if (!fs.existsSync(CATALOG_FILE)) {
+      // Create empty catalog file if it doesn't exist
+      _saveToLocalJson();
+      return;
+    }
+    const raw = JSON.parse(fs.readFileSync(CATALOG_FILE, 'utf8'));
 
-// ── Countries — sync (cache) + async (Firestore) ──────────────────────────────
+    _countries.clear();
+    if (Array.isArray(raw.countries)) {
+      raw.countries.forEach(([id, data]) => {
+        if (id && data) _countries.set(id, data);
+      });
+    }
+
+    _servers.clear();
+    if (Array.isArray(raw.servers)) {
+      raw.servers.forEach(([id, data]) => {
+        if (id && data) {
+          data.numbers = Array.isArray(data.numbers)
+            ? data.numbers.filter(n => n && typeof n === 'string' && n.trim().length > 0)
+            : [];
+          data.availableNumbers = data.numbers.length;
+          _servers.set(id, data);
+        }
+      });
+    }
+
+    _platforms.clear();
+    if (Array.isArray(raw.platforms)) {
+      raw.platforms.forEach(([id, data]) => {
+        if (id && data) _platforms.set(id, data);
+      });
+    }
+
+    const totalNums = Array.from(_servers.values()).reduce((a, s) => a + (s.numbers?.length || 0), 0);
+    console.log(`[CatalogStore] ✅ Loaded from local JSON: ${_countries.size} countries, ${_servers.size} servers, ${totalNums} numbers`);
+  } catch (e) {
+    console.error('[CatalogStore] Failed to load catalog.json:', e.message);
+  }
+}
+
+/** Write current in-memory state to catalog.json */
+function _saveToLocalJson() {
+  // Write asynchronously — never block the event loop
+  setImmediate(() => {
+    try {
+      const data = {
+        countries: Array.from(_countries.entries()),
+        servers:   Array.from(_servers.entries()),
+        platforms: Array.from(_platforms.entries())
+      };
+      const dir = path.dirname(CATALOG_FILE);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(CATALOG_FILE, JSON.stringify(data, null, 2), 'utf8');
+    } catch (e) {
+      console.error('[CatalogStore] Failed to save catalog.json:', e.message);
+    }
+  });
+}
+
+// ── Startup load ──────────────────────────────────────────────────────────────
+
+async function loadCatalog() {
+  _loadFromLocalJson();
+}
+
+// no-op: local JSON is the source of truth
+async function persistCatalog() {}
+
+// ── Countries ─────────────────────────────────────────────────────────────────
+
 function listCountries() { return Array.from(_countries.values()); }
-function getCountry(id) { return _countries.get(id) || null; }
+function getCountry(id)  { return _countries.get(id) || null; }
 
 async function addCountry(data) {
   const id = (data.id || data.name || '').toLowerCase().replace(/\s+/g, '_').slice(0, 24);
   if (!id || !data.name) return null;
-  const entry = { id, name: data.name, code: data.code || '', flag: data.iconData ? null : (data.flag || '🌍'), iconData: data.iconData || null };
-  await countriesCol().doc(id).set(entry);
+  const entry = {
+    id,
+    name:     data.name,
+    code:     data.code  || '',
+    flag:     data.iconData ? null : (data.flag || '🌍'),
+    iconData: data.iconData || null
+  };
   _countries.set(id, entry);
+  _saveToLocalJson();
   return entry;
 }
 
 async function updateCountry(id, data) {
   const c = _countries.get(id);
   if (!c) return null;
-  if (data.name) c.name = data.name;
-  if (data.code) c.code = data.code;
+  if (data.name)     c.name = data.name;
+  if (data.code)     c.code = data.code;
   if (data.iconData) { c.iconData = data.iconData; c.flag = null; }
   else if (data.flag) { c.flag = data.flag; c.iconData = null; }
-  await countriesCol().doc(id).set(c);
   _countries.set(id, c);
+  _saveToLocalJson();
   return c;
 }
 
 async function deleteCountry(id) {
-  await countriesCol().doc(id).delete();
   _countries.delete(id);
   const srvs = listServers(id);
-  await Promise.all(srvs.map(s => deleteServer(s.id)));
+  srvs.forEach(s => _servers.delete(s.id));
   for (const [pid, p] of _platforms) {
-    if (p.countryId === id) { await platformsCol().doc(pid).delete(); _platforms.delete(pid); }
+    if (p.countryId === id) _platforms.delete(pid);
   }
+  _saveToLocalJson();
   return true;
 }
 
 async function clearCountryData(countryId) {
   const srvs = listServers(countryId);
-  await Promise.all(srvs.map(s => clearServerData(s.id)));
+  srvs.forEach(s => {
+    s.numbers = [];
+    s.availableNumbers = 0;
+    _servers.set(s.id, s);
+  });
+  _saveToLocalJson();
   return true;
 }
 
 // ── Servers ───────────────────────────────────────────────────────────────────
+
 function listServers(countryId) {
   return Array.from(_servers.values()).filter(s => s.countryId === countryId);
 }
@@ -88,59 +156,48 @@ function getServer(id) { return _servers.get(id) || null; }
 async function addServer(countryId, data) {
   const id = data.id || `srv_${countryId}_${Date.now()}`;
   const entry = { id, name: data.name || 'Server', countryId, numbers: [], availableNumbers: 0 };
-  await serversCol().doc(id).set(entry);
   _servers.set(id, entry);
+  _saveToLocalJson();
   return entry;
 }
 
 async function updateServer(id, data) {
   const s = _servers.get(id);
   if (!s) return null;
-  if (data.name !== undefined) s.name = data.name;
-  if (data.providerId !== undefined) s.providerId = data.providerId || null;
+  if (data.name          !== undefined) s.name          = data.name;
+  if (data.providerId    !== undefined) s.providerId    = data.providerId    || null;
   if (data.apiServiceCode !== undefined) s.apiServiceCode = data.apiServiceCode || '';
   if (data.apiCountryCode !== undefined) s.apiCountryCode = data.apiCountryCode || '';
-  await serversCol().doc(id).set(s);
   _servers.set(id, s);
+  _saveToLocalJson();
   return { ...s, numbers: [...(s.numbers || [])] };
 }
 
 async function deleteServer(id) {
-  await serversCol().doc(id).delete();
   _servers.delete(id);
+  _saveToLocalJson();
   return true;
 }
 
 async function clearServerData(serverId) {
   const s = _servers.get(serverId);
   if (!s) return false;
-  s.numbers = []; s.availableNumbers = 0;
-  await serversCol().doc(serverId).set(s);
+  s.numbers = [];
+  s.availableNumbers = 0;
   _servers.set(serverId, s);
+  _saveToLocalJson();
   return true;
 }
 
 async function addServerNumbers(serverId, raw) {
-  // Always reload from Firestore first to avoid overwriting with stale cache
-  try {
-    const doc = await serversCol().doc(serverId).get();
-    if (doc.exists) {
-      const fresh = doc.data();
-      // Sanitize existing numbers
-      fresh.numbers = Array.isArray(fresh.numbers)
-        ? fresh.numbers.filter(n => n && typeof n === 'string' && n.trim().length > 0)
-        : [];
-      fresh.availableNumbers = fresh.numbers.length;
-      _servers.set(serverId, fresh);
-    }
-  } catch (_) {}
-
   const s = _servers.get(serverId);
   if (!s) return null;
   if (!s.numbers) s.numbers = [];
+
   const lines = Array.isArray(raw)
     ? raw
     : String(raw || '').split(/[\n,;]+/).map(x => normalizePhoneInput(x)).filter(Boolean);
+
   const added = [];
   lines.forEach(phoneNumber => {
     const normalized = normalizePhoneInput(phoneNumber);
@@ -150,38 +207,16 @@ async function addServerNumbers(serverId, raw) {
     }
   });
   s.availableNumbers = s.numbers.length;
+  _servers.set(serverId, s);
+  _saveToLocalJson();
 
-  // Sanitize before saving to Firestore
-  const sanitized = {
-    ...s,
-    numbers: s.numbers.filter(n => n && typeof n === 'string' && n.trim().length > 0),
-    availableNumbers: s.numbers.length
-  };
-
-  await serversCol().doc(serverId).set(sanitized);
-  _servers.set(serverId, sanitized);
-  console.log(`[CatalogStore] Added ${added.length} numbers to server "${s.name}" (${serverId}). Total: ${sanitized.availableNumbers}`);
-  return { server: { ...sanitized, numbers: [...sanitized.numbers] }, added };
+  console.log(`[CatalogStore] Added ${added.length} numbers to server "${s.name}" (${serverId}). Total: ${s.availableNumbers}`);
+  return { server: { ...s, numbers: [...s.numbers] }, added };
 }
 
 async function takeNextPhoneFromServer(serverId, consume = true) {
-  // Always reload from Firestore to get latest numbers (avoids stale cache race condition)
-  try {
-    const doc = await serversCol().doc(serverId).get();
-    if (doc.exists) {
-      const fresh = doc.data();
-      // Sanitize: remove any undefined/null/empty entries from numbers array
-      if (Array.isArray(fresh.numbers)) {
-        fresh.numbers = fresh.numbers.filter(n => n && typeof n === 'string' && n.trim().length > 0);
-      } else {
-        fresh.numbers = [];
-      }
-      fresh.availableNumbers = fresh.numbers.length;
-      _servers.set(serverId, fresh);
-    }
-  } catch (err) {
-    console.error('[CatalogStore] takeNextPhone reload error:', err.message);
-  }
+  // Reload from disk to get latest state (avoids stale in-memory race)
+  _loadFromLocalJson();
 
   const s = _servers.get(serverId);
   if (!s || !s.numbers?.length) return null;
@@ -198,29 +233,10 @@ async function takeNextPhoneFromServer(serverId, consume = true) {
   }
 
   s.availableNumbers = s.numbers.length;
+  _servers.set(serverId, s);
+  _saveToLocalJson();
 
-  // Save back to Firestore — sanitize before saving
-  const sanitized = {
-    ...s,
-    numbers: s.numbers.filter(n => n && typeof n === 'string' && n.trim().length > 0),
-    availableNumbers: s.numbers.length
-  };
-
-  try {
-    await serversCol().doc(serverId).set(sanitized);
-    _servers.set(serverId, sanitized);
-    console.log(`[CatalogStore] ${consume ? 'Consumed' : 'Rotated'} number ${phoneNumber} from server "${s.name}". Remaining: ${sanitized.availableNumbers}`);
-  } catch (err) {
-    console.error('[CatalogStore] Failed to save after takeNextPhone:', err.message);
-    // Revert in-memory on failure
-    if (consume) {
-      sanitized.numbers.unshift(phoneNumber);
-      sanitized.availableNumbers = sanitized.numbers.length;
-      _servers.set(serverId, sanitized);
-    }
-    return null;
-  }
-
+  console.log(`[CatalogStore] ${consume ? 'Consumed' : 'Rotated'} number ${phoneNumber} from server "${s.name}". Remaining: ${s.availableNumbers}`);
   return phoneNumber;
 }
 
@@ -232,8 +248,8 @@ async function returnNumberToServer(serverId, phoneNumber) {
   if (s.numbers.includes(normalized)) return false;
   s.numbers.push(normalized);
   s.availableNumbers = s.numbers.length;
-  await serversCol().doc(serverId).set(s);
   _servers.set(serverId, s);
+  _saveToLocalJson();
   return true;
 }
 
@@ -243,6 +259,7 @@ function countAvailable(serverId) {
 }
 
 // ── Platforms ─────────────────────────────────────────────────────────────────
+
 function listPlatforms(countryId) {
   return Array.from(_platforms.values()).filter(p => p.countryId === countryId);
 }
@@ -253,14 +270,14 @@ async function addPlatform(countryId, data) {
   if (!serverId) return null;
   const id = data.id || `plat_${Date.now()}`;
   const entry = { id, name: data.name, serverId, countryId, numbers: data.numbers || [] };
-  await platformsCol().doc(id).set(entry);
   _platforms.set(id, entry);
+  _saveToLocalJson();
   return entry;
 }
 
 async function deletePlatform(id) {
-  await platformsCol().doc(id).delete();
   _platforms.delete(id);
+  _saveToLocalJson();
   return true;
 }
 
@@ -270,10 +287,12 @@ async function addNumber(platformId, phoneNumber) {
   const id = `num_${Date.now()}`;
   if (!plat.numbers) plat.numbers = [];
   plat.numbers.push(phoneNumber);
-  await platformsCol().doc(platformId).set(plat);
   _platforms.set(platformId, plat);
+  _saveToLocalJson();
   return { id, platformId, phoneNumber, countryId: plat.countryId, serverId: plat.serverId };
 }
+
+// ── Misc ──────────────────────────────────────────────────────────────────────
 
 function countServices() { return _servers.size; }
 
@@ -288,18 +307,15 @@ function resolveServerName(serverId) {
 }
 
 async function clearAllCatalog() {
-  const [cs, ss, ps] = await Promise.all([countriesCol().get(), serversCol().get(), platformsCol().get()]);
-  await Promise.all([
-    ...cs.docs.map(d => d.ref.delete()),
-    ...ss.docs.map(d => d.ref.delete()),
-    ...ps.docs.map(d => d.ref.delete())
-  ]);
-  _countries.clear(); _servers.clear(); _platforms.clear();
+  _countries.clear();
+  _servers.clear();
+  _platforms.clear();
+  _saveToLocalJson();
 }
 
-// Async versions for routes that need fresh data
-async function listCountriesAsync() { await _loadAll(); return listCountries(); }
-async function listServersAsync(countryId) { await _loadAll(); return listServers(countryId); }
+// Async versions (kept for API compatibility — just return sync results)
+async function listCountriesAsync() { _loadFromLocalJson(); return listCountries(); }
+async function listServersAsync(countryId) { _loadFromLocalJson(); return listServers(countryId); }
 
 module.exports = {
   clearAllCatalog, loadCatalog, persistCatalog,

@@ -395,6 +395,8 @@ export class AdminDatabase {
       window.location.href = '/admin';
       return;
     }
+    // Render shell immediately — data loads in background
+    this.renderPage();
     await this.load();
     this.renderPage();
   }

@@ -74,7 +74,8 @@ export class AdminBroadcast {
   async init() {
     this.admin = await AdminLayout.ensureAuth();
     if (!this.admin) return;
+    // Render shell immediately — data loads in background
+    this.renderPage();
     await this.loadData();
     this.renderPage();
   }
-}

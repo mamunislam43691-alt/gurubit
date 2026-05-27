@@ -53,6 +53,8 @@ export class AdminLeaderboard {
   async init() {
     this.admin = await AdminLayout.ensureAuth();
     if (!this.admin) return;
+    // Render shell immediately — data loads in background
+    this.render();
     await this.loadData();
   }
 }

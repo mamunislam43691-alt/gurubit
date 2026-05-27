@@ -58,10 +58,11 @@ export class LandingPage {
         document.getElementById('app-skeleton')?.remove();
         container.innerHTML = `
             <motion.div data-page="landing" class="min-h-screen text-white overflow-x-hidden" style="background: radial-gradient(ellipse at top right, #0a1e3b 0%, #020b18 60%);">
-                <motion.div class="fixed inset-0 overflow-hidden pointer-events-none z-0">
-                    <motion.div class="absolute top-[-200px] right-[-200px] w-[600px] h-[600px] rounded-full opacity-10" style="background: radial-gradient(circle, #00d2ff, transparent);"></div>
-                    <motion.div class="absolute bottom-[-100px] left-[-100px] w-[400px] h-[400px] rounded-full opacity-10" style="background: radial-gradient(circle, #3a7bd5, transparent);"></motion.div>
-                </motion.div>
+                <!-- Particles + 3D orbs -->
+                <div class="particles-bg" id="particlesBg"></div>
+                <div class="orb w-[700px] h-[700px] top-[-200px] right-[-200px]" style="background:radial-gradient(circle,#00d2ff,transparent)"></div>
+                <div class="orb w-[500px] h-[500px] bottom-[-100px] left-[-100px]" style="background:radial-gradient(circle,#3a7bd5,transparent);animation-delay:4s"></div>
+                <div class="grid-bg fixed inset-0 pointer-events-none z-0 opacity-60"></div>
 
                 <nav class="fixed top-0 w-full z-40 bg-black/50 backdrop-blur-lg border-b border-white/5">
                     <motion.div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex justify-between items-center">
@@ -83,41 +84,67 @@ export class LandingPage {
                 </nav>
 
                 <!-- Hero -->
-                <section class="relative z-10 pt-32 pb-20 lg:pt-40 lg:pb-28 px-4">
-                    <motion.div class="max-w-7xl mx-auto grid lg:grid-cols-2 gap-16 items-center">
-                        <motion.div class="text-center lg:text-left">
-                            <p class="text-xs font-black text-primary uppercase tracking-[0.2em] mb-6">100% Free · No Credit Card</p>
-                            <h1 class="text-4xl sm:text-5xl lg:text-6xl font-black leading-[1.1] mb-6 uppercase tracking-tight">
-                                Online Phone Numbers For<br><span class="gradient-text">SMS Verification</span>
+                <section class="relative z-10 pt-32 pb-20 lg:pt-40 lg:pb-28 px-4 landing-3d-scene">
+                    <div class="max-w-7xl mx-auto grid lg:grid-cols-2 gap-16 items-center">
+                        <div class="text-center lg:text-left">
+                            <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-primary/30 bg-primary/5 mb-6 badge-3d reveal-up">
+                                <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+                                <span class="text-xs font-black text-primary uppercase tracking-widest">100% Free · No Credit Card</span>
+                            </div>
+                            <h1 class="text-4xl sm:text-5xl lg:text-6xl font-black leading-[1.1] mb-6 uppercase tracking-tight reveal-up delay-1">
+                                Online Phone Numbers For<br><span class="shimmer-text">SMS Verification</span>
                             </h1>
-                            <p class="text-gray-400 text-base sm:text-lg leading-relaxed mb-10 max-w-xl mx-auto lg:mx-0">
+                            <p class="text-gray-400 text-base sm:text-lg leading-relaxed mb-10 max-w-xl mx-auto lg:mx-0 reveal-up delay-2">
                                 Receive SMS codes instantly with disposable numbers. Protect your privacy, verify any platform, and <strong class="text-white">earn rewards</strong> on every successful verification.
                             </p>
-                            <button id="heroGetStartedBtn" class="neon-btn px-10 py-4 text-sm uppercase tracking-[0.15em] inline-flex items-center gap-2">
-                                Get Started <i class="fas fa-arrow-right text-xs"></i>
-                            </button>
-                        </motion.div>
-                        <motion.div class="relative hidden lg:block">
-                            <motion.div class="glass-card p-8 premium-shadow border-primary/10 animate-float">
-                                <motion.div class="grid grid-cols-2 gap-4">
-                                    <motion.div class="bg-dark-lighter rounded-2xl p-6 border border-white/5">
+                            <div class="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start reveal-up delay-3">
+                                <button id="heroGetStartedBtn" class="neon-btn px-10 py-4 text-sm uppercase tracking-[0.15em] inline-flex items-center gap-2 badge-3d">
+                                    Get Started Free <i class="fas fa-arrow-right text-xs"></i>
+                                </button>
+                                <a href="/live-feed" class="px-8 py-4 text-sm font-bold uppercase tracking-widest border border-white/15 rounded-xl text-gray-300 hover:border-primary/50 hover:text-primary transition-all inline-flex items-center gap-2">
+                                    <i class="fas fa-satellite-dish text-xs"></i> Live Feed
+                                </a>
+                            </div>
+                            <div class="flex items-center gap-8 mt-10 justify-center lg:justify-start reveal-up delay-4">
+                                <div class="text-center"><p class="text-2xl font-black text-primary neon-text">50+</p><p class="text-[10px] text-gray-500 uppercase tracking-widest">Countries</p></div>
+                                <div class="w-px h-8 bg-white/10"></div>
+                                <div class="text-center"><p class="text-2xl font-black text-primary neon-text">&lt;2s</p><p class="text-[10px] text-gray-500 uppercase tracking-widest">SMS Speed</p></div>
+                                <div class="w-px h-8 bg-white/10"></div>
+                                <div class="text-center"><p class="text-2xl font-black text-primary neon-text">$0</p><p class="text-[10px] text-gray-500 uppercase tracking-widest">Always Free</p></div>
+                            </div>
+                        </div>
+                        <div class="relative hidden lg:block reveal-up delay-2">
+                            <div class="hero-3d-mockup glass-card p-8 premium-shadow border-primary/10 relative overflow-hidden">
+                                <div class="scan-line"></div>
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div class="bg-dark-lighter rounded-2xl p-6 border border-white/5 card-3d">
                                         <i class="fas fa-mobile-screen text-3xl text-primary mb-4"></i>
                                         <p class="text-xs text-gray-500 uppercase tracking-widest">Live Numbers</p>
                                         <p class="text-2xl font-black text-white mt-1">50+</p>
-                                    </motion.div>
-                                    <motion.div class="bg-dark-lighter rounded-2xl p-6 border border-white/5 mt-8">
+                                    </div>
+                                    <div class="bg-dark-lighter rounded-2xl p-6 border border-white/5 mt-8 card-3d">
                                         <i class="fas fa-message text-3xl text-secondary mb-4"></i>
                                         <p class="text-xs text-gray-500 uppercase tracking-widest">SMS Speed</p>
                                         <p class="text-2xl font-black text-white mt-1">&lt;2s</p>
-                                    </motion.div>
-                                    <motion.div class="col-span-2 bg-gradient-to-r from-primary/20 to-secondary/20 rounded-2xl p-6 border border-primary/20">
-                                        <p class="text-[10px] text-primary font-black uppercase tracking-widest">Latest SMS</p>
-                                        <p class="text-3xl font-mono font-black text-white mt-2 tracking-widest">● ● ● 4829</p>
-                                    </motion.div>
-                                </motion.div>
-                            </motion.div>
-                        </motion.div>
-                    </motion.div>
+                                    </div>
+                                    <div class="col-span-2 rounded-2xl p-6 border border-primary/20 card-3d" style="background:linear-gradient(135deg,rgba(0,210,255,0.12),rgba(58,123,213,0.08))">
+                                        <div class="flex items-center justify-between mb-2">
+                                            <p class="text-[10px] text-primary font-black uppercase tracking-widest">Latest OTP</p>
+                                            <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+                                        </div>
+                                        <p class="text-3xl font-mono font-black text-white mt-2 tracking-[0.3em]">4 8 2 9</p>
+                                        <p class="text-[10px] text-gray-500 mt-2">+251 *** *** 847 · just now</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="absolute -top-4 -right-4 glass-card px-3 py-2 border-green-500/30 badge-3d" style="animation:hero3dFloat 4s ease-in-out infinite;animation-delay:1s">
+                                <p class="text-[10px] font-black text-green-400">✓ OTP Received</p>
+                            </div>
+                            <div class="absolute -bottom-4 -left-4 glass-card px-3 py-2 border-primary/30 badge-3d" style="animation:hero3dFloat 5s ease-in-out infinite;animation-delay:2s">
+                                <p class="text-[10px] font-black text-primary">+$0.05 Earned</p>
+                            </div>
+                        </div>
+                    </div>
                 </section>
 
                 <!-- Services marquee -->
@@ -151,26 +178,28 @@ export class LandingPage {
 
                 <!-- How it works -->
                 <section id="how-it-works" class="relative z-10 py-24 px-4 bg-black/25 border-y border-white/5">
-                    <motion.div class="max-w-6xl mx-auto">
+                    <div class="max-w-6xl mx-auto">
                         <h2 class="text-3xl sm:text-4xl font-black text-center uppercase mb-16">Efficient, Powerful, And <span class="gradient-text">Easy To Use</span></h2>
-                        <motion.div class="grid md:grid-cols-3 gap-8">
+                        <div class="grid md:grid-cols-3 gap-8">
                             ${[
                                 ['01', 'Select Your Service', 'Choose the platform you need to verify.', 'list'],
                                 ['02', 'Choose Your Country', 'Pick from global numbers instantly.', 'globe-americas'],
                                 ['03', 'Receive SMS & Verify', 'SMS arrives in seconds. Earn rewards.', 'comment-sms']
-                            ].map(([n, t, d, ic]) => `
-                                <motion.div class="glass-card p-8 text-center border-white/5">
-                                    <p class="text-4xl font-black gradient-text mb-4">${n}</p>
-                                    <i class="fas fa-${ic} text-2xl text-primary mb-4"></i>
+                            ].map(([n, t, d, ic], i) => `
+                                <div class="glass-card p-8 text-center border-white/5 step-card-3d reveal-up delay-${i+1}">
+                                    <p class="text-5xl font-black gradient-text mb-4 neon-text">${n}</p>
+                                    <div class="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-4 border border-primary/20">
+                                        <i class="fas fa-${ic} text-xl text-primary"></i>
+                                    </div>
                                     <h3 class="font-black text-white uppercase text-sm mb-3">${t}</h3>
                                     <p class="text-gray-500 text-sm">${d}</p>
-                                </motion.div>
-                            `).join('').replaceAll('<motion.', '<').replaceAll('</motion.', '</')}
-                        </motion.div>
-                        <motion.div class="text-center mt-12">
-                            <button id="ctaSignupBtn" class="neon-btn px-12 py-4 text-xs uppercase tracking-[0.2em]">Get Started</button>
-                        </motion.div>
-                    </motion.div>
+                                </div>
+                            `).join('')}
+                        </div>
+                        <div class="text-center mt-12">
+                            <button id="ctaSignupBtn" class="neon-btn px-12 py-4 text-xs uppercase tracking-[0.2em] badge-3d">Get Started</button>
+                        </div>
+                    </div>
                 </section>
 
                 <!-- Why choose us -->
@@ -249,11 +278,12 @@ export class LandingPage {
         `.replaceAll('<motion.', '<').replaceAll('</motion.', '</');
 
         this.attachEventListeners();
+        this._initParticles();
+        this._initTilt();
     }
 
     attachEventListeners() {
         const openModal = (mode) => {
-            // Show modal instantly — import is cached after first call
             import('./AuthPage.js').then(({ AuthPage }) => {
                 const auth = new AuthPage();
                 auth.isLoginMode = (mode === 'login');
@@ -262,7 +292,6 @@ export class LandingPage {
             });
         };
 
-        // Preload AuthPage module on hover so it's instant on click
         const preloadAuth = () => import('./AuthPage.js').catch(() => {});
         document.getElementById('navLoginBtn')?.addEventListener('mouseover', preloadAuth, { once: true });
         document.getElementById('navSignupBtn')?.addEventListener('mouseover', preloadAuth, { once: true });
@@ -282,6 +311,59 @@ export class LandingPage {
             openModal('login');
             window.history.replaceState({}, '', '/');
         }
+    }
+
+    _initParticles() {
+        const container = document.getElementById('particlesBg');
+        if (!container) return;
+        const count = 18;
+        for (let i = 0; i < count; i++) {
+            const p = document.createElement('div');
+            p.className = 'particle';
+            const size = Math.random() * 4 + 2;
+            const left = Math.random() * 100;
+            const duration = Math.random() * 15 + 10;
+            const delay = Math.random() * 15;
+            p.style.cssText = `width:${size}px;height:${size}px;left:${left}%;animation-duration:${duration}s;animation-delay:${delay}s;opacity:${Math.random() * 0.5 + 0.2}`;
+            container.appendChild(p);
+        }
+    }
+
+    _initTilt() {
+        // Mouse-move 3D tilt on hero mockup
+        const scene = document.querySelector('.landing-3d-scene');
+        const mockup = document.querySelector('.hero-3d-mockup');
+        if (!scene || !mockup) return;
+
+        scene.addEventListener('mousemove', (e) => {
+            const rect = scene.getBoundingClientRect();
+            const cx = rect.left + rect.width / 2;
+            const cy = rect.top + rect.height / 2;
+            const dx = (e.clientX - cx) / (rect.width / 2);
+            const dy = (e.clientY - cy) / (rect.height / 2);
+            const rotY = -15 + dx * 8;
+            const rotX = 5 - dy * 5;
+            mockup.style.transform = `perspective(1000px) rotateY(${rotY}deg) rotateX(${rotX}deg)`;
+        });
+
+        scene.addEventListener('mouseleave', () => {
+            mockup.style.transform = '';
+            mockup.style.transition = 'transform 0.8s cubic-bezier(0.23,1,0.32,1)';
+            setTimeout(() => { mockup.style.transition = ''; }, 800);
+        });
+
+        // Tilt cards on hover
+        document.querySelectorAll('.tilt-card, .card-3d').forEach(card => {
+            card.addEventListener('mousemove', (e) => {
+                const rect = card.getBoundingClientRect();
+                const x = (e.clientX - rect.left) / rect.width - 0.5;
+                const y = (e.clientY - rect.top) / rect.height - 0.5;
+                card.style.transform = `perspective(600px) rotateY(${x * 12}deg) rotateX(${-y * 12}deg) translateZ(10px)`;
+            });
+            card.addEventListener('mouseleave', () => {
+                card.style.transform = '';
+            });
+        });
     }
 
     init() {

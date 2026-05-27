@@ -33,21 +33,38 @@ function validateImage(imageUrl) {
 }
 
 async function ensureDefaultGroup() {
-  const ref = collections.guruGroups.doc('main');
-  const doc = await ref.get();
-  if (!doc.exists) {
-    await ref.set({
-      id: 'main',
-      name: 'GURUBIT Community',
-      memberCount: 0,
-      createdAt: new Date().toISOString()
-    });
+  try {
+    const ref = collections.guruGroups.doc('main');
+    const doc = await ref.get();
+    if (!doc.exists) {
+      await ref.set({
+        id: 'main',
+        name: 'GURUBIT Community',
+        memberCount: 0,
+        createdAt: new Date().toISOString()
+      });
+    }
+  } catch (err) {
+    const msg = String(err.message || '');
+    if (!msg.includes('RESOURCE_EXHAUSTED') && !msg.includes('Quota exceeded')) {
+      console.warn('[postStore] ensureDefaultGroup error:', err.message);
+    }
+    // Silently ignore quota errors — group will be created on next successful call
   }
 }
 
 async function listPosts({ forUserId } = {}) {
   await ensureDefaultGroup();
-  let list = (await colDocs(collections.guruPosts)).filter((p) => !p.deleted);
+  let list;
+  try {
+    list = (await colDocs(collections.guruPosts)).filter((p) => !p.deleted);
+  } catch (err) {
+    const msg = String(err.message || '');
+    if (msg.includes('RESOURCE_EXHAUSTED') || msg.includes('Quota exceeded')) {
+      return []; // Return empty on quota error — don't crash
+    }
+    throw err;
+  }
   if (forUserId) list = list.filter((p) => p.userId === forUserId);
   list.sort((a, b) => {
     if (a.isPromoted && !b.isPromoted) return -1;

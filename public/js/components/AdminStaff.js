@@ -99,6 +99,17 @@ export class AdminStaff {
       window.location.href = '/admin';
       return;
     }
+    // Render shell immediately with loading state
+    AdminLayout.renderShell({
+      activeId: 'staff',
+      title: 'Admin Management',
+      subtitle: 'Super Admin · Admin · Supporter roles',
+      bodyHtml: `<div class="flex items-center justify-center py-20 text-gray-500">
+        <i class="fas fa-circle-notch fa-spin text-3xl text-primary mr-3"></i>
+        <span>Loading staff...</span>
+      </div>`,
+      admin: this.admin
+    });
     await this.loadData();
     this.renderPage();
   }

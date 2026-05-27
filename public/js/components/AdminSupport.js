@@ -481,19 +481,14 @@ export class AdminSupport {
 
 
   async init() {
-
     this.admin = await AdminLayout.ensureAuth();
-
     if (!this.admin) return;
-
-    await this.loadStaff();
-
-    await this.loadSessions();
-
-    this.connectWs();
-
+    // Render shell immediately — sessions load in background
     this.renderPage();
-
+    await this.loadStaff();
+    await this.loadSessions();
+    this.connectWs();
+    this.renderPage();
   }
 
 }

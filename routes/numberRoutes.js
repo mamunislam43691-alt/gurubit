@@ -22,12 +22,11 @@ async function verifyAuth(req, res, next) {
             });
         }
 
-        // Handle guest tokens
+        // Handle guest tokens — check local guestStore
         if (String(token).startsWith('guest.')) {
             const guestUid = String(token).replace('guest.', '');
-            const { collections: cols } = require('../config/firebase');
-            const userDoc = await cols.users.doc(guestUid).get().catch(() => null);
-            if (!userDoc || !userDoc.exists) {
+            const guestStore = require('../services/guestStore');
+            if (!guestStore.exists(guestUid)) {
                 return res.status(401).json({ success: false, error: { message: 'Guest session expired' } });
             }
             req.userId = guestUid;
@@ -50,29 +49,21 @@ router.get('/countries', async (req, res) => {
         const catalogStore = require('../services/catalogStore');
         const countries = catalogStore.listCountries();
 
+        // Determine top country/server from local catalog (most numbers available)
         let topCountryId = null;
         let topServerId = null;
+        let maxNums = 0;
 
-        try {
-            const snapshot = await collections.phoneNumbers.where('status', '==', 'successful').limit(150).get();
-            const countryCounts = {};
-            const serverCounts = {};
-            snapshot.forEach((doc) => {
-                const d = doc.data();
-                if (d.countryId) countryCounts[d.countryId] = (countryCounts[d.countryId] || 0) + 1;
-                if (d.serverId) serverCounts[d.serverId] = (serverCounts[d.serverId] || 0) + 1;
-            });
-            
-            let maxC = 0;
-            for (const [cid, val] of Object.entries(countryCounts)) {
-                if (val > maxC) { maxC = val; topCountryId = cid; }
+        for (const c of countries) {
+            const servers = catalogStore.listServers(c.id);
+            for (const s of servers) {
+                const count = (s.numbers || []).length;
+                if (count > maxNums) {
+                    maxNums = count;
+                    topCountryId = c.id;
+                    topServerId = s.id;
+                }
             }
-            let maxS = 0;
-            for (const [sid, val] of Object.entries(serverCounts)) {
-                if (val > maxS) { maxS = val; topServerId = sid; }
-            }
-        } catch (dbErr) {
-            console.warn('Failed to aggregate top country/server counts:', dbErr.message);
         }
 
         res.json({
@@ -331,7 +322,7 @@ router.post('/numbers/generate', verifyAuth, async (req, res) => {
             let available = catalogStore.countAvailable(serverId);
 
             if (!available) {
-                // Find best alternative server in same country by OTP success rate
+                // Find best alternative server in same country by available count
                 const allServers = catalogStore.listServers(countryId);
                 let bestServer = null;
                 let bestCount = 0;
@@ -339,22 +330,9 @@ router.post('/numbers/generate', verifyAuth, async (req, res) => {
                 for (const s of allServers) {
                     if (s.id === serverId) continue;
                     const cnt = catalogStore.countAvailable(s.id);
-                    if (cnt > 0) {
-                        // Check OTP success rate for this server
-                        try {
-                            const snap = await collections.phoneNumbers
-                                .where('serverId', '==', s.id)
-                                .where('status', '==', 'successful')
-                                .get();
-                            const successCount = snap.size || 0;
-                            if (successCount > bestCount || (successCount === bestCount && cnt > 0)) {
-                                bestCount = successCount;
-                                bestServer = s;
-                            }
-                        } catch {
-                            // If DB query fails, just pick by available count
-                            if (cnt > bestCount) { bestCount = cnt; bestServer = s; }
-                        }
+                    if (cnt > bestCount) {
+                        bestCount = cnt;
+                        bestServer = s;
                     }
                 }
 
@@ -431,13 +409,16 @@ router.post('/numbers/generate', verifyAuth, async (req, res) => {
             });
         }
 
-        // Fetch user data for logging (non-critical)
+        // Fetch user data for logging (non-critical) — use cache to save quota
         let userData = { name: 'Unknown User', email: 'unknown@email.com' };
         try {
+            const { isQuotaError } = require('../utils/firestoreCache');
             const userDoc = await collections.users.doc(userId).get();
             if (userDoc.exists) userData = userDoc.data();
         } catch (dbErr) {
-            console.warn('Logging user fetch failed:', dbErr.message);
+            if (!require('../utils/firestoreCache').isQuotaError(dbErr)) {
+                console.warn('Logging user fetch failed:', dbErr.message);
+            }
         }
 
         if (process.env.DEBUG_NUMBER === 'true') {

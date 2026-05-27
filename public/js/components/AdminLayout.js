@@ -23,7 +23,7 @@ export const ADMIN_NAV = [
 
 export class AdminLayout {
   static async ensureAuth() {
-    // Use cached admin if available — no extra fetch
+    // Try cache first — instant, no network call
     const cached = getCachedAdmin();
     if (cached) {
       const path = window.location.pathname;
@@ -34,6 +34,7 @@ export class AdminLayout {
       return cached;
     }
 
+    // Cache miss — fetch from server (first load only)
     const admin = await fetchAdminMe();
     if (!admin) {
       window.location.href = '/admin';

@@ -19,18 +19,18 @@ async function verifyToken(req, res, next) {
       });
     }
 
-    // Handle guest tokens
+    // Handle guest tokens — check local guestStore, never Firestore
     if (String(token).startsWith('guest.')) {
       const guestUid = String(token).replace('guest.', '');
-      const userDoc = await collections.users.doc(guestUid).get().catch(() => null);
-      if (!userDoc || !userDoc.exists) {
+      const guestStore = require('../services/guestStore');
+      const guestData = guestStore.get(guestUid);
+      if (!guestData) {
         return res.status(401).json({ success: false, error: { code: 'GUEST_EXPIRED', message: 'Guest session expired' } });
       }
-      const userData = userDoc.data();
-      if (userData.isBanned) {
+      if (guestData.isBanned) {
         return res.status(403).json({ success: false, error: { code: 'USER_BANNED', message: 'Your account has been banned' } });
       }
-      req.user = { id: guestUid, ...userData };
+      req.user = { id: guestUid, ...guestData };
       return next();
     }
 

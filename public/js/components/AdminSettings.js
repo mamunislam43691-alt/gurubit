@@ -271,6 +271,14 @@ export class AdminSettings {
   async init() {
     this.admin = await AdminLayout.ensureAuth();
     if (!this.admin) return;
+    // Render shell immediately with loading state, then load data
+    AdminLayout.renderShell({
+      activeId: 'settings',
+      title: 'Settings',
+      subtitle: 'System monitoring, access control & ads',
+      bodyHtml: '<p class="text-gray-500 flex items-center gap-2"><i class="fas fa-circle-notch fa-spin text-primary"></i> Loading...</p>',
+      admin: this.admin
+    });
     await this.loadData();
     this.renderPage();
   }

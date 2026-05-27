@@ -6,6 +6,30 @@
 const express = require('express');
 const router = express.Router();
 const { auth, collections } = require('../config/firebase');
+const { isQuotaError } = require('../utils/firestoreCache');
+
+// User session cache — 5 min TTL, avoids repeated Firestore reads
+const _userCache = new Map();
+const USER_CACHE_TTL = 60 * 1000; // 1 minute — fast refresh
+
+async function getCachedUser(uid) {
+  const cached = _userCache.get(uid);
+  if (cached && Date.now() < cached.expiresAt) return cached.user;
+  try {
+    const doc = await collections.users.doc(uid).get();
+    if (!doc.exists) return null;
+    const user = { ...doc.data(), id: uid };
+    _userCache.set(uid, { user, expiresAt: Date.now() + USER_CACHE_TTL });
+    return user;
+  } catch (err) {
+    if (isQuotaError(err) && cached) return cached.user;
+    return null;
+  }
+}
+
+function invalidateUserCache(uid) {
+  _userCache.delete(uid);
+}
 
 /**
  * Middleware to verify authentication
@@ -21,11 +45,11 @@ async function verifyAuth(req, res, next) {
             });
         }
 
-        // Handle guest tokens
+        // Handle guest tokens — check local guestStore
         if (String(token).startsWith('guest.')) {
             const guestUid = String(token).replace('guest.', '');
-            const userDoc = await collections.users.doc(guestUid).get().catch(() => null);
-            if (!userDoc || !userDoc.exists) {
+            const guestStore = require('../services/guestStore');
+            if (!guestStore.exists(guestUid)) {
                 return res.status(401).json({ success: false, error: { message: 'Guest session expired' } });
             }
             req.userId = guestUid;
@@ -91,16 +115,34 @@ router.post('/profile/complete', verifyAuth, async (req, res) => {
  */
 router.get('/profile', verifyAuth, async (req, res) => {
     try {
-        const userDoc = await collections.users.doc(req.userId).get();
+        // Guest users — serve from local guestStore
+        if (String(req.userId).startsWith('guest_')) {
+            const guestStore = require('../services/guestStore');
+            const g = guestStore.get(req.userId);
+            if (!g) return res.status(404).json({ success: false, error: { message: 'Guest session expired' } });
+            return res.json({
+                success: true,
+                profile: {
+                    id: g.id, name: g.name, email: g.email,
+                    phone: '', telegram: '', cryptoAddress: '',
+                    referralEmail: '', agentEmail: '',
+                    profilePhotoUrl: null,
+                    earningsBalance: g.earningsBalance || 0,
+                    totalOtps: g.totalOtps || 0, totalSms: g.totalOtps || 0,
+                    failedOtps: g.failedOtps || 0,
+                    profileComplete: true, emailVerified: true
+                }
+            });
+        }
 
-        if (!userDoc.exists) {
+        const userData = await getCachedUser(req.userId);
+
+        if (!userData) {
             return res.status(404).json({
                 success: false,
                 error: { message: 'User not found' }
             });
         }
-
-        const userData = userDoc.data();
 
         res.json({
             success: true,
@@ -220,7 +262,7 @@ router.get('/dashboard', verifyAuth, async (req, res) => {
             Math.max(0, Math.round((totalSms || 0) * (0.2 + (i + 1) * 0.1) / 7))
         );
 
-        res.set('Cache-Control', 'public, max-age=30');
+        res.set('Cache-Control', 'no-cache');
         res.json({
             success: true,
             dashboard: {

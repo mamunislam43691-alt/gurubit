@@ -26,20 +26,18 @@ service cloud.firestore {
     }
 
     // ── Phone Numbers ─────────────────────────────────────────────
-    match /phoneNumbers/{numberId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isAdmin();
-    }
+    // NOTE: phoneNumbers are stored locally on the server (not in Firestore)
+    // match /phoneNumbers/{numberId} { ... }  ← disabled
 
     // ── SMS Messages ──────────────────────────────────────────────
-    match /smsMessages/{msgId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update, delete: if isAdmin();
-    }
+    // NOTE: smsMessages are stored locally on the server (not in Firestore)
+    // match /smsMessages/{msgId} { ... }  ← disabled
 
+    // ── Catalog (Countries, Servers, Platforms) ───────────────────
+    // NOTE: catalog data is stored locally in catalog.json (not in Firestore)
+    // match /catalogCountries/{id} { ... }  ← disabled
+    // match /catalogServers/{id} { ... }    ← disabled
+    // match /catalogPlatforms/{id} { ... }  ← disabled
     // ── Withdrawal Requests ───────────────────────────────────────
     match /withdrawalRequests/{wdId} {
       allow read: if isSignedIn() && (
@@ -48,20 +46,6 @@ service cloud.firestore {
       allow create: if isSignedIn();
       allow update: if isAdmin();
       allow delete: if isAdmin();
-    }
-
-    // ── Catalog (Countries, Servers, Platforms) ───────────────────
-    match /catalogCountries/{id} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
-    }
-    match /catalogServers/{id} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
-    }
-    match /catalogPlatforms/{id} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
     }
 
     // ── SMS Providers ─────────────────────────────────────────────

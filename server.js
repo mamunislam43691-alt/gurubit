@@ -445,22 +445,40 @@ async function startServer() {
 
     // Start HTTP server
     server.listen(PORT, async () => {
-      try {
-        await require('./services/postStore').listGroups();
-      } catch (e) {
-        console.warn('Guru init:', e.message);
-      }
+      // Delay all Firestore reads by 3 seconds to avoid quota burst on startup
+      setTimeout(async () => {
+        try {
+          await require('./services/postStore').listGroups();
+        } catch (e) {
+          if (!String(e.message).includes('RESOURCE_EXHAUSTED')) console.warn('Guru init:', e.message);
+        }
 
-      // Load all Firestore-backed stores into memory cache
-      try {
-        await require('./services/catalogStore').loadCatalog();
-        console.log('✅ Catalog loaded from Firestore');
-      } catch (e) { console.warn('Catalog load:', e.message); }
+        // Load all Firestore-backed stores into memory cache
+        try {
+          await require('./services/catalogStore').loadCatalog();
+          console.log('✅ Catalog loaded from Firestore');
+        } catch (e) {
+          if (String(e.message).includes('RESOURCE_EXHAUSTED')) {
+            console.warn('⚠️  Catalog: Firestore quota exceeded — using empty cache. Will retry in 2 hours.');
+          } else { console.warn('Catalog load:', e.message); }
+        }
 
-      try {
-        await require('./services/providerStore').load();
-        console.log('✅ Providers loaded from Firestore');
-      } catch (e) { console.warn('Provider load:', e.message); }
+        try {
+          await require('./services/providerStore').load();
+          console.log('✅ Providers loaded from Firestore');
+        } catch (e) {
+          if (String(e.message).includes('RESOURCE_EXHAUSTED')) {
+            console.warn('⚠️  Providers: Firestore quota exceeded — using empty cache. Will retry in 2 hours.');
+          } else { console.warn('Provider load:', e.message); }
+        }
+
+        // Load SMTP config from Firestore
+        try {
+          await require('./services/emailSender').loadSmtpFromFirestore();
+        } catch (e) {
+          if (!String(e.message).includes('RESOURCE_EXHAUSTED')) console.warn('SMTP load:', e.message);
+        }
+      }, 3000); // 3 second delay
 
       // Start cache sync scheduler - syncs with Firestore every 2-5 hours
       try {
@@ -469,26 +487,7 @@ async function startServer() {
         console.log('✅ Cache sync scheduler started (syncs every 2-5 hours)');
       } catch (e) { console.warn('Cache sync:', e.message); }
 
-      // Load SMTP config from Firestore (persists across restarts)
-      try {
-        await require('./services/emailSender').loadSmtpFromFirestore();
-      } catch (e) { console.warn('SMTP load:', e.message); }
-
-      // Auto-migrate local JSON files to Firestore (one-time, safe to run multiple times)
-      try {
-        const fs = require('fs');
-        const path = require('path');
-        const providersFile = path.join(__dirname, 'data', 'providers.json');
-        const catalogFile = path.join(__dirname, 'data', 'catalog.json');
-        if (fs.existsSync(providersFile) || fs.existsSync(catalogFile)) {
-          console.log('📦 Migrating local data files to Firestore...');
-          const { execFile } = require('child_process');
-          execFile(process.execPath, [path.join(__dirname, 'scripts', 'migrate-to-firestore.js')], (err) => {
-            if (err) console.warn('Migration warning:', err.message);
-            else console.log('✅ Local data migrated to Firestore');
-          });
-        }
-      } catch (e) { console.warn('Migration check:', e.message); }
+      // NOTE: catalog.json is the source of truth for phone numbers — no Firestore migration needed.
       console.log(`\n🚀 GURUBIT Server running at http://localhost:${PORT}/`);
       console.log(`📁 Serving files from: ${path.join(__dirname, 'public')}`);
       console.log('API server ready for connections');

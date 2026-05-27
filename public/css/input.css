@@ -844,3 +844,170 @@ html.light .mobile-nav-item.is-active {
 .guru-tab.is-active {
   @apply bg-primary/10 text-primary border-primary/30;
 }
+
+/* ── 3D Landing Page Styles ──────────────────────────────────────────────── */
+
+/* 3D perspective container */
+.landing-3d-scene {
+  perspective: 1200px;
+  perspective-origin: 50% 40%;
+}
+
+/* Floating 3D card */
+.card-3d {
+  transform-style: preserve-3d;
+  transition: transform 0.6s cubic-bezier(0.23, 1, 0.32, 1), box-shadow 0.6s ease;
+  will-change: transform;
+}
+.card-3d:hover {
+  transform: rotateY(-8deg) rotateX(4deg) translateZ(20px) scale(1.02);
+  box-shadow: 20px 20px 60px rgba(0,0,0,0.5), 0 0 40px rgba(0,210,255,0.15);
+}
+
+/* Tilt card on mouse move */
+.tilt-card {
+  transform-style: preserve-3d;
+  transition: transform 0.15s ease-out;
+  will-change: transform;
+}
+
+/* 3D floating hero mockup */
+.hero-3d-mockup {
+  transform: perspective(1000px) rotateY(-15deg) rotateX(5deg);
+  transform-style: preserve-3d;
+  animation: hero3dFloat 6s ease-in-out infinite;
+  box-shadow:
+    30px 30px 80px rgba(0,0,0,0.6),
+    0 0 60px rgba(0,210,255,0.12),
+    inset 0 1px 0 rgba(255,255,255,0.1);
+}
+@keyframes hero3dFloat {
+  0%, 100% { transform: perspective(1000px) rotateY(-15deg) rotateX(5deg) translateY(0px); }
+  50%       { transform: perspective(1000px) rotateY(-12deg) rotateX(3deg) translateY(-12px); }
+}
+
+/* Particle dots background */
+.particles-bg {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.particle {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(0,210,255,0.4);
+  animation: particleDrift linear infinite;
+}
+@keyframes particleDrift {
+  0%   { transform: translateY(100vh) scale(0); opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 0.6; }
+  100% { transform: translateY(-10vh) scale(1); opacity: 0; }
+}
+
+/* Glowing orbs */
+.orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  pointer-events: none;
+  animation: orbPulse 8s ease-in-out infinite;
+}
+@keyframes orbPulse {
+  0%, 100% { opacity: 0.08; transform: scale(1); }
+  50%       { opacity: 0.15; transform: scale(1.1); }
+}
+
+/* 3D step cards */
+.step-card-3d {
+  transform-style: preserve-3d;
+  transition: transform 0.5s cubic-bezier(0.23, 1, 0.32, 1), box-shadow 0.5s ease;
+  position: relative;
+}
+.step-card-3d::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(135deg, rgba(0,210,255,0.08), transparent);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.step-card-3d:hover {
+  transform: translateY(-12px) rotateX(6deg) scale(1.03);
+  box-shadow: 0 30px 60px rgba(0,0,0,0.5), 0 0 30px rgba(0,210,255,0.1);
+}
+.step-card-3d:hover::before { opacity: 1; }
+
+/* Neon glow text */
+.neon-text {
+  text-shadow:
+    0 0 10px rgba(0,210,255,0.8),
+    0 0 20px rgba(0,210,255,0.5),
+    0 0 40px rgba(0,210,255,0.3);
+}
+
+/* Shimmer effect */
+@keyframes shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+.shimmer-text {
+  background: linear-gradient(90deg, #00d2ff 0%, #fff 40%, #3a7bd5 60%, #00d2ff 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: shimmer 4s linear infinite;
+}
+
+/* Scan line effect */
+.scan-line {
+  position: absolute;
+  left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(0,210,255,0.6), transparent);
+  animation: scanDown 3s linear infinite;
+  pointer-events: none;
+}
+@keyframes scanDown {
+  0%   { top: 0%; opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { top: 100%; opacity: 0; }
+}
+
+/* 3D badge */
+.badge-3d {
+  transform: perspective(400px) rotateX(10deg);
+  box-shadow: 0 8px 20px rgba(0,210,255,0.3), 0 2px 4px rgba(0,0,0,0.4);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+.badge-3d:hover {
+  transform: perspective(400px) rotateX(0deg) translateY(-2px);
+  box-shadow: 0 12px 30px rgba(0,210,255,0.4), 0 4px 8px rgba(0,0,0,0.4);
+}
+
+/* Grid lines background */
+.grid-bg {
+  background-image:
+    linear-gradient(rgba(0,210,255,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,210,255,0.04) 1px, transparent 1px);
+  background-size: 60px 60px;
+}
+
+/* Reveal animation */
+@keyframes revealUp {
+  from { opacity: 0; transform: translateY(30px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.reveal-up {
+  animation: revealUp 0.7s cubic-bezier(0.23, 1, 0.32, 1) forwards;
+  opacity: 0;
+}
+.reveal-up.delay-1 { animation-delay: 0.1s; }
+.reveal-up.delay-2 { animation-delay: 0.2s; }
+.reveal-up.delay-3 { animation-delay: 0.3s; }
+.reveal-up.delay-4 { animation-delay: 0.4s; }
+.reveal-up.delay-5 { animation-delay: 0.5s; }

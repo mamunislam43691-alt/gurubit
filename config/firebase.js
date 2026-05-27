@@ -224,15 +224,20 @@ const auth = rawAuth
       revokeRefreshTokens: async () => {}
     };
 
+// Local store for phone numbers and SMS — never stored in Firebase
+const phoneStore = require('../services/phoneStore');
+
 // Collections
+// NOTE: phoneNumbers and smsMessages use local JSON storage (phoneStore),
+//       not Firebase/Firestore. All other collections remain in Firestore.
 const collections = {
   users: db.collection('users'),
   sessions: db.collection('sessions'),
   countries: db.collection('countries'),
   servers: db.collection('servers'),
-  phoneNumbers: db.collection('phoneNumbers'),
+  phoneNumbers: phoneStore.phoneNumbers,   // ← local JSON, not Firestore
   platforms: db.collection('platforms'),
-  smsMessages: db.collection('smsMessages'),
+  smsMessages: phoneStore.smsMessages,     // ← local JSON, not Firestore
   withdrawalRequests: db.collection('withdrawalRequests'),
   apiKeys: db.collection('apiKeys'),
   guruPosts: db.collection('guruPosts'),

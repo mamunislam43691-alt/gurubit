@@ -114,17 +114,11 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // Handle guest tokens
+    // Handle guest tokens — check local guestStore, never Firestore
     if (String(idToken).startsWith('guest.')) {
       const guestUid = String(idToken).replace('guest.', '');
-      let userData = null;
-      try {
-        const userDoc = await Promise.race([
-          collections.users.doc(guestUid).get(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
-        ]);
-        if (userDoc?.exists) userData = userDoc.data();
-      } catch (_) {}
+      const guestStore = require('../services/guestStore');
+      const userData = guestStore.get(guestUid);
 
       if (!userData) return res.status(401).json({ success: false, error: { message: 'Guest session expired' } });
 
@@ -400,14 +394,30 @@ router.post('/send-password-reset', async (req, res) => {
   }
 });
 
+// Cache system settings — avoids repeated Firestore reads
+let _systemSettingsCache = null;
+let _systemSettingsCacheTime = 0;
+const SETTINGS_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
 async function getSystemSettings() {
+  // Return cached if fresh
+  if (_systemSettingsCache && (Date.now() - _systemSettingsCacheTime) < SETTINGS_CACHE_TTL) {
+    return _systemSettingsCache;
+  }
   try {
     const doc = await collections.guruSettings.doc('system').get();
     if (doc.exists) {
-      return doc.data();
+      _systemSettingsCache = doc.data();
+      _systemSettingsCacheTime = Date.now();
+      return _systemSettingsCache;
     }
   } catch (e) {
-    console.error('getSystemSettings error:', e);
+    const msg = String(e.message || '');
+    if (!msg.includes('RESOURCE_EXHAUSTED') && !msg.includes('Quota exceeded')) {
+      console.error('getSystemSettings error:', e.message);
+    }
+    // Return cached (even stale) on quota error
+    if (_systemSettingsCache) return _systemSettingsCache;
   }
   return { allowGuestLogin: true };
 }
@@ -432,7 +442,7 @@ router.get('/settings', async (req, res) => {
 
 /**
  * POST /api/auth/guest
- * One-click guest session for testing (no signup)
+ * One-click guest session for testing (no signup) — stored locally, never in Firebase
  */
 router.post('/guest', async (req, res) => {
   try {
@@ -447,26 +457,9 @@ router.post('/guest', async (req, res) => {
     const crypto = require('crypto');
     const uid = `guest_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 
-    await collections.users.doc(uid).set({
-      id: uid,
-      name: 'Guest User',
-      email: `${uid}@guest.local`,
-      phone: '',
-      telegram: '',
-      cryptoAddress: '',
-      referralEmail: '',
-      earningsBalance: 0,
-      totalOtps: 0,
-      failedOtps: 0,
-      isBanned: false,
-      isAdmin: false,
-      isGuest: true,
-      agentApproved: true,
-      profileComplete: true,
-      emailVerified: true,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    });
+    // Save guest locally — never in Firebase
+    const guestStore = require('../services/guestStore');
+    guestStore.create(uid);
 
     const token = `guest.${uid}`;
 
@@ -524,17 +517,11 @@ router.get('/session', async (req, res) => {
     const token = req.cookies.sessionToken || req.headers.authorization?.replace('Bearer ', '');
     if (!token) return res.json({ success: true, authenticated: false });
 
-    // Handle guest tokens — no Firestore needed for token check
+    // Handle guest tokens — check local guestStore
     if (String(token).startsWith('guest.')) {
       const guestUid = String(token).replace('guest.', '');
-      let userData = null;
-      try {
-        const userDoc = await Promise.race([
-          collections.users.doc(guestUid).get(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
-        ]);
-        if (userDoc?.exists) userData = userDoc.data();
-      } catch (_) {}
+      const guestStore = require('../services/guestStore');
+      const userData = guestStore.get(guestUid);
 
       if (!userData) return res.json({ success: true, authenticated: false });
       if (userData.isBanned) return res.json({ success: true, authenticated: false });

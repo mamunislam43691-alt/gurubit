@@ -8,6 +8,26 @@ const router = express.Router();
 const { auth, collections, db } = require('../config/firebase');
 const postStore = require('../services/postStore');
 const { moderateContent } = require('../services/aiModeration');
+const { cachedDocGet, isQuotaError } = require('../utils/firestoreCache');
+
+// User session cache — avoids repeated Firestore reads per request
+const _userCache = new Map(); // uid → { user, expiresAt }
+const USER_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+async function getCachedUser(uid) {
+  const cached = _userCache.get(uid);
+  if (cached && Date.now() < cached.expiresAt) return cached.user;
+  try {
+    const doc = await collections.users.doc(uid).get();
+    if (!doc.exists) return null;
+    const user = { ...doc.data(), id: uid };
+    _userCache.set(uid, { user, expiresAt: Date.now() + USER_CACHE_TTL });
+    return user;
+  } catch (err) {
+    if (isQuotaError(err) && cached) return cached.user; // return stale on quota error
+    return null;
+  }
+}
 
 // Firestore collections
 const ANN_COL        = 'announcements';
@@ -22,19 +42,19 @@ async function verifyAuth(req, res, next) {
     // Handle guest tokens
     if (String(token).startsWith('guest.')) {
       const guestUid = String(token).replace('guest.', '');
-      const doc = await collections.users.doc(guestUid).get().catch(() => null);
-      if (!doc || !doc.exists) return res.status(401).json({ success: false, error: { message: 'Guest session expired' } });
+      const user = await getCachedUser(guestUid);
+      if (!user) return res.status(401).json({ success: false, error: { message: 'Guest session expired' } });
       req.userId = guestUid;
-      req.user = { ...doc.data(), id: guestUid };
+      req.user = user;
       if (req.user.isBanned) return res.status(403).json({ success: false, error: { message: 'Account banned' } });
       return next();
     }
 
     const decoded = await auth.verifyIdToken(token);
     req.userId = decoded.uid;
-    const doc = await collections.users.doc(req.userId).get();
-    if (!doc.exists) return res.status(401).json({ success: false, error: { message: 'User not found' } });
-    req.user = { ...doc.data(), id: req.userId };
+    const user = await getCachedUser(decoded.uid);
+    if (!user) return res.status(401).json({ success: false, error: { message: 'User not found' } });
+    req.user = user;
     if (req.user.isBanned) return res.status(403).json({ success: false, error: { message: 'Account banned' } });
     if (req.user.suspendedUntil && new Date(req.user.suspendedUntil) > new Date()) {
       return res.status(403).json({ success: false, error: { message: 'Account suspended', code: 'SUSPENDED' } });
@@ -362,6 +382,34 @@ router.delete('/announcements/:id', verifyAuth, async (req, res) => {
   if (!req.user.isAdmin) return res.status(403).json({ success: false, error: { message: 'Admin only' } });
   await ANN_FS().doc(req.params.id).delete();
   res.json({ success: true });
+});
+
+// ── Public ads endpoint (for PostFeed) ───────────────────────────────────────
+
+router.get('/ads', async (req, res) => {
+  try {
+    const doc = await db.collection('guruSettings').doc('ads').get();
+    if (!doc.exists) return res.json({ success: true, ads: null });
+    const ads = doc.data();
+    if (!ads.enabled) return res.json({ success: true, ads: null });
+    // Return only safe fields — no admin metadata
+    res.json({
+      success: true,
+      ads: {
+        enabled: ads.enabled,
+        frequency: ads.frequency || 5,
+        label: ads.label || 'Sponsored',
+        items: (ads.items || []).map(item => ({
+          title: item.title || '',
+          description: item.description || '',
+          linkUrl: item.linkUrl || '',
+          imageUrl: item.imageUrl || null
+        }))
+      }
+    });
+  } catch (e) {
+    res.json({ success: true, ads: null });
+  }
 });
 
 module.exports = router;

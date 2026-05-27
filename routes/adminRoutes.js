@@ -198,7 +198,7 @@ router.post('/logout', (req, res) => {
 // In-memory cache for dashboard stats (survives quota errors)
 let _dashboardCache = null;
 let _dashboardCacheTime = 0;
-const DASHBOARD_CACHE_TTL = 60 * 1000; // 1 minute
+const DASHBOARD_CACHE_TTL = 30 * 1000; // 30 seconds — fast refresh
 
 router.get('/dashboard', async (req, res) => {
   try {
@@ -613,6 +613,56 @@ router.put('/settings/config', verifyAdminPerm('settings'), async (req, res) => 
   }
 });
 
+// ── Ads settings ──────────────────────────────────────────────────────────────
+
+router.get('/settings/ads', verifyAdminPerm('settings'), async (req, res) => {
+  try {
+    const doc = await collections.guruSettings.doc('ads').get();
+    const ads = doc.exists ? doc.data() : { enabled: false, frequency: 5, label: 'Sponsored', items: [] };
+    // Sanitize items — remove undefined fields
+    if (Array.isArray(ads.items)) {
+      ads.items = ads.items.map(item => ({
+        title: item.title || '',
+        description: item.description || '',
+        linkUrl: item.linkUrl || '',
+        imageUrl: item.imageUrl || null,
+        createdAt: item.createdAt || new Date().toISOString()
+      }));
+    } else {
+      ads.items = [];
+    }
+    res.json({ success: true, ads });
+  } catch (error) {
+    res.status(500).json({ success: false, error: { message: error.message } });
+  }
+});
+
+router.put('/settings/ads', verifyAdminPerm('settings'), async (req, res) => {
+  try {
+    const { enabled, frequency, label, items } = req.body || {};
+    // Sanitize — no undefined values for Firestore
+    const sanitizedItems = Array.isArray(items) ? items.map(item => ({
+      title: String(item.title || ''),
+      description: String(item.description || ''),
+      linkUrl: String(item.linkUrl || ''),
+      imageUrl: item.imageUrl || null,
+      createdAt: item.createdAt || new Date().toISOString()
+    })) : [];
+
+    const ads = {
+      enabled: enabled === true,
+      frequency: Math.max(1, parseInt(frequency) || 5),
+      label: String(label || 'Sponsored'),
+      items: sanitizedItems,
+      updatedAt: new Date().toISOString()
+    };
+    await collections.guruSettings.doc('ads').set(ads);
+    res.json({ success: true, ads });
+  } catch (error) {
+    res.status(500).json({ success: false, error: { message: error.message } });
+  }
+});
+
 /**
  * GET /api/admin/users
  * Get all users
@@ -719,6 +769,31 @@ router.put('/withdrawals/:id/approve', verifyAdmin, async (req, res) => {
  */
 router.get('/catalog/countries', verifyAdmin, async (req, res) => {
   res.json({ success: true, countries: await catalogStore.listCountries() });
+});
+
+// Pool status — shows exactly how many numbers remain in each server
+router.get('/catalog/pool-status', verifyAdmin, async (req, res) => {
+  try {
+    const countries = catalogStore.listCountries();
+    const result = [];
+    for (const c of countries) {
+      const servers = catalogStore.listServers(c.id);
+      for (const s of servers) {
+        const nums = Array.isArray(s.numbers) ? s.numbers.filter(n => n && typeof n === 'string') : [];
+        result.push({
+          countryId: c.id,
+          countryName: c.name,
+          serverId: s.id,
+          serverName: s.name,
+          available: nums.length,
+          sample: nums.slice(0, 3)
+        });
+      }
+    }
+    res.json({ success: true, pool: result, total: result.reduce((a, r) => a + r.available, 0) });
+  } catch (e) {
+    res.status(500).json({ success: false, error: { message: e.message } });
+  }
 });
 
 router.post('/countries', verifyAdmin, async (req, res) => {
@@ -982,32 +1057,18 @@ router.get('/range-analytics', verifyAdmin, async (req, res) => {
     const countries = catalogStore.listCountries();
     const allProviders = providerStore.list();
 
-    // Get OTP success counts per server
-    const successSnap = await collections.phoneNumbers
-      .where('status', '==', 'successful')
-      .get();
-    const pendingSnap = await collections.phoneNumbers
-      .where('status', '==', 'pending')
-      .get();
-    const failedSnap = await collections.phoneNumbers
-      .where('status', '==', 'failed')
-      .get();
-
+    // Get OTP counts per server from local store (single pass)
+    const allNumbersSnap = await collections.phoneNumbers.get();
     const successByServer = {};
     const pendingByServer = {};
     const failedByServer = {};
 
-    successSnap.forEach(doc => {
+    allNumbersSnap.forEach(doc => {
       const d = doc.data();
-      if (d.serverId) successByServer[d.serverId] = (successByServer[d.serverId] || 0) + 1;
-    });
-    pendingSnap.forEach(doc => {
-      const d = doc.data();
-      if (d.serverId) pendingByServer[d.serverId] = (pendingByServer[d.serverId] || 0) + 1;
-    });
-    failedSnap.forEach(doc => {
-      const d = doc.data();
-      if (d.serverId) failedByServer[d.serverId] = (failedByServer[d.serverId] || 0) + 1;
+      if (!d.serverId) return;
+      if (d.status === 'successful') successByServer[d.serverId] = (successByServer[d.serverId] || 0) + 1;
+      else if (d.status === 'pending')  pendingByServer[d.serverId] = (pendingByServer[d.serverId] || 0) + 1;
+      else if (d.status === 'failed')   failedByServer[d.serverId]  = (failedByServer[d.serverId]  || 0) + 1;
     });
 
     // Get recent SMS messages per server for live feed
@@ -1106,6 +1167,100 @@ router.get('/range-live', verifyAdmin, async (req, res) => {
     res.status(500).json({ success: false, error: { message: err.message } });
   }
 });
+
+/**
+ * GET /api/admin/api-range-live
+ * Fetch live range/CLI data from integrated API providers
+ * Shows all countries, ranges, OTP counts from the provider API
+ */
+router.get('/api-range-live', verifyAdmin, async (req, res) => {
+  try {
+    const providerStore = require('../services/providerStore');
+    const catalogStore  = require('../services/catalogStore');
+    const providers = providerStore.list().filter(p => p.providerType === 'integrated');
+
+    if (providers.length === 0) {
+      return res.json({ success: true, providers: [], message: 'No integrated API providers configured.' });
+    }
+
+    const results = [];
+
+    await Promise.allSettled(providers.map(async (provider) => {
+      const baseUrl = provider.baseUrl.replace(/\/$/, '');
+      const headers = { 'x-api-key': provider.apiKey, 'Accept': 'application/json' };
+      const entry = {
+        providerId: provider.id,
+        providerName: provider.serviceName,
+        baseUrl: provider.baseUrl,
+        countryId: provider.countryId,
+        countryName: provider.countryId
+          ? (catalogStore.getCountry(provider.countryId)?.name || provider.countryId)
+          : '—',
+        ranges: [],
+        numbers: [],
+        totalNumbers: 0,
+        totalOtps: 0,
+        status: 'ok',
+        error: null
+      };
+
+      // 1. Fetch CLI ranges with OTP counts
+      try {
+        const rangeRes = await fetch(`${baseUrl}/cli-ranges`, { headers, signal: AbortSignal.timeout(8000) });
+        if (rangeRes.ok) {
+          const body = await rangeRes.json().catch(() => ({}));
+          const ranges = body.data || body.ranges || [];
+          entry.ranges = ranges.map(r => ({
+            name: r.name || r.cli || r.range || '—',
+            count: r.count || r.numberCount || 0,
+            otpCount: r.otpCount || r.otp_count || 0,
+            successRate: r.successRate || r.success_rate || null
+          }));
+          entry.totalOtps = entry.ranges.reduce((s, r) => s + (r.otpCount || 0), 0);
+        }
+      } catch (_) {}
+
+      // 2. Fetch assigned numbers
+      try {
+        const numRes = await fetch(`${baseUrl}/numbers?status=assigned&limit=500`, { headers, signal: AbortSignal.timeout(8000) });
+        if (numRes.ok) {
+          const body = await numRes.json().catch(() => ({}));
+          const nums = body.data || body.numbers || [];
+          entry.numbers = nums.slice(0, 100).map(n => ({
+            number: n.number || n.phone || n.msisdn || n.cli || '—',
+            cli: n.cli || n.range || '—',
+            status: n.status || 'assigned',
+            otpCount: n.otpCount || n.otp_count || 0
+          }));
+          entry.totalNumbers = nums.length;
+        }
+      } catch (_) {}
+
+      // 3. Fetch recent OTPs (last 50)
+      try {
+        const since = new Date(Date.now() - 60 * 60 * 1000).toISOString(); // last 1 hour
+        const otpRes = await fetch(`${baseUrl}/otp?limit=50&since=${encodeURIComponent(since)}`, { headers, signal: AbortSignal.timeout(8000) });
+        if (otpRes.ok) {
+          const body = await otpRes.json().catch(() => ({}));
+          entry.recentOtps = (body.data || body.messages || []).slice(0, 50).map(m => ({
+            number: String(m.number || m.phone || '').replace(/\D/g, ''),
+            content: m.message || m.content || m.text || '',
+            otp: m.otp || null,
+            receivedAt: m.created_at || m.receivedAt || new Date().toISOString(),
+            cli: m.cli || m.range || '—'
+          }));
+        }
+      } catch (_) {}
+
+      results.push(entry);
+    }));
+
+    res.json({ success: true, providers: results, fetchedAt: new Date().toISOString() });
+  } catch (err) {
+    res.status(500).json({ success: false, error: { message: err.message } });
+  }
+});
+
 /*
  * Rank users by successful OTPs
  */

@@ -14,6 +14,8 @@ export class AdminSmsFeed {
     this.numberRequests = [];
     this.rangeData = [];
     this.rangeLiveRows = [];
+    this.apiRangeData = [];      // ← new: integrated API range data
+    this.apiRangeLoading = false;
     this.ws = null;
     this.reconnectAttempts = 0;
     this.maxReconnectAttempts = 60;
@@ -34,7 +36,8 @@ export class AdminSmsFeed {
       { id: 'unmatched',       label: 'Unmatched',       count: unmatched },
       { id: 'number_requests', label: 'Number Requests', count: this.numberRequests.length },
       { id: 'range',           label: 'Range',           count: this.rangeData.length },
-      { id: 'range_live',      label: 'Range Live',      count: this.rangeLiveRows.length }
+      { id: 'range_live',      label: 'Range Live',      count: this.rangeLiveRows.length },
+      { id: 'api_range_live',  label: 'API Range Live',  count: this.apiRangeData.length }
     ];
   }
 
@@ -151,6 +154,7 @@ export class AdminSmsFeed {
         <div class="overflow-x-auto">
           ${this.filter === 'range' ? this._renderRange() :
             this.filter === 'range_live' ? this._renderRangeLive() :
+            this.filter === 'api_range_live' ? this._renderApiRangeLive() :
           `<table class="w-full text-left" style="border-collapse:collapse; min-width:720px;">
             <thead style="background:rgba(10,30,59,0.9);">
               <tr>
@@ -321,8 +325,149 @@ export class AdminSmsFeed {
     </table>`;
   }
 
-  _renderNumberRequests() {
-    if (!this.numberRequests.length) {
+  _renderApiRangeLive() {
+    if (this.apiRangeLoading) {
+      return `<div class="p-12 text-center text-gray-500">
+        <i class="fas fa-circle-notch fa-spin text-4xl mb-3 block text-primary"></i>
+        <p>Fetching live data from API providers...</p>
+      </div>`;
+    }
+    if (!this.apiRangeData.length) {
+      return `<div class="p-12 text-center text-gray-500">
+        <i class="fas fa-plug text-4xl mb-3 block text-gray-700"></i>
+        <p class="font-semibold">No integrated API providers configured.</p>
+        <p class="text-xs mt-1">Add an integrated provider in the Provider section.</p>
+      </div>`;
+    }
+
+    return `<div class="p-4 space-y-6">
+      <div class="flex items-center justify-between mb-2">
+        <p class="text-xs text-gray-500">Fetched: <span class="text-primary font-mono">${this._apiRangeFetchedAt || '—'}</span></p>
+        <button type="button" id="apiRangeRefreshBtn"
+          class="px-3 py-1.5 text-[10px] font-bold uppercase text-primary hover:text-white border border-primary/30 rounded hover:bg-primary/10 transition flex items-center gap-1.5">
+          <i class="fas fa-sync-alt"></i> Refresh
+        </button>
+      </div>
+
+      ${this.apiRangeData.map(prov => `
+        <div class="glass-card p-4 border-white/5">
+          <!-- Provider header -->
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                <i class="fas fa-server text-primary"></i>
+              </div>
+              <div>
+                <p class="font-black text-white">${prov.providerName}</p>
+                <p class="text-[10px] text-gray-500">${prov.countryName} · ${prov.baseUrl}</p>
+              </div>
+            </div>
+            <div class="flex gap-4 text-center">
+              <div>
+                <p class="text-lg font-black text-primary">${prov.totalNumbers}</p>
+                <p class="text-[9px] text-gray-500 uppercase">Numbers</p>
+              </div>
+              <div>
+                <p class="text-lg font-black text-green-400">${prov.totalOtps}</p>
+                <p class="text-[9px] text-gray-500 uppercase">OTPs</p>
+              </div>
+              <div>
+                <p class="text-lg font-black text-cyan-400">${prov.ranges.length}</p>
+                <p class="text-[9px] text-gray-500 uppercase">Ranges</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- CLI Ranges table -->
+          ${prov.ranges.length ? `
+          <div class="mb-4">
+            <p class="text-[10px] font-black uppercase text-gray-500 mb-2 tracking-widest">CLI Ranges</p>
+            <div class="overflow-x-auto">
+              <table class="w-full text-xs" style="border-collapse:collapse; min-width:500px;">
+                <thead>
+                  <tr class="text-[10px] uppercase text-gray-500 border-b border-white/5">
+                    <th class="py-2 px-3 text-left">Range / CLI</th>
+                    <th class="py-2 px-3 text-center">Numbers</th>
+                    <th class="py-2 px-3 text-center">OTPs</th>
+                    <th class="py-2 px-3 text-center">Success Rate</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${prov.ranges.map((r, i) => `
+                    <tr class="border-b border-white/5 hover:bg-white/[0.02] ${i === 0 ? 'bg-primary/5' : ''}">
+                      <td class="py-2 px-3">
+                        <span class="font-mono font-bold text-white">${r.name}</span>
+                        ${i === 0 ? '<span class="ml-2 text-[9px] text-primary font-black uppercase bg-primary/10 px-1.5 py-0.5 rounded">Best</span>' : ''}
+                      </td>
+                      <td class="py-2 px-3 text-center text-cyan-300 font-bold">${r.count}</td>
+                      <td class="py-2 px-3 text-center text-green-400 font-bold">${r.otpCount}</td>
+                      <td class="py-2 px-3 text-center">
+                        ${r.successRate != null
+                          ? `<span class="font-bold ${r.successRate >= 70 ? 'text-green-400' : r.successRate >= 40 ? 'text-yellow-400' : 'text-red-400'}">${r.successRate}%</span>`
+                          : '<span class="text-gray-600">—</span>'}
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>` : ''}
+
+          <!-- Recent OTPs -->
+          ${prov.recentOtps?.length ? `
+          <div class="mb-4">
+            <p class="text-[10px] font-black uppercase text-gray-500 mb-2 tracking-widest">Recent OTPs (last 1h)</p>
+            <div class="overflow-x-auto">
+              <table class="w-full text-xs" style="border-collapse:collapse; min-width:600px;">
+                <thead>
+                  <tr class="text-[10px] uppercase text-gray-500 border-b border-white/5">
+                    <th class="py-2 px-3 text-left">Number</th>
+                    <th class="py-2 px-3 text-left">CLI</th>
+                    <th class="py-2 px-3 text-left">OTP</th>
+                    <th class="py-2 px-3 text-left">Message</th>
+                    <th class="py-2 px-3 text-left">Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${prov.recentOtps.map(m => {
+                    const t = m.receivedAt ? new Date(m.receivedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '—';
+                    return `<tr class="border-b border-white/5 hover:bg-white/[0.02]">
+                      <td class="py-2 px-3 font-mono text-primary">+${m.number}</td>
+                      <td class="py-2 px-3 text-cyan-300 font-mono text-[10px]">${m.cli}</td>
+                      <td class="py-2 px-3">
+                        ${m.otp ? `<span class="font-mono font-black text-white bg-primary/10 border border-primary/25 px-2 py-0.5 rounded">${m.otp}</span>` : '<span class="text-gray-600">—</span>'}
+                      </td>
+                      <td class="py-2 px-3 text-gray-400 max-w-xs truncate">${(m.content || '').slice(0, 80)}</td>
+                      <td class="py-2 px-3 text-gray-600 font-mono whitespace-nowrap">${t}</td>
+                    </tr>`;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>` : ''}
+
+          <!-- Assigned Numbers sample -->
+          ${prov.numbers?.length ? `
+          <div>
+            <p class="text-[10px] font-black uppercase text-gray-500 mb-2 tracking-widest">
+              Assigned Numbers (showing ${prov.numbers.length} of ${prov.totalNumbers})
+            </p>
+            <div class="flex flex-wrap gap-2">
+              ${prov.numbers.slice(0, 30).map(n => `
+                <span class="font-mono text-[10px] px-2 py-1 rounded bg-white/5 border border-white/10 text-gray-300">
+                  +${n.number}
+                  ${n.cli && n.cli !== '—' ? `<span class="text-primary ml-1">${n.cli}</span>` : ''}
+                </span>
+              `).join('')}
+              ${prov.numbers.length > 30 ? `<span class="text-[10px] text-gray-600 self-center">+${prov.numbers.length - 30} more</span>` : ''}
+            </div>
+          </div>` : ''}
+        </div>
+      `).join('')}
+    </div>`;
+  }
+
+  _renderNumberRequests() {    if (!this.numberRequests.length) {
       return `<tr><td colspan="6" class="px-4 py-20 text-center">
         <div class="flex flex-col items-center gap-3">
           <i class="fas fa-bell text-5xl text-gray-700"></i>
@@ -380,6 +525,9 @@ export class AdminSmsFeed {
             const rl = await fetch('/api/admin/range-live').then(r => r.json()).catch(() => ({}));
             if (rl.success) this.rangeLiveRows = rl.rows || [];
           } catch {}
+        }
+        if (this.filter === 'api_range_live') {
+          await this._loadApiRangeLive();
         }
         this.render();
       });
@@ -445,9 +593,27 @@ export class AdminSmsFeed {
         }
       } catch (e) {}
     });
+    // API Range Live refresh button
+    document.getElementById('apiRangeRefreshBtn')?.addEventListener('click', async () => {
+      await this._loadApiRangeLive();
+      this.render();
+    });
   }
 
-  _openNumberRequestModal(nr) {
+  async _loadApiRangeLive() {
+    this.apiRangeLoading = true;
+    this.render();
+    try {
+      const res = await fetch('/api/admin/api-range-live').then(r => r.json()).catch(() => ({}));
+      if (res.success) {
+        this.apiRangeData = res.providers || [];
+        this._apiRangeFetchedAt = res.fetchedAt
+          ? new Date(res.fetchedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'})
+          : new Date().toLocaleTimeString();
+      }
+    } catch (_) {}
+    this.apiRangeLoading = false;
+  }
     try {
       document.getElementById('nr_number').textContent = nr.phoneNumber || '—';
       document.getElementById('nr_country').textContent = nr.countryName || '—';
@@ -746,19 +912,18 @@ export class AdminSmsFeed {
     this.admin = await AdminLayout.ensureAuth();
     if (!this.admin) return;
 
+    // Render shell immediately — data loads in background
+    this.render();
+
     // Load recent SMS directly from provider API via live-feed endpoint
     try {
       const res = await fetch('/api/sms/live-feed');
       const data = await res.json().catch(() => ({}));
       if (data.success && Array.isArray(data.messages) && data.messages.length > 0) {
         this.messages = data.messages;
-        console.log(`[SMS Feed] Loaded ${this.messages.length} recent messages`);
       }
-    } catch (e) {
-      console.warn('Failed to load initial SMS feed:', e.message);
-    }
+    } catch (e) {}
 
-    this.render();
     // Load recent number requests for initial badge/list
     try {
       const nr = await fetch('/api/admin/number-requests').then(r => r.json()).catch(() => ({}));

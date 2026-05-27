@@ -11,12 +11,15 @@ export class PostFeed {
     this.user = null;
     this.posts = [];
     this.announcements = [];
+    this.ads = null;
     this.tab = 'discover';
     this.showComposer = false;
     this.pendingImagePreview = null;
     this.composerText = '';
-    this.expandedComments = new Set(); // post ids with comments open
-    this.commentInputs = {};           // postId -> text
+    this.expandedComments = new Set();
+    this.commentInputs = {};
+    this._groupsData = null;
+    this._myGroupIds = new Set();
   }
 
   esc(s) {
@@ -54,6 +57,12 @@ export class PostFeed {
   async loadAnnouncements() {
     const data = await fetch('/api/social/announcements').then((r) => r.json()).catch(() => ({}));
     if (data.success) this.announcements = data.announcements || [];
+  }
+
+  async loadAds() {
+    const data = await fetch('/api/social/ads').then(r => r.json()).catch(() => ({}));
+    if (data.success && data.ads?.enabled) this.ads = data.ads;
+    else this.ads = null;
   }
 
   async submitPost() {
@@ -330,7 +339,53 @@ export class PostFeed {
       </article>`;
   }
 
-  renderAnnouncements() {
+  renderAdCard(ad) {
+    return `
+      <div class="movement-post border-b border-white/5 px-4 py-4 bg-yellow-500/[0.03]">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-[9px] font-black text-yellow-400/80 bg-yellow-400/10 px-2 py-0.5 rounded uppercase tracking-widest">${this.esc(this.ads?.label || 'Sponsored')}</span>
+        </div>
+        <div class="flex items-start gap-3">
+          ${ad.imageUrl ? `<img src="${ad.imageUrl}" class="w-20 h-16 rounded-xl object-cover border border-white/10 shrink-0">` : ''}
+          <div class="flex-1 min-w-0">
+            <p class="font-bold text-white text-sm">${this.esc(ad.title)}</p>
+            ${ad.description ? `<p class="text-xs text-gray-400 mt-0.5 leading-relaxed">${this.esc(ad.description)}</p>` : ''}
+            ${ad.linkUrl ? `
+              <a href="${this.esc(ad.linkUrl)}" target="_blank" rel="noopener sponsored"
+                class="inline-flex items-center gap-1.5 mt-2 px-4 py-1.5 rounded-lg bg-yellow-500/20 text-yellow-400 text-xs font-bold hover:bg-yellow-500/30 transition-all">
+                Learn More <i class="fas fa-arrow-right text-[9px]"></i>
+              </a>` : ''}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  renderFeedWithAds(posts) {
+    if (!posts.length) {
+      return `<div class="text-center py-16 text-gray-600">
+        <i class="fas fa-wind text-4xl mb-3 block"></i>
+        <p class="text-sm">${this.tab === 'following' ? 'Follow someone to see their posts here' : 'No posts yet. Be the first!'}</p>
+      </div>`;
+    }
+
+    const freq = this.ads?.frequency || 5;
+    const adItems = this.ads?.items || [];
+    if (!adItems.length || !this.ads?.enabled) {
+      return posts.map(p => this.renderPost(p)).join('');
+    }
+
+    let adIndex = 0;
+    return posts.map((p, i) => {
+      const postHtml = this.renderPost(p);
+      // Insert ad after every `freq` posts
+      if ((i + 1) % freq === 0 && adItems.length > 0) {
+        const ad = adItems[adIndex % adItems.length];
+        adIndex++;
+        return postHtml + this.renderAdCard(ad);
+      }
+      return postHtml;
+    }).join('');
+  }
     if (!this.announcements.length) {
       return `<div class="text-center py-16 text-gray-600">
         <i class="fas fa-bullhorn text-4xl mb-3 block"></i>
@@ -357,7 +412,7 @@ export class PostFeed {
     const feedContent = this.tab === 'announcements'
       ? this.renderAnnouncements()
       : (filtered.length
-          ? filtered.map((p) => this.renderPost(p)).join('')
+          ? this.renderFeedWithAds(filtered)
           : `<div class="text-center py-16 text-gray-600">
               <i class="fas fa-wind text-4xl mb-3 block"></i>
               <p class="text-sm">${this.tab === 'following' ? 'Follow someone to see their posts here' : 'No posts yet. Be the first!'}</p>
@@ -597,7 +652,7 @@ export class PostFeed {
   async init() {
     this.user = await UserLayout.ensureAuth();
     if (!this.user) return;
-    await Promise.all([this.loadFeed(), this.loadAnnouncements()]);
+    await Promise.all([this.loadFeed(), this.loadAnnouncements(), this.loadAds()]);
     this.render();
   }
 }

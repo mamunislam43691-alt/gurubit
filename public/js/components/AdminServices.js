@@ -34,7 +34,22 @@ export class AdminServices {
   async loadServers(countryId) {
     const res = await fetch(`/api/admin/catalog/countries/${countryId}/platforms`);
     const data = await res.json();
-    if (data.success) this.servers = data.servers || [];
+    if (data.success) {
+      this.servers = data.servers || [];
+      // Refresh pool counts from Firestore (accurate real-time count)
+      try {
+        const poolRes = await fetch('/api/admin/catalog/pool-status');
+        const poolData = await poolRes.json();
+        if (poolData.success) {
+          const poolMap = {};
+          (poolData.pool || []).forEach(p => { poolMap[p.serverId] = p.available; });
+          this.servers = this.servers.map(s => ({
+            ...s,
+            _poolCount: poolMap[s.id] ?? (s.numbers || []).length
+          }));
+        }
+      } catch (_) {}
+    }
   }
 
   async loadProviders() {
@@ -228,7 +243,11 @@ export class AdminServices {
               <button type="button" class="service-server-row glass-card w-full text-left p-4 flex justify-between items-center open-server" data-id="${s.id}">
                 <div>
                   <p class="font-bold text-white text-base">${s.name}</p>
-                  <p class="text-xs text-gray-500">${s.providerId ? '<span class="text-primary font-bold">API Connection (এ পি আই কানেকশন)</span>' : `${(s.numbers || []).length} available`}</p>
+                  <p class="text-xs ${s._poolCount > 0 ? 'text-green-400' : 'text-red-400'} font-bold">
+                    ${s.providerId
+                      ? '<span class="text-primary font-bold">API Connection</span>'
+                      : `${s._poolCount ?? (s.numbers || []).length} numbers available`}
+                  </p>
                 </div>
                 <i class="fas fa-chevron-right text-primary"></i>
               </button>
@@ -246,7 +265,12 @@ export class AdminServices {
       <div class="admin-modal-backdrop" id="serverModal">
         <div class="admin-modal glass-card max-w-lg w-full max-h-[85vh] overflow-y-auto">
           <div class="flex justify-between items-center mb-4">
-            <h3 class="font-black text-white">${s.name}</h3>
+            <div>
+              <h3 class="font-black text-white">${s.name}</h3>
+              <p class="text-xs font-bold mt-0.5 ${(s._poolCount ?? (s.numbers||[]).length) > 0 ? 'text-green-400' : 'text-red-400'}">
+                ${s._poolCount ?? (s.numbers||[]).length} numbers in pool
+              </p>
+            </div>
             <button type="button" class="admin-modal-close text-2xl" data-close-modal>×</button>
           </div>
           <div class="space-y-4">
@@ -401,6 +425,8 @@ export class AdminServices {
   async init() {
     this.admin = await AdminLayout.ensureAuth();
     if (!this.admin) return;
+    // Render shell immediately — countries load in background
+    this.render();
     await this.loadCountries();
     this.render();
   }
