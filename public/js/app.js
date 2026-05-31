@@ -264,6 +264,15 @@ async function startApp() {
 
     // SPA popstate handler — fires when spa-link navigation happens
     window.addEventListener('popstate', async () => {
+      // Show instant loading state — prevents blank screen
+      const app = document.getElementById('app');
+      if (app && app.innerHTML.trim().length < 100) {
+        app.innerHTML = `<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#020b18;">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:12px;">
+            <div style="width:40px;height:40px;border:3px solid rgba(0,210,255,0.2);border-top-color:#00d2ff;border-radius:50%;animation:spin 0.7s linear infinite;"></div>
+          </div>
+        </div>`;
+      }
       try {
         await _appRouter.init();
       } finally {

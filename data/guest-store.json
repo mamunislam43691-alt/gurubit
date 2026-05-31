@@ -1,9 +1,9 @@
 {
   "guests": [
     {
-      "id": "guest_1779899665529_b5f24f21",
+      "id": "guest_1780211491675_a4947165",
       "name": "Guest User",
-      "email": "guest_1779899665529_b5f24f21@guest.local",
+      "email": "guest_1780211491675_a4947165@guest.local",
       "phone": "",
       "telegram": "",
       "cryptoAddress": "",
@@ -17,8 +17,8 @@
       "agentApproved": true,
       "profileComplete": true,
       "emailVerified": true,
-      "createdAt": "2026-05-27T16:34:25.541Z",
-      "updatedAt": "2026-05-27T16:34:25.541Z"
+      "createdAt": "2026-05-31T07:11:31.692Z",
+      "updatedAt": "2026-05-31T07:11:31.692Z"
     }
   ]
 }

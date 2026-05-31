@@ -107,14 +107,22 @@ export class PostFeed {
   async toggleLike(postId) {
     const post = this.posts.find(p => p.id === postId);
     if (!post) return;
-    // Optimistic update
+    // Optimistic update — instant feedback
     const wasLiked = post._liked;
     post._liked = !wasLiked;
     post.likes = Math.max(0, (post.likes || 0) + (wasLiked ? -1 : 1));
     this._rerenderPost(postId);
 
     const res = await fetch(`/api/social/posts/${postId}/like`, { method: 'POST' }).catch(() => null);
-    if (!res?.ok) {
+    if (res?.ok) {
+      const data = await res.json().catch(() => null);
+      if (data?.success) {
+        // Sync with server count
+        post._liked = data.liked;
+        post.likes = data.likes;
+        this._rerenderPost(postId);
+      }
+    } else {
       // Revert on failure
       post._liked = wasLiked;
       post.likes = Math.max(0, (post.likes || 0) + (wasLiked ? 1 : -1));
@@ -222,9 +230,9 @@ export class PostFeed {
               <button type="button" id="removeImg" class="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/60 text-white text-xs flex items-center justify-center">&times;</button>
             </div>` : ''}
           <div class="flex items-center gap-3 pt-3 border-t border-white/10">
-            <label class="cursor-pointer text-gray-400 hover:text-primary transition-all" title="Add photo">
+            <label class="cursor-pointer text-gray-400 hover:text-primary transition-all" title="Add photo (image only)">
               <i class="fas fa-image text-lg"></i>
-              <input type="file" id="postImage" accept="image/*" class="hidden">
+              <input type="file" id="postImage" accept="image/jpeg,image/jpg,image/png,image/gif,image/webp" class="hidden">
             </label>
             <span class="text-xs text-gray-600">#hashtag @mention</span>
             <div class="ml-auto flex gap-2">
@@ -249,7 +257,6 @@ export class PostFeed {
       <article class="movement-post border-b border-white/5 px-4 py-4 hover:bg-white/[0.015] transition-all" data-post-id="${p.id}">
         <!-- Author row -->
         <div class="flex items-start gap-3">
-          <!-- Avatar — click goes to profile -->
           <a href="/post/user/${p.userId}" class="spa-link shrink-0">
             ${p.profilePhotoUrl
               ? `<img src="${p.profilePhotoUrl}" class="w-10 h-10 rounded-full object-cover border border-white/10">`
@@ -260,7 +267,6 @@ export class PostFeed {
             <div class="flex items-center gap-2 flex-wrap">
               <a href="/post/user/${p.userId}" class="spa-link font-bold text-white text-sm hover:text-primary transition-all">${this.esc(p.userName)}</a>
               ${this.badge(p)}
-              <!-- Follow button next to name -->
               ${!isOwn ? `
               <button type="button" class="follow-post-btn flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border transition-all
                 ${p.following ? 'border-primary/40 text-primary bg-primary/10' : 'border-white/15 text-gray-400 hover:border-primary/40 hover:text-primary'}"
@@ -273,43 +279,52 @@ export class PostFeed {
 
             <!-- Post content -->
             ${p.text ? `<p class="text-gray-200 text-sm mt-2 whitespace-pre-wrap leading-relaxed">${this.parseText(p.text)}</p>` : ''}
-            ${p.link ? `<a href="${this.esc(p.link)}" target="_blank" rel="noopener" class="text-primary text-xs mt-1 block hover:underline truncate">${this.esc(p.link)}</a>` : ''}
-            ${p.imageUrl ? `<img src="${p.imageUrl}" class="rounded-xl mt-3 max-h-80 w-full object-cover border border-white/5 cursor-pointer" loading="lazy">` : ''}
+            ${p.imageUrl ? `<img src="${p.imageUrl}" class="rounded-xl mt-3 max-h-80 w-full object-cover border border-white/5 cursor-pointer post-img" loading="lazy">` : ''}
             ${p.isPromoted ? '<div class="mt-2"><span class="text-[10px] text-primary font-bold uppercase bg-primary/10 px-2 py-0.5 rounded-full">📌 Pinned</span></div>' : ''}
 
-            <!-- Stats row: views -->
-            <div class="flex items-center gap-3 mt-2 mb-1">
-              <span class="text-[10px] text-gray-600"><i class="fas fa-eye mr-1"></i>${views > 0 ? views.toLocaleString() : '0'} views</span>
-              ${commentCount > 0 ? `<span class="text-[10px] text-gray-600">${commentCount} comment${commentCount !== 1 ? 's' : ''}</span>` : ''}
+            <!-- Stats row: views + comment count -->
+            <div class="flex items-center justify-between mt-2 mb-1 text-[11px] text-gray-500">
+              <div class="flex items-center gap-3">
+                ${likes > 0 ? `<span class="flex items-center gap-1"><i class="fas fa-thumbs-up text-primary text-[10px]"></i> ${likes}</span>` : ''}
+              </div>
+              <div class="flex items-center gap-3">
+                ${commentCount > 0 ? `<button type="button" class="comment-count-btn hover:text-gray-300 transition-all" data-pid="${p.id}">${commentCount} comment${commentCount !== 1 ? 's' : ''}</button>` : ''}
+                ${views > 0 ? `<span class="flex items-center gap-1"><i class="fas fa-eye text-[10px]"></i> ${views}</span>` : ''}
+              </div>
             </div>
 
-            <!-- Action bar: Like · Comment · Report -->
-            <div class="flex items-center gap-1 pt-2 border-t border-white/5">
-              <!-- Like -->
-              <button type="button" class="like-btn flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all
-                ${liked ? 'text-primary bg-primary/10' : 'text-gray-500 hover:bg-white/5 hover:text-primary'}"
-                data-pid="${p.id}">
-                <i class="fas fa-thumbs-up text-[11px]"></i>
-                <span>${likes > 0 ? likes : 'Like'}</span>
-              </button>
-              <!-- Comment -->
-              <button type="button" class="comment-toggle-btn flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-gray-500 hover:bg-white/5 hover:text-primary transition-all"
-                data-pid="${p.id}">
-                <i class="fas fa-comment text-[11px]"></i>
-                <span>Comment</span>
-              </button>
-              <!-- Report (not own post) -->
+            <!-- Action bar: Like · Comment · Share | Views -->
+            <div class="flex items-center border-t border-white/5 pt-1">
+              <!-- Left: Like, Comment, Share -->
+              <div class="flex items-center gap-0 flex-1">
+                <button type="button" class="like-btn flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all flex-1 justify-center
+                  ${liked ? 'text-primary' : 'text-gray-500 hover:bg-white/5 hover:text-primary'}"
+                  data-pid="${p.id}">
+                  <i class="fas fa-thumbs-up text-[12px]"></i>
+                  <span>${liked ? 'Liked' : 'Like'}</span>
+                </button>
+                <button type="button" class="comment-toggle-btn flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold text-gray-500 hover:bg-white/5 hover:text-primary transition-all flex-1 justify-center"
+                  data-pid="${p.id}">
+                  <i class="fas fa-comment text-[12px]"></i>
+                  <span>Comment</span>
+                </button>
+                <button type="button" class="share-btn flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold text-gray-500 hover:bg-white/5 hover:text-cyan-400 transition-all flex-1 justify-center"
+                  data-pid="${p.id}" data-phone="${this.esc(p.text || '')}">
+                  <i class="fas fa-share text-[12px]"></i>
+                  <span>Share</span>
+                </button>
+              </div>
+              <!-- Right: Report (not own) -->
               ${!isOwn ? `
-              <button type="button" class="report-post-btn flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-gray-500 hover:bg-red-500/10 hover:text-red-400 transition-all ml-auto"
-                data-pid="${p.id}">
-                <i class="fas fa-flag text-[11px]"></i>
-                <span>Report</span>
+              <button type="button" class="report-post-btn flex items-center gap-1 px-2 py-2 rounded-lg text-[10px] font-bold text-gray-600 hover:text-red-400 transition-all"
+                data-pid="${p.id}" title="Report">
+                <i class="fas fa-flag text-[10px]"></i>
               </button>` : ''}
             </div>
 
             <!-- Comments section -->
             ${showComments ? `
-            <div class="mt-3 space-y-2" id="comments-${p.id}">
+            <div class="mt-3 space-y-2 border-t border-white/5 pt-3" id="comments-${p.id}">
               ${comments.map(c => `
                 <div class="flex items-start gap-2">
                   <div class="w-7 h-7 rounded-full bg-primary/20 flex items-center justify-center text-primary text-[10px] font-black shrink-0">
@@ -386,6 +401,8 @@ export class PostFeed {
       return postHtml;
     }).join('');
   }
+
+  renderAnnouncements() {
     if (!this.announcements.length) {
       return `<div class="text-center py-16 text-gray-600">
         <i class="fas fa-bullhorn text-4xl mb-3 block"></i>
@@ -393,13 +410,33 @@ export class PostFeed {
       </div>`;
     }
     return this.announcements.map((a) => `
-      <div class="px-4 py-4 border-b border-white/5">
-        <div class="flex items-start gap-2 mb-1">
-          <span class="text-[10px] font-black text-primary bg-primary/10 px-2 py-0.5 rounded uppercase shrink-0">📢 Announcement</span>
+      <div class="movement-post border-b border-white/5 px-4 py-5">
+        <!-- Header -->
+        <div class="flex items-start gap-2 mb-3">
+          <div class="w-8 h-8 rounded-xl bg-primary/20 flex items-center justify-center shrink-0">
+            <i class="fas fa-bullhorn text-primary text-sm"></i>
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="text-[10px] font-black text-primary bg-primary/10 px-2 py-0.5 rounded uppercase">📢 Announcement</span>
+              <span class="text-[10px] text-gray-500 ml-auto">${this.timeAgo(a.createdAt)}</span>
+            </div>
+            <p class="font-black text-white text-base leading-snug mt-1">${this.esc(a.title || '')}</p>
+          </div>
         </div>
-        <p class="font-bold text-white text-sm leading-snug mt-1">${this.esc(a.title || '')}</p>
-        <p class="text-xs text-gray-400 leading-relaxed mt-1">${this.esc(a.body || '')}</p>
-        <p class="text-[10px] text-gray-600 mt-2">${this.timeAgo(a.createdAt)}</p>
+        <!-- Body -->
+        ${a.body ? `<p class="text-sm text-gray-300 leading-relaxed mb-3 ml-10">${this.esc(a.body)}</p>` : ''}
+        <!-- Image -->
+        ${a.imageUrl ? `<img src="${a.imageUrl}" class="rounded-xl w-full max-h-80 object-cover border border-white/5 mb-3 ml-10" style="max-width:calc(100% - 2.5rem);" loading="lazy">` : ''}
+        <!-- Link button -->
+        ${a.linkUrl ? `
+          <div class="ml-10 mb-1">
+            <a href="${this.esc(a.linkUrl)}" target="_blank" rel="noopener"
+              class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-dark font-black text-sm hover:opacity-90 transition-all">
+              ${a.linkLabel ? this.esc(a.linkLabel) : 'Learn More'}
+              <i class="fas fa-arrow-right text-xs"></i>
+            </a>
+          </div>` : ''}
       </div>
     `).join('');
   }
@@ -518,15 +555,14 @@ export class PostFeed {
   }
 
   _bindGroupEvents() {
-    // Open group chat inline
+    // Open group chat INLINE — no page navigation
     document.querySelectorAll('.group-inline-row').forEach(row => {
       row.addEventListener('click', async (e) => {
         if (e.target.closest('.join-inline-btn')) return;
         const gid = row.dataset.gid;
         if (!this._myGroupIds?.has(gid)) return;
-        // Navigate to groups page via SPA
-        window.history.pushState({}, '', '/groups');
-        window.dispatchEvent(new PopStateEvent('popstate'));
+        // Open inline chat in the feed list
+        await this._openInlineGroupChat(gid);
       });
     });
     // Join group
@@ -539,7 +575,6 @@ export class PostFeed {
         if (data.success) {
           if (!this._myGroupIds) this._myGroupIds = new Set();
           this._myGroupIds.add(gid);
-          // Re-render groups list
           const feedList = document.getElementById('feedList');
           if (feedList) feedList.innerHTML = this._renderGroupsList();
           this._bindGroupEvents();
@@ -547,6 +582,131 @@ export class PostFeed {
         }
       });
     });
+  }
+
+  async _openInlineGroupChat(gid) {
+    const group = this._groupsData?.groups?.find(g => g.id === gid);
+    if (!group) return;
+
+    // Load messages
+    const data = await fetch(`/api/social/groups/${gid}/messages`).then(r => r.json()).catch(() => ({}));
+    const messages = data.messages || [];
+
+    const feedList = document.getElementById('feedList');
+    if (!feedList) return;
+
+    feedList.innerHTML = `
+      <div class="flex flex-col" style="height:calc(100vh - 160px);">
+        <!-- Chat header -->
+        <div class="flex items-center gap-3 px-4 py-3 border-b border-white/10 sticky top-0 bg-dark z-10">
+          <button type="button" id="backToGroupList" class="w-8 h-8 rounded-xl bg-white/5 flex items-center justify-center text-gray-400 hover:text-white transition-all shrink-0">
+            <i class="fas fa-arrow-left text-sm"></i>
+          </button>
+          <div class="w-9 h-9 rounded-xl bg-primary/20 flex items-center justify-center text-primary font-black shrink-0 overflow-hidden">
+            ${group.icon ? `<img src="${group.icon}" class="w-full h-full object-cover">` : (group.name||'G').charAt(0).toUpperCase()}
+          </div>
+          <div class="flex-1 min-w-0">
+            <p class="font-bold text-white text-sm truncate">${this.esc(group.name)}</p>
+            <p class="text-[10px] text-gray-500">${group.memberCount||0} members</p>
+          </div>
+        </div>
+
+        <!-- Messages -->
+        <div id="inlineGroupMsgs" class="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+          ${messages.length ? messages.map(m => this._renderGroupMsg(m)).join('') : '<p class="text-center text-gray-600 text-sm py-8">No messages yet. Say hello!</p>'}
+        </div>
+
+        <!-- Input -->
+        <div class="px-3 py-3 border-t border-white/10 flex items-end gap-2 bg-dark">
+          <label class="w-9 h-9 flex items-center justify-center rounded-xl bg-white/5 cursor-pointer text-gray-400 hover:text-primary transition-all shrink-0">
+            <i class="fas fa-image text-sm"></i>
+            <input type="file" id="groupChatImage" accept="image/jpeg,image/jpg,image/png,image/gif,image/webp" class="hidden">
+          </label>
+          <input id="groupChatInput" class="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-primary/50 transition-all" placeholder="Message...">
+          <button type="button" id="groupChatSend" class="w-9 h-9 rounded-xl bg-primary text-dark flex items-center justify-center shrink-0 hover:scale-105 transition-transform">
+            <i class="fas fa-paper-plane text-sm"></i>
+          </button>
+        </div>
+      </div>`;
+
+    // Scroll to bottom
+    const msgBox = document.getElementById('inlineGroupMsgs');
+    if (msgBox) msgBox.scrollTop = msgBox.scrollHeight;
+
+    // Back button
+    document.getElementById('backToGroupList')?.addEventListener('click', () => {
+      const feedList = document.getElementById('feedList');
+      if (feedList) feedList.innerHTML = this._renderGroupsList();
+      this._bindGroupEvents();
+    });
+
+    // Send message
+    const sendMsg = async () => {
+      const input = document.getElementById('groupChatInput');
+      const text = input?.value?.trim() || '';
+      const fileInput = document.getElementById('groupChatImage');
+      const file = fileInput?.files?.[0];
+      let imageData = null;
+      if (file) {
+        imageData = await new Promise((res, rej) => {
+          const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file);
+        });
+      }
+      if (!text && !imageData) return;
+
+      // Optimistic: show sending state
+      const sendBtn = document.getElementById('groupChatSend');
+      if (sendBtn) sendBtn.disabled = true;
+
+      const res = await fetch(`/api/social/groups/${gid}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, imageData })
+      });
+      const data = await res.json();
+
+      if (sendBtn) sendBtn.disabled = false;
+
+      if (!data.success) {
+        if (data.error?.code === 'LINK_DETECTED') this._showLinkWarning(data.error.message);
+        return;
+      }
+      if (input) input.value = '';
+      if (fileInput) fileInput.value = '';
+
+      // Append message to chat
+      const msgBox = document.getElementById('inlineGroupMsgs');
+      if (msgBox) {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = this._renderGroupMsg(data.message);
+        if (tmp.firstElementChild) {
+          msgBox.appendChild(tmp.firstElementChild);
+          msgBox.scrollTop = msgBox.scrollHeight;
+        }
+      }
+    };
+
+    document.getElementById('groupChatSend')?.addEventListener('click', sendMsg);
+    document.getElementById('groupChatInput')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); }
+    });
+  }
+
+  _renderGroupMsg(m) {
+    const isOwn = m.userId === this.user?.id;
+    const time = m.createdAt ? new Date(m.createdAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '';
+    return `
+      <div class="flex items-end gap-2 ${isOwn ? 'flex-row-reverse' : ''}">
+        ${!isOwn ? `<div class="w-7 h-7 rounded-full bg-primary/20 flex items-center justify-center text-primary text-xs font-bold shrink-0">${(m.userName||'?').charAt(0).toUpperCase()}</div>` : ''}
+        <div class="max-w-[75%]">
+          ${!isOwn ? `<p class="text-[10px] text-primary font-bold mb-1 ml-1">${this.esc(m.userName)}</p>` : ''}
+          <div class="rounded-2xl px-3 py-2 ${isOwn ? 'bg-primary text-dark rounded-br-sm' : 'bg-white/8 text-white rounded-bl-sm'}">
+            ${m.imageUrl ? `<img src="${m.imageUrl}" class="rounded-xl max-h-48 mb-1 w-full object-cover">` : ''}
+            ${m.text ? `<p class="text-sm leading-relaxed">${this.esc(m.text)}</p>` : ''}
+          </div>
+          <p class="text-[9px] text-gray-600 mt-1 ${isOwn ? 'text-right' : 'ml-1'}">${time}</p>
+        </div>
+      </div>`;
   }
 
   render() {
@@ -565,10 +725,34 @@ export class PostFeed {
     const el = document.querySelector(`[data-post-id="${postId}"]`);
     if (!el) return;
 
-    // Like
+    // Increment view count — once per user per session (client-side dedup)
+    if (!this._viewedPosts) this._viewedPosts = new Set();
+    if (!this._viewedPosts.has(postId)) {
+      this._viewedPosts.add(postId);
+      // Server also deduplicates per userId
+      fetch(`/api/social/posts/${postId}/view`, { method: 'POST' }).then(r => r.json()).then(data => {
+        if (data.views) {
+          const post = this.posts.find(p => p.id === postId);
+          if (post) { post.views = data.views; this._rerenderPost(postId); }
+        }
+      }).catch(() => {});
+    }
+
+    // Like — optimistic update, instant feedback
     el.querySelector('.like-btn')?.addEventListener('click', () => this.toggleLike(postId));
 
-    // Comment toggle
+    // Comment count click — toggle comments
+    el.querySelector('.comment-count-btn')?.addEventListener('click', async () => {
+      if (this.expandedComments.has(postId)) {
+        this.expandedComments.delete(postId);
+      } else {
+        this.expandedComments.add(postId);
+        await this.loadComments(postId);
+      }
+      this._rerenderPost(postId);
+    });
+
+    // Comment toggle button
     el.querySelector('.comment-toggle-btn')?.addEventListener('click', async () => {
       if (this.expandedComments.has(postId)) {
         this.expandedComments.delete(postId);
@@ -583,6 +767,28 @@ export class PostFeed {
     el.querySelector('.comment-submit-btn')?.addEventListener('click', () => this.submitComment(postId));
     el.querySelector(`#comment-input-${postId}`)?.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.submitComment(postId); }
+    });
+
+    // Share — copy link to clipboard
+    el.querySelector('.share-btn')?.addEventListener('click', async () => {
+      const url = `${window.location.origin}/post`;
+      try {
+        await navigator.clipboard.writeText(url);
+        this._toast('🔗 Link copied!');
+      } catch (_) {
+        this._toast('🔗 Share: ' + url);
+      }
+    });
+
+    // Image lightbox
+    el.querySelector('.post-img')?.addEventListener('click', (e) => {
+      const src = e.target.src;
+      if (!src) return;
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.9);display:flex;align-items:center;justify-content:center;cursor:zoom-out;';
+      overlay.innerHTML = `<img src="${src}" style="max-width:95vw;max-height:95vh;object-fit:contain;border-radius:12px;">`;
+      overlay.addEventListener('click', () => overlay.remove());
+      document.body.appendChild(overlay);
     });
 
     // Follow
@@ -652,6 +858,8 @@ export class PostFeed {
   async init() {
     this.user = await UserLayout.ensureAuth();
     if (!this.user) return;
+    // Render shell immediately — feed loads in background
+    this.render();
     await Promise.all([this.loadFeed(), this.loadAnnouncements(), this.loadAds()]);
     this.render();
   }

@@ -13,15 +13,22 @@ export class ProfilePage {
   }
 
   async loadProfile() {
-    const session = await fetch('/api/auth/session').then((r) => r.json());
-    if (!session.authenticated) { window.location.href = '/'; return; }
-    this.user = session.user;
+    // Use UserLayout session cache for instant load
+    const { UserLayout } = await import('../utils/UserLayout.js');
+    this.user = await UserLayout.ensureAuth('/');
+    if (!this.user) return;
+
     const params = new URLSearchParams(window.location.search);
     if (params.get('edit') === '1') this.view = 'edit';
+
+    // Render immediately with cached user
+    this.render();
+
     const data = await fetch('/api/user/profile').then((r) => r.json());
     if (data.success) {
       this.profile = data.profile;
       this.formData = { ...data.profile };
+      this.render();
     } else {
       window.location.href = '/numbers';
     }
@@ -146,13 +153,17 @@ export class ProfilePage {
   }
 
   field(id, label, icon) {
+    const val = this.formData[id] || '';
     return `
       <div>
         <label class="stat-label block mb-1">${label}</label>
-        <div class="relative">
-          <i class="fas fa-${icon} absolute left-4 top-1/2 -translate-y-1/2 text-gray-500"></i>
-          <input type="text" id="${id}" value="${this.formData[id] || ''}" class="input-field w-full pl-11">
+        <div style="position:relative;display:flex;align-items:center;">
+          <i class="fas fa-${icon}" style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:#6b7280;font-size:13px;pointer-events:none;z-index:1;"></i>
+          <input type="text" id="${id}" value="${val.replace(/"/g, '&quot;')}"
+            style="width:100%;padding:12px 14px 12px 40px;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.08);border-radius:10px;color:#fff;font-size:14px;outline:none;box-sizing:border-box;"
+            class="focus:border-primary/50 transition-colors">
         </div>
+        ${this.errors[id] ? `<p style="color:#f87171;font-size:11px;margin:3px 0 0 4px;">${this.errors[id]}</p>` : ''}
       </div>`;
   }
 

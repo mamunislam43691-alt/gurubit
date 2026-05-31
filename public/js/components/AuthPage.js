@@ -283,12 +283,8 @@ export class AuthPage {
                 <div style="background:linear-gradient(135deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02));border:1px solid rgba(0,210,255,0.2);border-radius:1.25rem;overflow:hidden;box-shadow:0 25px 60px rgba(0,0,0,0.6);">
                     <div style="height:3px;background:linear-gradient(90deg,#00d2ff,#3a7bd5,#7c3aed);"></div>
 
-                    <!-- Header: [?] [logo+title] [×] -->
+                    <!-- Header: [logo+title] [×] -->
                     <div style="display:flex;align-items:center;padding:1rem 1rem 0;gap:.5rem;">
-                        <a href="/faq" target="_blank" id="helpBtn"
-                           style="width:32px;height:32px;min-width:32px;border-radius:50%;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;color:#6b7280;text-decoration:none;transition:all .2s;">
-                            <i class="fas fa-question-circle" style="font-size:13px;pointer-events:none;"></i>
-                        </a>
                         <div style="flex:1;text-align:center;">
                             <img src="/assets/logo-icon.svg" alt="" style="width:32px;height:32px;margin:0 auto 3px;display:block;">
                             <h2 style="font-size:1rem;font-weight:900;color:#fff;text-transform:uppercase;letter-spacing:.05em;margin:0;line-height:1.2;">
@@ -378,15 +374,15 @@ export class AuthPage {
 
     renderField(id, type, placeholder, icon) {
         const hasError = this.errors[id];
+        const val = type !== 'password' ? (this.formData[id] || '').replace(/"/g, '&quot;') : '';
         return `
             <div style="position:relative;">
                 <div style="position:absolute;left:0;top:0;width:40px;height:44px;display:flex;align-items:center;justify-content:center;pointer-events:none;color:#6b7280;z-index:2;">
                     <i class="fas fa-${icon}" style="font-size:13px;"></i>
                 </div>
                 <input type="${type}" id="${id}" placeholder="${placeholder}"
-                    value="${type !== 'password' ? (this.formData[id] || '') : ''}"
-                    style="width:100%;height:44px;padding:0 .85rem 0 40px;background:rgba(0,0,0,0.4);border:1px solid ${hasError ? 'rgba(239,68,68,0.45)' : 'rgba(255,255,255,0.08)'};border-radius:.65rem;color:#fff;font-size:.82rem;outline:none;box-sizing:border-box;"
-                    class="${hasError ? '' : ''}">
+                    value="${val}"
+                    style="width:100%;height:44px;padding:0 .85rem 0 40px;background:rgba(0,0,0,0.4);border:1px solid ${hasError ? 'rgba(239,68,68,0.45)' : 'rgba(255,255,255,0.08)'};border-radius:.65rem;color:#fff;font-size:.82rem;outline:none;box-sizing:border-box;">
                 ${hasError ? `<p style="color:#f87171;font-size:.65rem;margin:2px 0 0 4px;">${hasError}</p>` : ''}
             </div>`;
     }

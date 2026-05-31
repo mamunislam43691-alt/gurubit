@@ -39,13 +39,14 @@ async function verifyAuth(req, res, next) {
     const token = req.cookies.sessionToken || req.headers.authorization?.replace('Bearer ', '');
     if (!token) return res.status(401).json({ success: false, error: { message: 'Unauthorized' } });
 
-    // Handle guest tokens
+    // Handle guest tokens — check local guestStore, never Firestore
     if (String(token).startsWith('guest.')) {
       const guestUid = String(token).replace('guest.', '');
-      const user = await getCachedUser(guestUid);
-      if (!user) return res.status(401).json({ success: false, error: { message: 'Guest session expired' } });
+      const guestStore = require('../services/guestStore');
+      const guestData = guestStore.get(guestUid);
+      if (!guestData) return res.status(401).json({ success: false, error: { message: 'Guest session expired' } });
       req.userId = guestUid;
-      req.user = user;
+      req.user = { id: guestUid, ...guestData };
       if (req.user.isBanned) return res.status(403).json({ success: false, error: { message: 'Account banned' } });
       return next();
     }
@@ -69,13 +70,47 @@ async function verifyAuth(req, res, next) {
 
 router.get('/feed', verifyAuth, async (req, res) => {
   const posts = await postStore.listPosts();
+  // Get all liked post IDs for this user in one query
+  let likedIds = new Set();
+  try {
+    const likesSnap = await db.collection('guruLikes').get();
+    likesSnap.forEach(doc => {
+      const d = doc.data();
+      if (d.userId === req.userId) likedIds.add(d.postId);
+    });
+  } catch (_) {}
+
   const withFollow = await Promise.all(
     posts.map(async (p) => ({
       ...p,
+      _liked: likedIds.has(p.id),
       following: await postStore.isFollowing(req.userId, p.userId)
     }))
   );
   res.json({ success: true, posts: withFollow });
+});
+
+// ── View count — increment when user views a post (once per user) ─────────────
+router.post('/posts/:id/view', verifyAuth, async (req, res) => {
+  try {
+    // Check if this user already viewed this post
+    const viewRef = db.collection('guruViews').doc(`${req.params.id}_${req.userId}`);
+    const viewDoc = await viewRef.get();
+    if (viewDoc.exists) return res.json({ success: true, alreadyViewed: true }); // don't count again
+
+    // Mark as viewed
+    await viewRef.set({ postId: req.params.id, userId: req.userId, viewedAt: new Date().toISOString() });
+
+    // Increment view count
+    const ref = collections.guruPosts.doc(req.params.id);
+    const doc = await ref.get();
+    if (!doc.exists) return res.json({ success: false });
+    const current = doc.data().views || 0;
+    await ref.update({ views: current + 1 });
+    res.json({ success: true, views: current + 1 });
+  } catch (e) {
+    res.json({ success: true }); // non-critical
+  }
 });
 
 router.post('/posts', verifyAuth, async (req, res) => {
@@ -99,7 +134,7 @@ router.post('/posts', verifyAuth, async (req, res) => {
     return res.status(403).json({ success: false, error: { message: mod.error, code: mod.code }, suspendedUntil: mod.suspendedUntil });
   }
 
-  const result = await postStore.createPost({ user: req.user, text, imageUrl: img, videoUrl, link });
+  const result = await postStore.createPost({ user: { ...req.user, profilePhotoUrl: req.user.profilePhotoUrl || null }, text, imageUrl: img, videoUrl, link });
   if (result.error) return res.status(400).json({ success: false, error: { message: result.error } });
   res.json({ success: true, post: result.post });
 });
@@ -132,18 +167,33 @@ router.post('/posts/:id/like', verifyAuth, async (req, res) => {
     const likeDoc = await likeRef.get();
 
     if (likeDoc.exists) {
+      // Unlike
       await likeRef.delete();
       const current = doc.data().likes || 0;
-      await ref.update({ likes: Math.max(0, current - 1) });
-      return res.json({ success: true, liked: false });
+      const newCount = Math.max(0, current - 1);
+      await ref.update({ likes: newCount });
+      return res.json({ success: true, liked: false, likes: newCount });
     } else {
+      // Like
       await likeRef.set({ postId: req.params.id, userId: req.userId, createdAt: new Date().toISOString() });
       const current = doc.data().likes || 0;
-      await ref.update({ likes: current + 1 });
-      return res.json({ success: true, liked: true });
+      const newCount = current + 1;
+      await ref.update({ likes: newCount });
+      return res.json({ success: true, liked: true, likes: newCount });
     }
   } catch (e) {
     res.status(500).json({ success: false, error: { message: e.message } });
+  }
+});
+
+// Check if current user liked a post
+router.get('/posts/:id/liked', verifyAuth, async (req, res) => {
+  try {
+    const likeRef = db.collection('guruLikes').doc(`${req.params.id}_${req.userId}`);
+    const doc = await likeRef.get();
+    res.json({ success: true, liked: doc.exists });
+  } catch (e) {
+    res.json({ success: true, liked: false });
   }
 });
 
@@ -370,10 +420,26 @@ router.get('/announcements', async (req, res) => {
 
 router.post('/announcements', verifyAuth, async (req, res) => {
   if (!req.user.isAdmin) return res.status(403).json({ success: false, error: { message: 'Admin only' } });
-  const { title, body } = req.body || {};
+  const { title, body, imageData, imageUrl, linkUrl, linkLabel } = req.body || {};
   if (!title?.trim()) return res.status(400).json({ success: false, error: { message: 'Title required' } });
+
+  // Validate image if provided
+  const img = imageData || imageUrl || null;
+  if (img && img.length > 2_500_000) {
+    return res.status(400).json({ success: false, error: { message: 'Image too large (max ~2MB)' } });
+  }
+
   const id = `ann_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-  const ann = { id, title: title.trim(), body: (body || '').trim(), createdAt: new Date().toISOString(), createdBy: req.userId };
+  const ann = {
+    id,
+    title: title.trim(),
+    body: (body || '').trim(),
+    imageUrl: img || null,
+    linkUrl: linkUrl?.trim() || null,
+    linkLabel: linkLabel?.trim() || null,
+    createdAt: new Date().toISOString(),
+    createdBy: req.userId
+  };
   await ANN_FS().doc(id).set(ann);
   res.json({ success: true, announcement: ann });
 });

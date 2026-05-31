@@ -15,6 +15,9 @@ export class WithdrawPage {
     this.user = await UserLayout.ensureAuth();
     if (!this.user) return;
 
+    // Render shell immediately
+    this.render();
+
     const profileData = await fetch('/api/user/profile').then((r) => r.json());
     this.userProfile = profileData.profile;
 

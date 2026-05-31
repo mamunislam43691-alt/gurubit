@@ -74,18 +74,23 @@ export class AdminGuru {
 
   async adminPost() {
     const text = document.getElementById('adminPostText')?.value?.trim();
-    const link = document.getElementById('adminPostLink')?.value?.trim();
     const file = document.getElementById('adminPostImage')?.files?.[0];
     let imageData = null;
     if (file) imageData = await this.fileToDataUrl(file);
     if (!text && !imageData) return alert('Post cannot be empty');
+    const btn = document.getElementById('adminPostSubmit');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Posting...'; }
     const res = await fetch('/api/admin/guru/posts', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, link, imageData, isAdminPost: true })
+      body: JSON.stringify({ text, imageData, isAdminPost: true })
     });
     const data = await res.json();
-    if (data.success) { document.getElementById('adminPostText').value = ''; await this.load(); }
-    else alert(data.error?.message || 'Failed');
+    if (btn) { btn.disabled = false; btn.textContent = 'Post as Admin'; }
+    if (data.success) {
+      document.getElementById('adminPostText').value = '';
+      document.getElementById('adminPostImagePreview').innerHTML = '';
+      await this.load();
+    } else alert(data.error?.message || 'Failed');
   }
 
   async createGroup() {
@@ -181,15 +186,29 @@ export class AdminGuru {
   async createAnnouncement() {
     const title = document.getElementById('annTitle')?.value?.trim();
     const body = document.getElementById('annBody')?.value?.trim();
+    const linkLabel = document.getElementById('annLinkLabel')?.value?.trim();
+    const linkUrl = document.getElementById('annLinkUrl')?.value?.trim();
+    const file = document.getElementById('annImage')?.files?.[0];
     if (!title) return alert('Title required');
+
+    let imageData = null;
+    if (file) imageData = await this.fileToDataUrl(file);
+
+    const btn = document.getElementById('createAnnBtn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Publishing...'; }
+
     const res = await fetch('/api/social/announcements', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, body })
+      body: JSON.stringify({ title, body, imageData, linkUrl: linkUrl || null, linkLabel: linkLabel || null })
     });
     const data = await res.json();
+    if (btn) { btn.disabled = false; btn.textContent = 'Publish Announcement'; }
     if (data.success) {
       document.getElementById('annTitle').value = '';
       document.getElementById('annBody').value = '';
+      document.getElementById('annLinkLabel').value = '';
+      document.getElementById('annLinkUrl').value = '';
+      document.getElementById('annImagePreview').innerHTML = '';
       await this.load();
     } else alert(data.error?.message || 'Failed');
   }
@@ -217,43 +236,61 @@ export class AdminGuru {
       <div class="glass-card p-5 mb-5">
         <h4 class="font-black text-white text-sm uppercase mb-3"><i class="fas fa-pen text-primary mr-2"></i> Post as Admin</h4>
         <textarea id="adminPostText" class="input-field w-full mb-2 min-h-[80px]" placeholder="Announcement or update..."></textarea>
-        <input id="adminPostLink" class="input-field w-full mb-2" placeholder="Optional link (admin only)">
-        <div class="flex items-center gap-3">
-          <label class="text-xs text-primary font-bold uppercase cursor-pointer">
-            <i class="fas fa-image mr-1"></i> Image
-            <input type="file" id="adminPostImage" accept="image/*" class="hidden">
+        <div class="flex items-center gap-3 mt-2">
+          <label class="text-xs text-primary font-bold uppercase cursor-pointer flex items-center gap-1">
+            <i class="fas fa-image"></i> Image
+            <input type="file" id="adminPostImage" accept="image/jpeg,image/jpg,image/png,image/gif,image/webp" class="hidden">
           </label>
+          <div id="adminPostImagePreview" class="flex-1"></div>
           <button type="button" id="adminPostSubmit" class="neon-btn px-5 py-2 text-xs uppercase ml-auto">Post as Admin</button>
         </div>
       </div>
 
-      <!-- Posts list -->
-      <div class="space-y-3">
-        ${this.posts.map((p) => `
-          <div class="glass-card p-4">
-            <div class="flex items-start justify-between gap-3">
-              <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2 flex-wrap mb-1">
-                  <p class="font-bold text-white text-sm">${this.esc(p.userName)}</p>
-                  ${p.isAdmin ? '<span class="text-[10px] text-primary font-black bg-primary/10 px-2 py-0.5 rounded-full uppercase">Admin</span>' : ''}
-                  ${p.isPromoted ? '<span class="text-[10px] text-yellow-400 font-black bg-yellow-400/10 px-2 py-0.5 rounded-full uppercase">📌 Pinned</span>' : ''}
-                  <span class="text-[10px] text-gray-500 ml-auto">${this.timeAgo(p.createdAt)}</span>
-                </div>
-                <p class="text-sm text-gray-300 leading-relaxed">${this.esc(p.text)}</p>
-                ${p.imageUrl ? '<p class="text-[10px] text-primary mt-1"><i class="fas fa-image mr-1"></i>Has image</p>' : ''}
-                ${p.reportCount > 0 ? `<p class="text-[10px] text-red-400 mt-1"><i class="fas fa-flag mr-1"></i>${p.reportCount} report(s)</p>` : ''}
-              </div>
-              <div class="flex flex-col gap-1 shrink-0">
-                <button type="button" data-promote="${p.id}" class="text-[10px] text-primary font-bold uppercase hover:underline">📌 Pin</button>
-                <button type="button" data-del="${p.id}" class="text-[10px] text-red-400 font-bold uppercase hover:underline">Delete</button>
-                ${p.userId && p.userId !== 'admin' ? `
-                  <button type="button" data-suspend="${p.userId}" class="text-[10px] text-orange-400 font-bold uppercase hover:underline">Suspend</button>
-                  <button type="button" data-ban="${p.userId}" class="text-[10px] text-red-500 font-bold uppercase hover:underline">Ban</button>
-                ` : ''}
-              </div>
+      <!-- Posts list — same as user panel -->
+      <div class="space-y-0 max-w-2xl">
+        ${this.posts.length ? this.posts.map((p) => this._renderPost(p)).join('') : '<p class="text-gray-500 text-sm text-center py-8">No posts yet</p>'}
+      </div>`;
+  }
+
+  _renderPost(p) {
+    const likes = p.likes || 0;
+    const views = p.views || 0;
+    const commentCount = p.commentCount || 0;
+    return `
+      <div class="border-b border-white/5 px-4 py-4 hover:bg-white/[0.015] transition-all" data-admin-post-id="${p.id}">
+        <div class="flex items-start gap-3">
+          <div class="w-10 h-10 rounded-full bg-gradient-to-br from-primary/30 to-cyan-500/20 flex items-center justify-center text-primary font-black text-sm border border-white/10 shrink-0">
+            ${(p.userName||'?').charAt(0).toUpperCase()}
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="font-bold text-white text-sm">${this.esc(p.userName)}</span>
+              ${p.isAdmin ? '<span class="text-[10px] text-primary font-black bg-primary/10 px-2 py-0.5 rounded-full uppercase">Admin</span>' : ''}
+              ${p.isPromoted ? '<span class="text-[10px] text-yellow-400 font-black bg-yellow-400/10 px-2 py-0.5 rounded-full uppercase">📌 Pinned</span>' : ''}
+              <span class="text-[10px] text-gray-500 ml-auto">${this.timeAgo(p.createdAt)}</span>
+            </div>
+            ${p.text ? `<p class="text-gray-200 text-sm mt-2 whitespace-pre-wrap leading-relaxed">${this.esc(p.text)}</p>` : ''}
+            ${p.imageUrl ? `<img src="${p.imageUrl}" class="rounded-xl mt-3 max-h-80 w-full object-cover border border-white/5" loading="lazy">` : ''}
+            ${p.reportCount > 0 ? `<p class="text-[10px] text-red-400 mt-1"><i class="fas fa-flag mr-1"></i>${p.reportCount} report(s)</p>` : ''}
+            <!-- Stats -->
+            <div class="flex items-center justify-between mt-2 mb-1 text-[11px] text-gray-500">
+              <span>${likes > 0 ? `<i class="fas fa-thumbs-up text-primary text-[10px] mr-1"></i>${likes}` : ''}</span>
+              <span class="flex items-center gap-3">
+                ${commentCount > 0 ? `<span>${commentCount} comment${commentCount !== 1 ? 's' : ''}</span>` : ''}
+                ${views > 0 ? `<span><i class="fas fa-eye text-[10px] mr-1"></i>${views}</span>` : ''}
+              </span>
+            </div>
+            <!-- Admin actions -->
+            <div class="flex items-center gap-2 pt-2 border-t border-white/5">
+              <button type="button" data-promote="${p.id}" class="text-[10px] text-primary font-bold uppercase hover:underline">📌 Pin</button>
+              <button type="button" data-del="${p.id}" class="text-[10px] text-red-400 font-bold uppercase hover:underline">Delete</button>
+              ${p.userId && p.userId !== 'admin' ? `
+                <button type="button" data-suspend="${p.userId}" class="text-[10px] text-orange-400 font-bold uppercase hover:underline">Suspend</button>
+                <button type="button" data-ban="${p.userId}" class="text-[10px] text-red-500 font-bold uppercase hover:underline">Ban</button>
+              ` : ''}
             </div>
           </div>
-        `).join('') || '<p class="text-gray-500 text-sm text-center py-8">No posts yet</p>'}
+        </div>
       </div>`;
   }
 
@@ -325,24 +362,55 @@ export class AdminGuru {
       <!-- Create announcement -->
       <div class="glass-card p-5 mb-5">
         <h4 class="font-black text-white text-sm uppercase mb-3"><i class="fas fa-bullhorn text-primary mr-2"></i> New Announcement</h4>
-        <input type="text" id="annTitle" class="input-field w-full mb-2" placeholder="Title">
-        <textarea id="annBody" class="input-field w-full mb-3 min-h-[80px]" placeholder="Announcement body..."></textarea>
+        <input type="text" id="annTitle" class="input-field w-full mb-2" placeholder="Title (required)">
+        <textarea id="annBody" class="input-field w-full mb-2 min-h-[80px]" placeholder="Description (optional)..."></textarea>
+
+        <!-- Image upload -->
+        <div class="mb-2">
+          <label class="text-xs text-primary font-bold uppercase cursor-pointer flex items-center gap-1 mb-1">
+            <i class="fas fa-image"></i> Add Image (optional)
+            <input type="file" id="annImage" accept="image/jpeg,image/jpg,image/png,image/gif,image/webp" class="hidden">
+          </label>
+          <div id="annImagePreview"></div>
+        </div>
+
+        <!-- Link button -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
+          <input type="text" id="annLinkLabel" class="input-field text-sm" placeholder="Button label (e.g. Learn More)">
+          <input type="url" id="annLinkUrl" class="input-field text-sm" placeholder="Button URL (https://...)">
+        </div>
+        <p class="text-[10px] text-gray-500 mb-3">Fill both fields to add a clickable button to the announcement.</p>
+
         <button type="button" id="createAnnBtn" class="neon-btn px-5 py-2 text-xs uppercase">Publish Announcement</button>
       </div>
 
       <!-- Announcements list -->
-      <div class="space-y-3">
+      <div class="space-y-3 max-w-2xl">
         ${this.announcements.map((a) => `
-          <div class="glass-card p-4 flex items-start justify-between gap-3">
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-2 mb-1">
-                <span class="text-[10px] font-black text-primary bg-primary/10 px-2 py-0.5 rounded uppercase">TOP</span>
-                <p class="font-bold text-white text-sm">${this.esc(a.title)}</p>
+          <div class="glass-card p-5">
+            <div class="flex items-start gap-3 mb-3">
+              <div class="w-8 h-8 rounded-xl bg-primary/20 flex items-center justify-center shrink-0">
+                <i class="fas fa-bullhorn text-primary text-sm"></i>
               </div>
-              <p class="text-xs text-gray-400">${this.esc(a.body || '')}</p>
-              <p class="text-[10px] text-gray-600 mt-1">${this.timeAgo(a.createdAt)}</p>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="text-[10px] font-black text-primary bg-primary/10 px-2 py-0.5 rounded uppercase">📢 Announcement</span>
+                  <span class="text-[10px] text-gray-500 ml-auto">${this.timeAgo(a.createdAt)}</span>
+                </div>
+                <p class="font-black text-white text-base mt-1">${this.esc(a.title)}</p>
+              </div>
+              <button type="button" data-del-ann="${a.id}" class="text-xs text-red-400 font-bold uppercase hover:underline shrink-0">Delete</button>
             </div>
-            <button type="button" data-del-ann="${a.id}" class="text-xs text-red-400 font-bold uppercase hover:underline shrink-0">Delete</button>
+            ${a.body ? `<p class="text-sm text-gray-300 leading-relaxed mb-3 ml-11">${this.esc(a.body)}</p>` : ''}
+            ${a.imageUrl ? `<img src="${a.imageUrl}" class="rounded-xl w-full max-h-64 object-cover border border-white/5 mb-3 ml-11" style="max-width:calc(100% - 2.75rem);" loading="lazy">` : ''}
+            ${a.linkUrl ? `
+              <div class="ml-11">
+                <a href="${this.esc(a.linkUrl)}" target="_blank" rel="noopener"
+                  class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-dark font-black text-sm hover:opacity-90 transition-all">
+                  ${a.linkLabel ? this.esc(a.linkLabel) : 'Learn More'}
+                  <i class="fas fa-arrow-right text-xs"></i>
+                </a>
+              </div>` : ''}
           </div>
         `).join('') || '<p class="text-gray-500 text-sm text-center py-8">No announcements yet</p>'}
       </div>`;
@@ -400,6 +468,19 @@ export class AdminGuru {
 
     // Posts
     document.getElementById('adminPostSubmit')?.addEventListener('click', () => this.adminPost());
+    document.getElementById('adminPostImage')?.addEventListener('change', async (e) => {
+      const f = e.target.files?.[0];
+      if (!f) return;
+      const preview = document.getElementById('adminPostImagePreview');
+      if (preview) {
+        const url = await this.fileToDataUrl(f);
+        preview.innerHTML = `<div class="relative inline-block"><img src="${url}" class="rounded-xl max-h-24 border border-white/10"><button type="button" id="removeAdminImg" class="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-500 text-white text-xs flex items-center justify-center">&times;</button></div>`;
+        document.getElementById('removeAdminImg')?.addEventListener('click', () => {
+          preview.innerHTML = '';
+          e.target.value = '';
+        });
+      }
+    });
     document.querySelectorAll('[data-del]').forEach((btn) => btn.addEventListener('click', () => this.deletePost(btn.dataset.del)));
     document.querySelectorAll('[data-promote]').forEach((btn) => btn.addEventListener('click', () => this.promote(btn.dataset.promote)));
     document.querySelectorAll('[data-suspend]').forEach((btn) => btn.addEventListener('click', () => this.suspendUser(btn.dataset.suspend)));
@@ -420,6 +501,16 @@ export class AdminGuru {
 
     // Announcements
     document.getElementById('createAnnBtn')?.addEventListener('click', () => this.createAnnouncement());
+    document.getElementById('annImage')?.addEventListener('change', async (e) => {
+      const f = e.target.files?.[0];
+      if (!f) return;
+      const preview = document.getElementById('annImagePreview');
+      if (preview) {
+        const url = await this.fileToDataUrl(f);
+        preview.innerHTML = `<div class="relative inline-block"><img src="${url}" class="rounded-xl max-h-24 border border-white/10"><button type="button" id="removeAnnImg" class="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-500 text-white text-xs flex items-center justify-center">&times;</button></div>`;
+        document.getElementById('removeAnnImg')?.addEventListener('click', () => { preview.innerHTML = ''; e.target.value = ''; });
+      }
+    });
     document.querySelectorAll('[data-del-ann]').forEach((btn) => btn.addEventListener('click', () => this.deleteAnnouncement(btn.dataset.delAnn)));
 
     // AI
@@ -433,3 +524,4 @@ export class AdminGuru {
     this.render();
     await this.load();
   }
+}

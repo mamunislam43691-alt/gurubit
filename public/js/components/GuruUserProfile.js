@@ -90,6 +90,8 @@ export class GuruUserProfile {
   async init() {
     this.user = await UserLayout.ensureAuth();
     if (!this.user) return;
+    // Render shell immediately — data loads in background
+    this.render();
     await this.load();
     this.render();
   }

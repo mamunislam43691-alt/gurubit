@@ -7,7 +7,7 @@ const { collections } = require('../config/firebase');
 const SETTINGS_DOC = 'config';
 const LINK_RE = /https?:\/\/|www\.|\.com\/|\.net\/|\.org\/|t\.me\/|bit\.ly/i;
 const IMAGE_RE = /^data:image\/(jpeg|jpg|png|gif|webp);base64,/i;
-const MAX_IMAGE_LEN = 2_500_000;
+const MAX_IMAGE_LEN = 5_000_000; // 5MB base64 (~3.75MB actual)
 
 async function colDocs(col) {
   const snap = await col.get();
@@ -109,9 +109,10 @@ async function createPost({ user, text, imageUrl, videoUrl, link, isAdminPost, i
     userId: user.id || '',
     userName: user.name || 'User',
     userEmail: user.email || '',
-    isAdmin: admin === true,           // always boolean, never undefined
-    isAgent: user.isAgent === true,    // always boolean
-    blueVerified: user.blueVerified === true, // always boolean
+    profilePhotoUrl: user.profilePhotoUrl || null,
+    isAdmin: admin === true,
+    isAgent: user.isAgent === true,
+    blueVerified: user.blueVerified === true,
     text: String(text || '').trim(),
     imageUrl: imgCheck.imageUrl || null,
     videoUrl: (admin && videoUrl) ? videoUrl : null,

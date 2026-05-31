@@ -614,6 +614,8 @@ export class AdminSmsFeed {
     } catch (_) {}
     this.apiRangeLoading = false;
   }
+
+  _openNumberRequestModal(nr) {
     try {
       document.getElementById('nr_number').textContent = nr.phoneNumber || '—';
       document.getElementById('nr_country').textContent = nr.countryName || '—';

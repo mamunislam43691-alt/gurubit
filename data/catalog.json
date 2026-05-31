@@ -29,7 +29,6 @@
         "name": "Ethiopia 251",
         "countryId": "ethiopia",
         "numbers": [
-          "251706899847",
           "251706254466",
           "251706094019",
           "251711286667",
@@ -111,7 +110,7 @@
           "251723943606",
           "251703675618"
         ],
-        "availableNumbers": 81
+        "availableNumbers": 80
       }
     ],
     [

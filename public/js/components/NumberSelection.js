@@ -559,6 +559,10 @@ export class NumberSelection {
   async init() {
     this.user = await UserLayout.ensureAuth();
     if (!this.user) return;
+
+    // Render shell immediately with cached user
+    this.render();
+
     await this.loadCountries();
     await this.loadNumbers();
 

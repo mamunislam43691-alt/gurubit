@@ -116,6 +116,9 @@ export class GroupsPage {
     }
     document.getElementById('groupMsgInput').value = '';
     this.pendingImagePreview = null;
+    // Clear image input
+    const imgInput = document.getElementById('groupImage');
+    if (imgInput) imgInput.value = '';
     await this.loadMessages();
     this.renderChat();
   }
@@ -303,8 +306,8 @@ export class GroupsPage {
           </div>` : ''}
         <div class="max-w-[75%]">
           ${!isOwn ? `<p class="text-[10px] text-primary font-bold mb-1 ml-1">${this.esc(m.userName)}</p>` : ''}
-          <div class="rounded-2xl px-3 py-2 ${isOwn ? 'bg-primary text-dark rounded-br-sm' : 'bg-white/8 text-white rounded-bl-sm'}">
-            ${m.imageUrl ? `<img src="${m.imageUrl}" class="rounded-xl max-h-48 mb-1 w-full object-cover">` : ''}
+          <div class="rounded-2xl px-3 py-2 ${isOwn ? 'bg-primary text-dark rounded-br-sm' : 'bg-white/10 text-white rounded-bl-sm'}">
+            ${m.imageUrl ? `<img src="${m.imageUrl}" class="rounded-xl max-h-48 mb-1 w-full object-cover" loading="lazy" style="display:block;">` : ''}
             ${m.text ? `<p class="text-sm leading-relaxed">${this.esc(m.text)}</p>` : ''}
           </div>
           <p class="text-[9px] text-gray-600 mt-1 ${isOwn ? 'text-right' : 'ml-1'}">${this.timeAgo(m.createdAt)}</p>
@@ -368,6 +371,8 @@ export class GroupsPage {
   async init() {
     this.user = await UserLayout.ensureAuth();
     if (!this.user) return;
+    // Render shell immediately — data loads in background
+    this.render();
     await Promise.all([this.loadGroups(), this.loadAnnouncements()]);
     this.render();
   }

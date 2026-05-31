@@ -1262,21 +1262,21 @@ router.get('/api-range-live', verifyAdmin, async (req, res) => {
 });
 
 /*
- * Rank users by successful OTPs
+ * Rank users by successful OTPs — exclude guest users
  */
 router.get('/leaderboard', verifyAdmin, async (req, res) => {
   try {
-    const snapshot = await collections.users
-      .orderBy('totalOtps', 'desc')
-      .limit(10)
-      .get();
-    
+    const snapshot = await collections.users.get();
     const leaderboard = [];
     snapshot.forEach(doc => {
-      leaderboard.push(doc.data());
+      const u = doc.data();
+      // Exclude guest users and users with no OTPs
+      if (!u.isGuest && !String(u.id || '').startsWith('guest_') && !String(u.email || '').includes('@guest.local')) {
+        leaderboard.push(u);
+      }
     });
-    
-    res.json({ success: true, leaderboard });
+    leaderboard.sort((a, b) => (b.totalOtps || 0) - (a.totalOtps || 0));
+    res.json({ success: true, leaderboard: leaderboard.slice(0, 10) });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: error.message } });
   }
@@ -1614,6 +1614,40 @@ router.get('/database/env-config', requireSuperAdminRoute, (req, res) => {
       user: process.env.SMTP_USER || '',
       from: process.env.SMTP_FROM || '',
       passSet: !!process.env.SMTP_PASS
+    },
+    mongodb: {
+      connected: !!process.env.MONGODB_URI,
+      host: process.env.MONGODB_URI ? process.env.MONGODB_URI.replace(/\/\/[^@]+@/, '//***@') : '',
+      dbName: process.env.MONGODB_DB || ''
+    },
+    postgresql: {
+      connected: !!process.env.PG_HOST,
+      host: process.env.PG_HOST || '',
+      port: process.env.PG_PORT || '5432',
+      database: process.env.PG_DATABASE || '',
+      user: process.env.PG_USER || ''
+    },
+    mysql: {
+      connected: !!process.env.MYSQL_HOST,
+      host: process.env.MYSQL_HOST || '',
+      port: process.env.MYSQL_PORT || '3306',
+      database: process.env.MYSQL_DATABASE || '',
+      user: process.env.MYSQL_USER || ''
+    },
+    redis: {
+      connected: !!process.env.REDIS_URL,
+      url: process.env.REDIS_URL ? process.env.REDIS_URL.replace(/\/\/[^@]+@/, '//***@') : ''
+    },
+    supabase: {
+      connected: !!process.env.SUPABASE_URL,
+      url: process.env.SUPABASE_URL || '',
+      anonKeySet: !!process.env.SUPABASE_ANON_KEY
+    },
+    planetscale: {
+      connected: !!process.env.PLANETSCALE_HOST,
+      host: process.env.PLANETSCALE_HOST || '',
+      database: process.env.PLANETSCALE_DATABASE || '',
+      username: process.env.PLANETSCALE_USERNAME || ''
     }
   });
 });
@@ -1668,6 +1702,11 @@ router.put('/database/env-config', requireSuperAdminRoute, async (req, res) => {
     if (section === 'firebase') {
       if (data.databaseUrl !== undefined) process.env.FIREBASE_DATABASE_URL = data.databaseUrl;
       if (data.serviceAccount && data.serviceAccount.trim()) {
+        if (data.serviceAccount === 'DISCONNECT') {
+          delete process.env.FIREBASE_SERVICE_ACCOUNT;
+          delete process.env.FIREBASE_DATABASE_URL;
+          return res.json({ success: true, message: 'Firebase disconnected. App will use local storage.' });
+        }
         try {
           JSON.parse(data.serviceAccount); // validate JSON
           process.env.FIREBASE_SERVICE_ACCOUNT = data.serviceAccount;
@@ -1675,7 +1714,127 @@ router.put('/database/env-config', requireSuperAdminRoute, async (req, res) => {
           return res.status(400).json({ success: false, error: { message: 'Invalid JSON for Service Account' } });
         }
       }
-      return res.json({ success: true, message: 'Firebase settings saved (runtime only — also set in Render Dashboard for persistence)' });
+      return res.json({ success: true, message: 'Firebase settings saved ✅ (runtime only — also set in Render Dashboard for persistence)' });
+    }
+
+    if (section === 'mongodb') {
+      if (data.uri) process.env.MONGODB_URI = data.uri;
+      if (data.dbName) process.env.MONGODB_DB = data.dbName;
+      // Test connection
+      try {
+        const { MongoClient } = require('mongodb');
+        const client = new MongoClient(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 5000 });
+        await client.connect();
+        await client.db(process.env.MONGODB_DB || 'gurubit').command({ ping: 1 });
+        await client.close();
+        return res.json({ success: true, message: 'MongoDB connected successfully ✅' });
+      } catch (err) {
+        return res.json({ success: true, message: `Settings saved but connection test failed: ${err.message}` });
+      }
+    }
+
+    if (section === 'postgresql') {
+      if (data.host) process.env.PG_HOST = data.host;
+      if (data.port) process.env.PG_PORT = String(data.port);
+      if (data.database) process.env.PG_DATABASE = data.database;
+      if (data.user) process.env.PG_USER = data.user;
+      if (data.password) process.env.PG_PASSWORD = data.password;
+      if (data.ssl !== undefined) process.env.PG_SSL = String(data.ssl);
+      // Test connection
+      try {
+        const { Client } = require('pg');
+        const client = new Client({
+          host: process.env.PG_HOST, port: parseInt(process.env.PG_PORT || '5432'),
+          database: process.env.PG_DATABASE, user: process.env.PG_USER,
+          password: process.env.PG_PASSWORD,
+          ssl: process.env.PG_SSL === 'true' ? { rejectUnauthorized: false } : false,
+          connectionTimeoutMillis: 5000
+        });
+        await client.connect();
+        await client.query('SELECT 1');
+        await client.end();
+        return res.json({ success: true, message: 'PostgreSQL connected successfully ✅' });
+      } catch (err) {
+        return res.json({ success: true, message: `Settings saved but connection test failed: ${err.message}` });
+      }
+    }
+
+    if (section === 'mysql') {
+      if (data.host) process.env.MYSQL_HOST = data.host;
+      if (data.port) process.env.MYSQL_PORT = String(data.port);
+      if (data.database) process.env.MYSQL_DATABASE = data.database;
+      if (data.user) process.env.MYSQL_USER = data.user;
+      if (data.password) process.env.MYSQL_PASSWORD = data.password;
+      try {
+        const mysql = require('mysql2/promise');
+        const conn = await mysql.createConnection({
+          host: process.env.MYSQL_HOST, port: parseInt(process.env.MYSQL_PORT || '3306'),
+          database: process.env.MYSQL_DATABASE, user: process.env.MYSQL_USER,
+          password: process.env.MYSQL_PASSWORD, connectTimeout: 5000
+        });
+        await conn.query('SELECT 1');
+        await conn.end();
+        return res.json({ success: true, message: 'MySQL connected successfully ✅' });
+      } catch (err) {
+        return res.json({ success: true, message: `Settings saved but connection test failed: ${err.message}` });
+      }
+    }
+
+    if (section === 'redis') {
+      if (data.url) process.env.REDIS_URL = data.url;
+      if (data.password) process.env.REDIS_PASSWORD = data.password;
+      try {
+        const redis = require('redis');
+        const client = redis.createClient({ url: process.env.REDIS_URL, socket: { connectTimeout: 5000 } });
+        await client.connect();
+        await client.ping();
+        await client.disconnect();
+        return res.json({ success: true, message: 'Redis connected successfully ✅' });
+      } catch (err) {
+        return res.json({ success: true, message: `Settings saved but connection test failed: ${err.message}` });
+      }
+    }
+
+    if (section === 'supabase') {
+      if (data.url) process.env.SUPABASE_URL = data.url;
+      if (data.anonKey) process.env.SUPABASE_ANON_KEY = data.anonKey;
+      if (data.serviceKey) process.env.SUPABASE_SERVICE_KEY = data.serviceKey;
+      // Test via REST API
+      try {
+        const testRes = await fetch(`${process.env.SUPABASE_URL}/rest/v1/`, {
+          headers: { 'apikey': process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_KEY },
+          signal: AbortSignal.timeout(5000)
+        });
+        if (testRes.ok || testRes.status === 200 || testRes.status === 404) {
+          return res.json({ success: true, message: 'Supabase connected successfully ✅' });
+        }
+        return res.json({ success: true, message: `Settings saved. Status: ${testRes.status}` });
+      } catch (err) {
+        return res.json({ success: true, message: `Settings saved but connection test failed: ${err.message}` });
+      }
+    }
+
+    if (section === 'planetscale') {
+      if (data.host) process.env.PLANETSCALE_HOST = data.host;
+      if (data.username) process.env.PLANETSCALE_USERNAME = data.username;
+      if (data.password) process.env.PLANETSCALE_PASSWORD = data.password;
+      if (data.database) process.env.PLANETSCALE_DATABASE = data.database;
+      try {
+        const mysql = require('mysql2/promise');
+        const conn = await mysql.createConnection({
+          host: process.env.PLANETSCALE_HOST,
+          database: process.env.PLANETSCALE_DATABASE,
+          user: process.env.PLANETSCALE_USERNAME,
+          password: process.env.PLANETSCALE_PASSWORD,
+          ssl: { rejectUnauthorized: true },
+          connectTimeout: 5000
+        });
+        await conn.query('SELECT 1');
+        await conn.end();
+        return res.json({ success: true, message: 'PlanetScale connected successfully ✅' });
+      } catch (err) {
+        return res.json({ success: true, message: `Settings saved but connection test failed: ${err.message}` });
+      }
     }
 
     res.status(400).json({ success: false, error: { message: 'Unknown section' } });

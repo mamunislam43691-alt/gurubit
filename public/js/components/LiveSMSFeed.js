@@ -364,9 +364,20 @@ export class LiveSMSFeed {
   }
 
   async init() {
+    // Use UserLayout session cache for instant render
+    const { UserLayout } = await import('../utils/UserLayout.js').catch(() => ({ UserLayout: null }));
+    const cached = UserLayout?.getCachedUser?.() || null;
+    if (cached) {
+      this.authenticated = true;
+      this.user = cached;
+      // Render immediately with cached user
+      this.loading = false;
+      this.render();
+    }
+    // Fetch fresh session in background
     const session = await fetch('/api/auth/session').then(r => r.json()).catch(() => ({}));
     this.authenticated = !!session.authenticated;
-    this.user = session.user;
+    this.user = session.user || this.user;
     await this.loadData();
   }
 }

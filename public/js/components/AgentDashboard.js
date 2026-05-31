@@ -12,12 +12,21 @@ export class AgentDashboard {
   }
 
   async load() {
-    const session = await fetch('/api/auth/session').then((r) => r.json());
-    if (!session.authenticated || !session.user?.isAgent) {
-      window.location.href = '/';
-      return;
+    // Use UserLayout session cache for instant auth check
+    const { UserLayout } = await import('../utils/UserLayout.js');
+    const cached = UserLayout.getCachedUser?.();
+    if (cached) {
+      this.user = cached;
+      if (!this.user.isAgent) { window.location.href = '/'; return; }
+    } else {
+      const session = await fetch('/api/auth/session').then((r) => r.json());
+      if (!session.authenticated || !session.user?.isAgent) {
+        window.location.href = '/';
+        return;
+      }
+      this.user = session.user;
     }
-    this.user = session.user;
+
     const res = await fetch('/api/agent/dashboard');
     if (res.status === 403) {
       window.location.href = '/numbers';

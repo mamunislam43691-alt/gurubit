@@ -14,19 +14,30 @@ export const USER_NAV = [
 let _cachedSession = null;
 let _sessionFetchPromise = null;
 
+// Pre-load from sessionStorage for instant navigation
+function _loadSessionFromStorage() {
+  try {
+    const raw = sessionStorage.getItem('_usession');
+    return raw ? JSON.parse(raw) : null;
+  } catch (_) { return null; }
+}
+function _saveSessionToStorage(user) {
+  try { sessionStorage.setItem('_usession', JSON.stringify(user)); } catch (_) {}
+}
+
+_cachedSession = _loadSessionFromStorage();
+
 export class UserLayout {
   static async ensureAuth(redirect = '/') {
-    // Return cached session immediately if available
+    // Return cached session immediately — no network call
     if (_cachedSession) return _cachedSession;
 
-    // Deduplicate concurrent calls — with 3s timeout for faster fallback
+    // Deduplicate concurrent calls — with 2s timeout for faster fallback
     if (!_sessionFetchPromise) {
-      const fetchWithTimeout = Promise.race([
+      _sessionFetchPromise = Promise.race([
         fetch('/api/auth/session').then(r => r.json()).catch(() => ({})),
-        new Promise(resolve => setTimeout(() => resolve({}), 3000))
-      ]);
-      _sessionFetchPromise = fetchWithTimeout
-        .finally(() => { _sessionFetchPromise = null; });
+        new Promise(resolve => setTimeout(() => resolve({}), 2000))
+      ]).finally(() => { _sessionFetchPromise = null; });
     }
 
     const session = await _sessionFetchPromise;
@@ -35,6 +46,7 @@ export class UserLayout {
       return null;
     }
     _cachedSession = session.user;
+    _saveSessionToStorage(session.user);
     return session.user;
   }
 
@@ -42,6 +54,12 @@ export class UserLayout {
   static clearSessionCache() {
     _cachedSession = null;
     _sessionFetchPromise = null;
+    try { sessionStorage.removeItem('_usession'); } catch (_) {}
+  }
+
+  // Get cached user without network call
+  static getCachedUser() {
+    return _cachedSession || _loadSessionFromStorage();
   }
 
   static profileMenuHtml(user) {
