@@ -50,58 +50,66 @@ export class PostFeed {
   }
 
   async loadFeed() {
-    const data = await fetch('/api/social/feed').then((r) => r.json()).catch(() => ({}));
+    const data = await window.optimizedFetch('/api/social/feed').catch(() => ({}));
     if (data.success) this.posts = data.posts || [];
   }
 
   async loadAnnouncements() {
-    const data = await fetch('/api/social/announcements').then((r) => r.json()).catch(() => ({}));
+    const data = await window.optimizedFetch('/api/social/announcements').catch(() => ({}));
     if (data.success) this.announcements = data.announcements || [];
   }
 
   async loadAds() {
-    const data = await fetch('/api/social/ads').then(r => r.json()).catch(() => ({}));
+    const data = await window.optimizedFetch('/api/social/ads').catch(() => ({}));
     if (data.success && data.ads?.enabled) this.ads = data.ads;
     else this.ads = null;
   }
 
   async submitPost() {
-    const text = document.getElementById('postInput')?.value?.trim() || '';
-    const file = document.getElementById('postImage')?.files?.[0];
-    let imageData = null;
-    if (file) {
-      imageData = await new Promise((res, rej) => {
-        const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file);
-      });
+    const textEl = document.getElementById('postInput');
+    const text = textEl?.value?.trim() || '';
+    const imageData = this.pendingImagePreview || null;
+    
+    if (!text && !imageData) {
+      this._toast('Write something or add an image first', 'error');
+      return;
     }
-    if (!text && !imageData) return;
 
     const btn = document.getElementById('postSubmitBtn');
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Posting...'; }
 
-    const res = await fetch('/api/social/posts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, imageData })
-    });
-    const data = await res.json();
+    try {
+      const res = await fetch('/api/social/posts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, imageData })
+      });
+      const data = await res.json();
 
-    if (btn) { btn.disabled = false; btn.textContent = 'Post'; }
+      if (btn) { btn.disabled = false; btn.textContent = 'Post'; }
 
-    if (!data.success) {
-      if (data.error?.code === 'LINK_DETECTED') {
-        this._showLinkWarning(data.error.message);
-      } else {
-        this._toast('❌ ' + (data.error?.message || 'Failed to post'), 'error');
+      if (!data.success) {
+        if (data.error?.code === 'LINK_DETECTED') {
+          this._showLinkWarning(data.error.message);
+        } else {
+          this._toast('❌ ' + (data.error?.message || 'Failed to post'), 'error');
+        }
+        return;
       }
-      return;
+      
+      // Invalidate client API cache
+      if (window.apiCache) window.apiCache.clear();
+      
+      this.showComposer = false;
+      this.pendingImagePreview = null;
+      this.composerText = '';
+      await this.loadFeed();
+      this.render();
+      this._toast('✅ Post published!');
+    } catch (err) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Post'; }
+      this._toast('❌ Network error. Please try again.', 'error');
     }
-    this.showComposer = false;
-    this.pendingImagePreview = null;
-    this.composerText = '';
-    await this.loadFeed();
-    this.render();
-    this._toast('✅ Post published!');
   }
 
   async toggleLike(postId) {
@@ -117,6 +125,8 @@ export class PostFeed {
     if (res?.ok) {
       const data = await res.json().catch(() => null);
       if (data?.success) {
+        // Invalidate client API cache
+        if (window.apiCache) window.apiCache.clear();
         // Sync with server count
         post._liked = data.liked;
         post.likes = data.likes;
@@ -144,6 +154,8 @@ export class PostFeed {
     if (res?.ok) {
       const data = await res.json();
       if (data.success) {
+        // Invalidate client API cache
+        if (window.apiCache) window.apiCache.clear();
         const post = this.posts.find(p => p.id === postId);
         if (post) {
           if (!post._comments) post._comments = [];
@@ -157,13 +169,10 @@ export class PostFeed {
   }
 
   async loadComments(postId) {
-    const res = await fetch(`/api/social/posts/${postId}/comments`).catch(() => null);
-    if (res?.ok) {
-      const data = await res.json();
-      if (data.success) {
-        const post = this.posts.find(p => p.id === postId);
-        if (post) post._comments = data.comments || [];
-      }
+    const data = await window.optimizedFetch(`/api/social/posts/${postId}/comments`).catch(() => null);
+    if (data && data.success) {
+      const post = this.posts.find(p => p.id === postId);
+      if (post) post._comments = data.comments || [];
     }
   }
 
@@ -502,8 +511,7 @@ export class PostFeed {
     // Load groups inline — same page, no navigation
     if (!this._groupsData) {
       // Fetch groups and re-render
-      fetch('/api/social/groups')
-        .then(r => r.json())
+      window.optimizedFetch('/api/social/groups')
         .then(data => {
           this._groupsData = data.success ? data : { groups: [], myGroupIds: [] };
           this._myGroupIds = new Set(data.myGroupIds || []);
@@ -573,6 +581,7 @@ export class PostFeed {
         const res = await fetch(`/api/social/groups/${gid}/join`, { method: 'POST' });
         const data = await res.json();
         if (data.success) {
+          if (window.apiCache) window.apiCache.clear();
           if (!this._myGroupIds) this._myGroupIds = new Set();
           this._myGroupIds.add(gid);
           const feedList = document.getElementById('feedList');
@@ -589,7 +598,7 @@ export class PostFeed {
     if (!group) return;
 
     // Load messages
-    const data = await fetch(`/api/social/groups/${gid}/messages`).then(r => r.json()).catch(() => ({}));
+    const data = await window.optimizedFetch(`/api/social/groups/${gid}/messages`).catch(() => ({}));
     const messages = data.messages || [];
 
     const feedList = document.getElementById('feedList');
@@ -671,6 +680,7 @@ export class PostFeed {
         if (data.error?.code === 'LINK_DETECTED') this._showLinkWarning(data.error.message);
         return;
       }
+      if (window.apiCache) window.apiCache.clear();
       if (input) input.value = '';
       if (fileInput) fileInput.value = '';
 
@@ -690,6 +700,36 @@ export class PostFeed {
     document.getElementById('groupChatInput')?.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); }
     });
+
+    // Image preview for group chat — inject without re-render
+    document.getElementById('groupChatImage')?.addEventListener('change', async (e) => {
+      const f = e.target.files?.[0];
+      if (!f) return;
+      const url = await new Promise((res, rej) => {
+        const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f);
+      });
+      let previewEl = document.getElementById('inlineGroupImgPreview');
+      if (!previewEl) {
+        const inputBar = document.querySelector('#feedList .border-t.border-white\\/10');
+        if (inputBar) {
+          previewEl = document.createElement('div');
+          previewEl.id = 'inlineGroupImgPreview';
+          previewEl.className = 'px-3 pb-2 bg-dark';
+          inputBar.parentNode.insertBefore(previewEl, inputBar);
+        }
+      }
+      if (previewEl) {
+        previewEl.innerHTML = `
+          <div class="relative inline-block">
+            <img src="${url}" class="rounded-xl max-h-20 border border-white/10" style="display:block;">
+            <button type="button" id="removeInlineImg" class="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-500 text-white text-xs flex items-center justify-center font-bold">&times;</button>
+          </div>`;
+        document.getElementById('removeInlineImg')?.addEventListener('click', () => {
+          previewEl.innerHTML = '';
+          e.target.value = '';
+        });
+      }
+    });
   }
 
   _renderGroupMsg(m) {
@@ -700,7 +740,7 @@ export class PostFeed {
         ${!isOwn ? `<div class="w-7 h-7 rounded-full bg-primary/20 flex items-center justify-center text-primary text-xs font-bold shrink-0">${(m.userName||'?').charAt(0).toUpperCase()}</div>` : ''}
         <div class="max-w-[75%]">
           ${!isOwn ? `<p class="text-[10px] text-primary font-bold mb-1 ml-1">${this.esc(m.userName)}</p>` : ''}
-          <div class="rounded-2xl px-3 py-2 ${isOwn ? 'bg-primary text-dark rounded-br-sm' : 'bg-white/8 text-white rounded-bl-sm'}">
+          <div class="rounded-2xl px-3 py-2 ${isOwn ? 'bg-primary text-dark rounded-br-sm' : 'bg-white/10 text-white rounded-bl-sm'}">
             ${m.imageUrl ? `<img src="${m.imageUrl}" class="rounded-xl max-h-48 mb-1 w-full object-cover">` : ''}
             ${m.text ? `<p class="text-sm leading-relaxed">${this.esc(m.text)}</p>` : ''}
           </div>
@@ -732,6 +772,7 @@ export class PostFeed {
       // Server also deduplicates per userId
       fetch(`/api/social/posts/${postId}/view`, { method: 'POST' }).then(r => r.json()).then(data => {
         if (data.views) {
+          if (window.apiCache) window.apiCache.clear();
           const post = this.posts.find(p => p.id === postId);
           if (post) { post.views = data.views; this._rerenderPost(postId); }
         }
@@ -798,6 +839,7 @@ export class PostFeed {
       const res = await fetch(`/api/social/users/${uid}/follow`, { method: 'POST' });
       const data = await res.json();
       if (data.success) {
+        if (window.apiCache) window.apiCache.clear();
         const post = this.posts.find(p => p.userId === uid);
         if (post) post.following = data.following;
         this._rerenderPost(postId);
@@ -810,7 +852,10 @@ export class PostFeed {
       if (!confirm('Report this post?')) return;
       const res = await fetch(`/api/social/posts/${pid}/report`, { method: 'POST' });
       const data = await res.json();
-      if (data.success) this._toast('Post reported');
+      if (data.success) {
+        if (window.apiCache) window.apiCache.clear();
+        this._toast('Post reported');
+      }
     });
   }
 

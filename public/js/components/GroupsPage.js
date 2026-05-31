@@ -31,28 +31,29 @@ export class GroupsPage {
   }
 
   async loadGroups() {
-    const data = await fetch('/api/social/groups').then((r) => r.json());
-    if (data.success) {
+    const data = await window.optimizedFetch('/api/social/groups').catch(() => ({}));
+    if (data && data.success) {
       this.groups = data.groups;
       this.myGroupIds = new Set(data.myGroupIds || []);
     }
   }
 
   async loadAnnouncements() {
-    const data = await fetch('/api/social/announcements').then((r) => r.json()).catch(() => ({}));
-    if (data.success) this.announcements = data.announcements || [];
+    const data = await window.optimizedFetch('/api/social/announcements').catch(() => ({}));
+    if (data && data.success) this.announcements = data.announcements || [];
   }
 
   async loadMessages() {
     if (!this.activeGroup) return;
-    const data = await fetch(`/api/social/groups/${this.activeGroup}/messages`).then((r) => r.json());
-    if (data.success) this.groupMessages = data.messages;
+    const data = await window.optimizedFetch(`/api/social/groups/${this.activeGroup}/messages`).catch(() => ({}));
+    if (data && data.success) this.groupMessages = data.messages;
   }
 
   async joinGroup(id) {
     const res = await fetch(`/api/social/groups/${id}/join`, { method: 'POST' });
     const data = await res.json();
     if (data.success) {
+      if (window.apiCache) window.apiCache.clear();
       this.myGroupIds.add(id);
       this.render();
       // Show success toast
@@ -86,7 +87,12 @@ export class GroupsPage {
     if (!confirm('Leave this group?')) return;
     const res = await fetch(`/api/social/groups/${id}/leave`, { method: 'POST' });
     const data = await res.json();
-    if (data.success) { this.myGroupIds.delete(id); if (this.activeGroup === id) this.activeGroup = null; this.render(); }
+    if (data.success) {
+      if (window.apiCache) window.apiCache.clear();
+      this.myGroupIds.delete(id);
+      if (this.activeGroup === id) this.activeGroup = null;
+      this.render();
+    }
   }
 
   async sendMsg() {
@@ -114,6 +120,7 @@ export class GroupsPage {
       }
       return;
     }
+    if (window.apiCache) window.apiCache.clear();
     document.getElementById('groupMsgInput').value = '';
     this.pendingImagePreview = null;
     // Clear image input
@@ -347,6 +354,7 @@ export class GroupsPage {
   _bindChatEvents() {
     document.getElementById('backToGroups')?.addEventListener('click', () => {
       this.activeGroup = null;
+      this.pendingImagePreview = null;
       this.render();
     });
     document.getElementById('leaveGroupBtn')?.addEventListener('click', () => this.leaveGroup(this.activeGroup));
@@ -354,18 +362,55 @@ export class GroupsPage {
     document.getElementById('groupMsgInput')?.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.sendMsg(); }
     });
+
+    // Image preview — inject directly without full re-render
     document.getElementById('groupImage')?.addEventListener('change', async (e) => {
       const f = e.target.files?.[0];
       if (!f) return;
       this.pendingImagePreview = await new Promise((res, rej) => {
         const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f);
       });
-      this.renderChat();
+      // Inject preview above input bar
+      this._updateImagePreview();
     });
+
     document.getElementById('removeGroupImg')?.addEventListener('click', () => {
       this.pendingImagePreview = null;
-      this.renderChat();
+      const imgInput = document.getElementById('groupImage');
+      if (imgInput) imgInput.value = '';
+      this._updateImagePreview();
     });
+  }
+
+  _updateImagePreview() {
+    // Find or create preview container above input
+    let previewEl = document.getElementById('groupImgPreviewBar');
+    if (!previewEl) {
+      const inputBar = document.querySelector('#groupChatView .border-t');
+      if (!inputBar) return;
+      previewEl = document.createElement('div');
+      previewEl.id = 'groupImgPreviewBar';
+      previewEl.className = 'px-4 pb-2';
+      inputBar.parentNode.insertBefore(previewEl, inputBar);
+    }
+    if (this.pendingImagePreview) {
+      previewEl.innerHTML = `
+        <div class="relative inline-block">
+          <img src="${this.pendingImagePreview}" class="rounded-xl max-h-24 border border-white/10" style="display:block;">
+          <button type="button" id="removeGroupImg"
+            class="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-500 text-white text-xs flex items-center justify-center font-bold">
+            &times;
+          </button>
+        </div>`;
+      document.getElementById('removeGroupImg')?.addEventListener('click', () => {
+        this.pendingImagePreview = null;
+        const imgInput = document.getElementById('groupImage');
+        if (imgInput) imgInput.value = '';
+        this._updateImagePreview();
+      });
+    } else {
+      previewEl.innerHTML = '';
+    }
   }
 
   async init() {

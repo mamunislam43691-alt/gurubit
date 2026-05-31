@@ -5,7 +5,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { auth, collections } = require('../config/firebase');
+const { auth, collections, db } = require('../config/firebase');
 const agentStore = require('../services/agentStore');
 
 async function verifyAuth(req, res, next) {
@@ -177,6 +177,42 @@ router.put('/users/:userId/toggle-ban', verifyAgent, async (req, res) => {
     const nextBanStatus = !u.isBanned;
     await collections.users.doc(req.params.userId).update({ isBanned: nextBanStatus, updatedAt: new Date().toISOString() });
     res.json({ success: true, isBanned: nextBanStatus, message: nextBanStatus ? 'User banned' : 'User unbanned' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: { message: error.message } });
+  }
+});
+
+router.delete('/users/:userId', verifyAgent, async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const userDoc = await collections.users.doc(userId).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ success: false, error: { message: 'User not found' } });
+    }
+    const u = userDoc.data();
+    if (!memberOfAgent(u, req.agent.email)) {
+      return res.status(403).json({ success: false, error: { message: 'Not your member' } });
+    }
+
+    // Delete user from Firestore
+    await collections.users.doc(userId).delete();
+
+    // Delete any approvals associated with this user
+    try {
+      const snap = await db.collection('agentApprovals').get();
+      const deletePromises = [];
+      snap.forEach((doc) => {
+        const data = doc.data();
+        if (data.userId === userId) {
+          deletePromises.push(doc.ref.delete());
+        }
+      });
+      await Promise.all(deletePromises);
+    } catch (e) {
+      console.error('Error deleting approvals during user deletion:', e);
+    }
+
+    res.json({ success: true, message: 'User deleted successfully' });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: error.message } });
   }

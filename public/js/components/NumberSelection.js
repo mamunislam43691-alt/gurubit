@@ -50,8 +50,8 @@ export class NumberSelection {
   }
 
   async loadCountries() {
-    const data = await fetch('/api/countries').then((r) => r.json());
-    if (data.success) {
+    const data = await window.optimizedFetch('/api/countries').catch(() => ({}));
+    if (data && data.success) {
       this.countries = data.countries;
       this.countries.forEach((c) => { this.countryMap[c.id] = c; });
       this.topSelection = data.topSelection;
@@ -59,8 +59,8 @@ export class NumberSelection {
   }
 
   async loadNumbers() {
-    const data = await fetch('/api/user/numbers').then((r) => r.json());
-    if (data.success) {
+    const data = await window.optimizedFetch('/api/user/numbers').catch(() => ({}));
+    if (data && data.success) {
       this.numbers = data.numbers || [];
       // Don't load SMS here - only on WebSocket updates to prevent flickering
       // SMS status comes from the server, not from parallel requests
@@ -69,8 +69,8 @@ export class NumberSelection {
   }
 
   async loadServers(countryId) {
-    const data = await fetch(`/api/countries/${countryId}/servers`).then((r) => r.json());
-    if (data.success) {
+    const data = await window.optimizedFetch(`/api/countries/${countryId}/servers`).catch(() => ({}));
+    if (data && data.success) {
       this.servers = data.servers;
       // Preserve previously selected server if it still exists in the new list
       if (this.selectedServer) {
@@ -211,6 +211,7 @@ export class NumberSelection {
       });
       const data = await res.json();
       if (data.success) {
+        if (window.apiCache) window.apiCache.clear();
         const num = data.number;
         this.highlightId = num.id;
         // Preserve current country/server selection — only reload servers list, don't reset selection

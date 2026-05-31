@@ -28,26 +28,28 @@ export class AdminGuru {
 
   async load() {
     const [postsRes, annRes] = await Promise.all([
-      fetch('/api/admin/guru/posts').then((r) => r.json()),
-      fetch('/api/social/announcements').then((r) => r.json()).catch(() => ({}))
+      window.optimizedFetch('/api/admin/guru/posts'),
+      window.optimizedFetch('/api/social/announcements').catch(() => ({}))
     ]);
-    if (postsRes.success) {
+    if (postsRes && postsRes.success) {
       this.posts = postsRes.posts;
       this.groups = postsRes.groups;
       this.settings = postsRes.settings;
     }
-    if (annRes.success) this.announcements = annRes.announcements || [];
+    if (annRes && annRes.success) this.announcements = annRes.announcements || [];
     this.render();
   }
 
   async deletePost(id) {
     if (!confirm('Delete this post?')) return;
     await fetch(`/api/admin/guru/posts/${id}`, { method: 'DELETE' });
+    if (window.apiCache) window.apiCache.clear();
     await this.load();
   }
 
   async promote(id) {
     await fetch(`/api/admin/guru/posts/${id}/promote`, { method: 'POST' });
+    if (window.apiCache) window.apiCache.clear();
     await this.load();
   }
 
@@ -57,12 +59,14 @@ export class AdminGuru {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ days: 4 })
     });
+    if (window.apiCache) window.apiCache.clear();
     alert('User suspended');
   }
 
   async banUser(userId) {
     if (!confirm('Ban this user permanently?')) return;
     await fetch(`/api/admin/users/${userId}/ban`, { method: 'PUT' });
+    if (window.apiCache) window.apiCache.clear();
     alert('User banned');
   }
 
@@ -87,6 +91,7 @@ export class AdminGuru {
     const data = await res.json();
     if (btn) { btn.disabled = false; btn.textContent = 'Post as Admin'; }
     if (data.success) {
+      if (window.apiCache) window.apiCache.clear();
       document.getElementById('adminPostText').value = '';
       document.getElementById('adminPostImagePreview').innerHTML = '';
       await this.load();
@@ -103,6 +108,7 @@ export class AdminGuru {
     });
     const data = await res.json();
     if (data.success) {
+      if (window.apiCache) window.apiCache.clear();
       document.getElementById('newGroupName').value = '';
       document.getElementById('newGroupDesc').value = '';
       await this.load();
@@ -112,6 +118,7 @@ export class AdminGuru {
   async deleteGroup(id) {
     if (!confirm('Delete this group and all its messages?')) return;
     await fetch(`/api/admin/guru/groups/${id}`, { method: 'DELETE' });
+    if (window.apiCache) window.apiCache.clear();
     await this.load();
   }
 
@@ -133,7 +140,10 @@ export class AdminGuru {
       body: JSON.stringify(body)
     });
     const data = await res.json();
-    if (data.success) { await this.load(); }
+    if (data.success) {
+      if (window.apiCache) window.apiCache.clear();
+      await this.load();
+    }
     else alert(data.error?.message || 'Failed');
   }
 
@@ -149,9 +159,8 @@ export class AdminGuru {
   async loadGroupMessages(groupId) {
     const container = document.getElementById(`group-msgs-${groupId}`);
     if (!container) return;
-    const res = await fetch(`/api/social/groups/${groupId}/messages`);
-    const data = await res.json();
-    if (data.success && data.messages.length) {
+    const data = await window.optimizedFetch(`/api/social/groups/${groupId}/messages`);
+    if (data && data.success && data.messages.length) {
       container.innerHTML = data.messages.map(m => `
         <div class="flex items-start gap-2">
           <div class="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-primary text-[9px] font-black shrink-0">
@@ -178,6 +187,7 @@ export class AdminGuru {
     });
     const data = await res.json();
     if (data.success) {
+      if (window.apiCache) window.apiCache.clear();
       if (input) input.value = '';
       await this.loadGroupMessages(groupId);
     } else alert(data.error?.message || 'Failed');
@@ -204,6 +214,7 @@ export class AdminGuru {
     const data = await res.json();
     if (btn) { btn.disabled = false; btn.textContent = 'Publish Announcement'; }
     if (data.success) {
+      if (window.apiCache) window.apiCache.clear();
       document.getElementById('annTitle').value = '';
       document.getElementById('annBody').value = '';
       document.getElementById('annLinkLabel').value = '';
@@ -215,20 +226,11 @@ export class AdminGuru {
 
   async deleteAnnouncement(id) {
     await fetch(`/api/social/announcements/${id}`, { method: 'DELETE' });
+    if (window.apiCache) window.apiCache.clear();
     await this.load();
   }
 
-  async saveAi() {
-    const aiApiKey = document.getElementById('aiApiKey')?.value || '';
-    const aiEnabled = document.getElementById('aiEnabled')?.checked;
-    const aiApiUrl = document.getElementById('aiApiUrl')?.value || '';
-    const aiModel = document.getElementById('aiModel')?.value || '';
-    await fetch('/api/admin/guru/settings', {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ aiApiKey, aiEnabled, aiApiUrl, aiModel })
-    });
-    await this.load();
-  }
+
 
   renderPosts() {
     return `
@@ -247,7 +249,7 @@ export class AdminGuru {
       </div>
 
       <!-- Posts list — same as user panel -->
-      <div class="space-y-0 max-w-2xl">
+      <div class="space-y-0 w-full">
         ${this.posts.length ? this.posts.map((p) => this._renderPost(p)).join('') : '<p class="text-gray-500 text-sm text-center py-8">No posts yet</p>'}
       </div>`;
   }
@@ -260,7 +262,9 @@ export class AdminGuru {
       <div class="border-b border-white/5 px-4 py-4 hover:bg-white/[0.015] transition-all" data-admin-post-id="${p.id}">
         <div class="flex items-start gap-3">
           <div class="w-10 h-10 rounded-full bg-gradient-to-br from-primary/30 to-cyan-500/20 flex items-center justify-center text-primary font-black text-sm border border-white/10 shrink-0">
-            ${(p.userName||'?').charAt(0).toUpperCase()}
+            ${p.profilePhotoUrl
+              ? `<img src="${p.profilePhotoUrl}" class="w-10 h-10 rounded-full object-cover">`
+              : (p.userName||'?').charAt(0).toUpperCase()}
           </div>
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
@@ -268,6 +272,28 @@ export class AdminGuru {
               ${p.isAdmin ? '<span class="text-[10px] text-primary font-black bg-primary/10 px-2 py-0.5 rounded-full uppercase">Admin</span>' : ''}
               ${p.isPromoted ? '<span class="text-[10px] text-yellow-400 font-black bg-yellow-400/10 px-2 py-0.5 rounded-full uppercase">📌 Pinned</span>' : ''}
               <span class="text-[10px] text-gray-500 ml-auto">${this.timeAgo(p.createdAt)}</span>
+              <!-- Three-dot menu -->
+              <div class="relative" style="position:relative;">
+                <button type="button" class="post-menu-btn w-7 h-7 rounded-full hover:bg-white/10 flex items-center justify-center text-gray-400 hover:text-white transition-all" data-pid="${p.id}">
+                  <i class="fas fa-ellipsis-v text-xs"></i>
+                </button>
+                <div class="post-menu-dropdown hidden absolute right-0 top-8 z-50 bg-[#0a1e3b] border border-white/10 rounded-xl shadow-xl overflow-hidden min-w-[140px]" id="pmenu-${p.id}">
+                  <button type="button" data-promote="${p.id}" class="w-full text-left px-4 py-2.5 text-xs font-bold text-primary hover:bg-white/5 flex items-center gap-2">
+                    <i class="fas fa-thumbtack w-4"></i> Pin Post
+                  </button>
+                  <button type="button" data-del="${p.id}" class="w-full text-left px-4 py-2.5 text-xs font-bold text-red-400 hover:bg-white/5 flex items-center gap-2">
+                    <i class="fas fa-trash w-4"></i> Delete
+                  </button>
+                  ${p.userId && p.userId !== 'admin' ? `
+                  <div class="border-t border-white/5"></div>
+                  <button type="button" data-suspend="${p.userId}" class="w-full text-left px-4 py-2.5 text-xs font-bold text-orange-400 hover:bg-white/5 flex items-center gap-2">
+                    <i class="fas fa-clock w-4"></i> Suspend 4d
+                  </button>
+                  <button type="button" data-ban="${p.userId}" class="w-full text-left px-4 py-2.5 text-xs font-bold text-red-500 hover:bg-white/5 flex items-center gap-2">
+                    <i class="fas fa-ban w-4"></i> Ban User
+                  </button>` : ''}
+                </div>
+              </div>
             </div>
             ${p.text ? `<p class="text-gray-200 text-sm mt-2 whitespace-pre-wrap leading-relaxed">${this.esc(p.text)}</p>` : ''}
             ${p.imageUrl ? `<img src="${p.imageUrl}" class="rounded-xl mt-3 max-h-80 w-full object-cover border border-white/5" loading="lazy">` : ''}
@@ -279,15 +305,6 @@ export class AdminGuru {
                 ${commentCount > 0 ? `<span>${commentCount} comment${commentCount !== 1 ? 's' : ''}</span>` : ''}
                 ${views > 0 ? `<span><i class="fas fa-eye text-[10px] mr-1"></i>${views}</span>` : ''}
               </span>
-            </div>
-            <!-- Admin actions -->
-            <div class="flex items-center gap-2 pt-2 border-t border-white/5">
-              <button type="button" data-promote="${p.id}" class="text-[10px] text-primary font-bold uppercase hover:underline">📌 Pin</button>
-              <button type="button" data-del="${p.id}" class="text-[10px] text-red-400 font-bold uppercase hover:underline">Delete</button>
-              ${p.userId && p.userId !== 'admin' ? `
-                <button type="button" data-suspend="${p.userId}" class="text-[10px] text-orange-400 font-bold uppercase hover:underline">Suspend</button>
-                <button type="button" data-ban="${p.userId}" class="text-[10px] text-red-500 font-bold uppercase hover:underline">Ban</button>
-              ` : ''}
             </div>
           </div>
         </div>
@@ -385,7 +402,7 @@ export class AdminGuru {
       </div>
 
       <!-- Announcements list -->
-      <div class="space-y-3 max-w-2xl">
+      <div class="space-y-3 w-full">
         ${this.announcements.map((a) => `
           <div class="glass-card p-5">
             <div class="flex items-start gap-3 mb-3">
@@ -416,27 +433,13 @@ export class AdminGuru {
       </div>`;
   }
 
-  renderAi() {
-    return `
-      <div class="glass-card p-6 max-w-lg">
-        <h4 class="font-black text-white text-sm uppercase mb-1">AI Moderation</h4>
-        <p class="text-xs text-gray-500 mb-4">OpenAI-compatible API. Scam → 4-day suspend; 3 strikes → ban.</p>
-        <label class="flex items-center gap-2 mb-3 text-sm cursor-pointer">
-          <input type="checkbox" id="aiEnabled" ${this.settings.aiEnabled ? 'checked' : ''}> Enable AI moderation
-        </label>
-        <input type="password" id="aiApiKey" class="input-field w-full mb-2" placeholder="${this.settings.aiApiKeySet ? '•••• key saved' : 'Paste API key'}">
-        <input type="text" id="aiApiUrl" class="input-field w-full mb-2" placeholder="API URL (optional)" value="${this.esc(this.settings.aiApiUrl || '')}">
-        <input type="text" id="aiModel" class="input-field w-full mb-3" placeholder="Model (e.g. gpt-4o-mini)" value="${this.esc(this.settings.aiModel || '')}">
-        <button type="button" id="saveAiBtn" class="neon-btn px-5 py-2 text-xs uppercase">Save</button>
-      </div>`;
-  }
+
 
   renderBody() {
     const tabs = [
-      { id: 'posts', label: 'Movement', icon: 'bolt' },
-      { id: 'groups', label: 'Groups', icon: 'users' },
-      { id: 'announcements', label: 'Announcements', icon: 'bullhorn' },
-      { id: 'ai', label: 'AI Mod', icon: 'robot' }
+      { id: 'posts',         label: 'Movement',      icon: 'bolt' },
+      { id: 'groups',        label: 'Groups',         icon: 'users' },
+      { id: 'announcements', label: 'Announcements',  icon: 'bullhorn' }
     ];
     return `
       <div class="flex flex-wrap gap-2 mb-6">
@@ -449,8 +452,7 @@ export class AdminGuru {
       </div>
       ${this.tab === 'posts' ? this.renderPosts()
         : this.tab === 'groups' ? this.renderGroups()
-        : this.tab === 'announcements' ? this.renderAnnouncements()
-        : this.renderAi()}`;
+        : this.renderAnnouncements()}`;
   }
 
   render() {
@@ -481,6 +483,24 @@ export class AdminGuru {
         });
       }
     });
+
+    // Three-dot menu toggle
+    document.querySelectorAll('.post-menu-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const pid = btn.dataset.pid;
+        const menu = document.getElementById(`pmenu-${pid}`);
+        // Close all other menus
+        document.querySelectorAll('.post-menu-dropdown').forEach(m => {
+          if (m.id !== `pmenu-${pid}`) m.classList.add('hidden');
+        });
+        menu?.classList.toggle('hidden');
+      });
+    });
+    // Close menus on outside click
+    document.addEventListener('click', () => {
+      document.querySelectorAll('.post-menu-dropdown').forEach(m => m.classList.add('hidden'));
+    }, { once: false });
     document.querySelectorAll('[data-del]').forEach((btn) => btn.addEventListener('click', () => this.deletePost(btn.dataset.del)));
     document.querySelectorAll('[data-promote]').forEach((btn) => btn.addEventListener('click', () => this.promote(btn.dataset.promote)));
     document.querySelectorAll('[data-suspend]').forEach((btn) => btn.addEventListener('click', () => this.suspendUser(btn.dataset.suspend)));
@@ -513,8 +533,6 @@ export class AdminGuru {
     });
     document.querySelectorAll('[data-del-ann]').forEach((btn) => btn.addEventListener('click', () => this.deleteAnnouncement(btn.dataset.delAnn)));
 
-    // AI
-    document.getElementById('saveAiBtn')?.addEventListener('click', () => this.saveAi());
   }
 
   async init() {

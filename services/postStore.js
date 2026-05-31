@@ -9,6 +9,19 @@ const LINK_RE = /https?:\/\/|www\.|\.com\/|\.net\/|\.org\/|t\.me\/|bit\.ly/i;
 const IMAGE_RE = /^data:image\/(jpeg|jpg|png|gif|webp);base64,/i;
 const MAX_IMAGE_LEN = 5_000_000; // 5MB base64 (~3.75MB actual)
 
+let _postsCache = null;
+let _postsCacheExpires = 0;
+let _groupsCache = null;
+let _groupsCacheExpires = 0;
+
+function invalidatePostsCache() {
+  _postsCache = null;
+}
+
+function invalidateGroupsCache() {
+  _groupsCache = null;
+}
+
 async function colDocs(col) {
   const snap = await col.get();
   const items = [];
@@ -56,14 +69,21 @@ async function ensureDefaultGroup() {
 async function listPosts({ forUserId } = {}) {
   await ensureDefaultGroup();
   let list;
-  try {
-    list = (await colDocs(collections.guruPosts)).filter((p) => !p.deleted);
-  } catch (err) {
-    const msg = String(err.message || '');
-    if (msg.includes('RESOURCE_EXHAUSTED') || msg.includes('Quota exceeded')) {
-      return []; // Return empty on quota error — don't crash
+  const now = Date.now();
+  if (_postsCache && now < _postsCacheExpires) {
+    list = _postsCache;
+  } else {
+    try {
+      list = (await colDocs(collections.guruPosts)).filter((p) => !p.deleted);
+      _postsCache = list;
+      _postsCacheExpires = now + 5000; // Cache for 5 seconds
+    } catch (err) {
+      const msg = String(err.message || '');
+      if (msg.includes('RESOURCE_EXHAUSTED') || msg.includes('Quota exceeded')) {
+        return []; // Return empty on quota error — don't crash
+      }
+      throw err;
     }
-    throw err;
   }
   if (forUserId) list = list.filter((p) => p.userId === forUserId);
   list.sort((a, b) => {
@@ -126,6 +146,7 @@ async function createPost({ user, text, imageUrl, videoUrl, link, isAdminPost, i
     deleted: false
   };
   await savePost(post);
+  invalidatePostsCache();
   return { post };
 }
 
@@ -134,6 +155,7 @@ async function updatePost(id, patch) {
   const doc = await ref.get();
   if (!doc.exists) return null;
   await ref.update({ ...patch, updatedAt: new Date().toISOString() });
+  invalidatePostsCache();
   return getPost(id);
 }
 
@@ -142,6 +164,7 @@ async function deletePost(id) {
   const doc = await ref.get();
   if (!doc.exists) return false;
   await ref.update({ deleted: true, deletedAt: new Date().toISOString() });
+  invalidatePostsCache();
   return true;
 }
 
@@ -161,6 +184,7 @@ async function promotePost(id) {
   const pin = { pinnedPostId: id, updatedAt: new Date().toISOString() };
   if (sDoc.exists) await sRef.update(pin);
   else await sRef.set({ ...pin, aiEnabled: false, aiApiKey: '' });
+  invalidatePostsCache();
   return getPost(id);
 }
 
@@ -230,11 +254,16 @@ async function isFollowing(followerId, followingId) {
 
 async function listGroups() {
   await ensureDefaultGroup();
+  const now = Date.now();
+  if (_groupsCache && now < _groupsCacheExpires) {
+    return _groupsCache;
+  }
+
   const groups = await colDocs(collections.guruGroups);
   const messages = await colDocs(collections.guruGroupMessages);
   const recent = Date.now() - 15 * 60 * 1000;
 
-  return groups.map((g) => {
+  const result = groups.map((g) => {
     const msgs = messages.filter((m) => m.groupId === g.id);
     const active = new Set(
       msgs.filter((m) => new Date(m.createdAt).getTime() > recent).map((m) => m.userId)
@@ -246,6 +275,10 @@ async function listGroups() {
       inactiveCount: Math.max(0, (g.memberCount || 0) - active.size)
     };
   });
+
+  _groupsCache = result;
+  _groupsCacheExpires = now + 5000; // Cache for 5 seconds
+  return result;
 }
 
 async function addGroupMessage(groupId, { userId, userName, text, imageUrl }) {
@@ -262,6 +295,7 @@ async function addGroupMessage(groupId, { userId, userName, text, imageUrl }) {
     createdAt: new Date().toISOString()
   };
   await collections.guruGroupMessages.doc(id).set(msg);
+  invalidateGroupsCache();
   return msg;
 }
 
@@ -299,6 +333,82 @@ async function setSettings(data) {
   return getSettings();
 }
 
+/**
+ * 7-day cleanup — delete old posts, group messages, announcements, views
+ * Preserves: user accounts, earnings, withdrawal history, API keys
+ */
+async function cleanupOldContent() {
+  const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  let deleted = 0;
+
+  try {
+    // Delete old posts (soft-deleted or older than 7 days)
+    const postsSnap = await collections.guruPosts.get();
+    for (const doc of postsSnap.docs) {
+      const d = doc.data();
+      if (d.deleted || (d.createdAt && d.createdAt < cutoff)) {
+        await doc.ref.delete();
+        deleted++;
+      }
+    }
+  } catch (e) { console.warn('[Cleanup] Posts error:', e.message); }
+
+  try {
+    // Delete old group messages
+    const { db } = require('../config/firebase');
+    const msgsSnap = await db.collection('guruGroupMessages').get();
+    for (const doc of msgsSnap.docs) {
+      const d = doc.data();
+      if (d.createdAt && d.createdAt < cutoff) {
+        await doc.ref.delete();
+        deleted++;
+      }
+    }
+  } catch (e) { console.warn('[Cleanup] Group messages error:', e.message); }
+
+  try {
+    // Delete old announcements
+    const { db } = require('../config/firebase');
+    const annSnap = await db.collection('announcements').get();
+    for (const doc of annSnap.docs) {
+      const d = doc.data();
+      if (d.createdAt && d.createdAt < cutoff) {
+        await doc.ref.delete();
+        deleted++;
+      }
+    }
+  } catch (e) { console.warn('[Cleanup] Announcements error:', e.message); }
+
+  try {
+    // Delete old view records
+    const { db } = require('../config/firebase');
+    const viewsSnap = await db.collection('guruViews').get();
+    for (const doc of viewsSnap.docs) {
+      const d = doc.data();
+      if (d.viewedAt && d.viewedAt < cutoff) {
+        await doc.ref.delete();
+        deleted++;
+      }
+    }
+  } catch (e) { console.warn('[Cleanup] Views error:', e.message); }
+
+  try {
+    // Delete old comments
+    const { db } = require('../config/firebase');
+    const cmtSnap = await db.collection('guruComments').get();
+    for (const doc of cmtSnap.docs) {
+      const d = doc.data();
+      if (d.createdAt && d.createdAt < cutoff) {
+        await doc.ref.delete();
+        deleted++;
+      }
+    }
+  } catch (e) { console.warn('[Cleanup] Comments error:', e.message); }
+
+  if (deleted > 0) console.log(`[Cleanup] ✅ Deleted ${deleted} old social records (>7 days)`);
+  return deleted;
+}
+
 module.exports = {
   listPosts,
   getPost,
@@ -317,5 +427,8 @@ module.exports = {
   getSettings,
   setSettings,
   hasLink,
-  validateImage
+  validateImage,
+  cleanupOldContent,
+  invalidatePostsCache,
+  invalidateGroupsCache
 };

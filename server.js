@@ -502,6 +502,16 @@ async function startServer() {
         }
       }, 60000); // Every minute
 
+      // 7-day social content cleanup — runs every 24 hours
+      const { cleanupOldContent } = require('./services/postStore');
+      const socialCleanupInterval = setInterval(() => {
+        cleanupOldContent().catch(e => console.warn('[Cleanup] Error:', e.message));
+      }, 24 * 60 * 60 * 1000); // Every 24 hours
+      // Also run once on startup (after 5 min delay)
+      setTimeout(() => {
+        cleanupOldContent().catch(e => console.warn('[Cleanup] Startup error:', e.message));
+      }, 5 * 60 * 1000);
+
       try {
         const backupStore = require('./services/backupStore');
         const { collections } = require('./config/firebase');

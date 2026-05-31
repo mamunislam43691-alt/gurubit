@@ -9,7 +9,6 @@ export const AGENT_NAV = [
   { id: 'numbers', label: 'Number', href: '/numbers', icon: 'mobile-alt' },
   { id: 'live-feed', label: 'Live SMS', href: '/live-feed', icon: 'satellite-dish' },
   { id: 'users', label: 'Users', href: '/agent#users', icon: 'users' },
-  { id: 'approve', label: 'User Requests', href: '/agent#approve', icon: 'user-check' },
   { id: 'api', label: 'API', href: '/agent#api', icon: 'key' }
 ];
 
@@ -22,8 +21,6 @@ export class AgentLayout {
       ? 'live-feed'
       : hash === 'users'
       ? 'users'
-      : hash === 'approve'
-      ? 'approve'
       : hash === 'api'
       ? 'api'
       : activeId || 'overview';

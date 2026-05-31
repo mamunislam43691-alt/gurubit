@@ -27,8 +27,8 @@ export class Dashboard {
     // Render shell immediately with cached user data
     this.render();
 
-    const dash = await fetch('/api/user/dashboard').then((r) => r.json()).catch(() => ({}));
-    if (dash.success) {
+    const dash = await window.optimizedFetch('/api/user/dashboard').catch(() => ({}));
+    if (dash && dash.success) {
       this.stats = dash.dashboard;
       this.topApplications = dash.dashboard.topApplications || [];
       this.topRanges = dash.dashboard.topRanges || [];

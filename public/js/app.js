@@ -245,7 +245,9 @@ function hideLiveSupportWidget() {
 }
 
 async function initLiveSupport() {
-  if (window.location.pathname.startsWith('/admin')) {
+  const path = window.location.pathname;
+  // Hide on admin pages and movement/social pages
+  if (path.startsWith('/admin') || path === '/post' || path === '/movement' || path === '/guru' || path === '/groups') {
     hideLiveSupportWidget();
     return;
   }

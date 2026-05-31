@@ -311,7 +311,7 @@ async function checkExpiredNumbers(wss) {
                 }
             }
 
-            // Update user stats
+            // Update user stats — only failedOtps, NOT totalOtps (totalOtps only counts when SMS received)
             for (const userId in userUpdates) {
                 const userRef = collections.users.doc(userId);
                 const userDoc = await userRef.get();
@@ -319,7 +319,6 @@ async function checkExpiredNumbers(wss) {
                     const userData = userDoc.data();
                     await userRef.update({
                         failedOtps: (userData.failedOtps || 0) + userUpdates[userId],
-                        totalOtps: (userData.totalOtps || 0) + userUpdates[userId],
                         updatedAt: now
                     });
                 }

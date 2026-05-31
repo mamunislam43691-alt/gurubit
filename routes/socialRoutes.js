@@ -305,6 +305,7 @@ router.post('/groups', verifyAuth, async (req, res) => {
     id, name: name.trim(), description: description || '',
     memberCount: 0, createdAt: new Date().toISOString(), createdBy: req.userId
   });
+  postStore.invalidateGroupsCache();
   res.json({ success: true, group: { id, name: name.trim() } });
 });
 
@@ -320,6 +321,7 @@ router.delete('/groups/:id', verifyAuth, async (req, res) => {
   memSnap.forEach(doc => { if (doc.data().groupId === req.params.id) deletes.push(doc.ref.delete()); });
   banSnap.forEach(doc => { if (doc.data().groupId === req.params.id) deletes.push(doc.ref.delete()); });
   await Promise.all(deletes);
+  postStore.invalidateGroupsCache();
   res.json({ success: true });
 });
 
@@ -336,6 +338,7 @@ router.post('/groups/:id/join', verifyAuth, async (req, res) => {
   const snap = await db.collection(GROUP_MEM_COL).get();
   const count = snap.docs.filter(d => d.data().groupId === gid).length;
   await collections.guruGroups.doc(gid).update({ memberCount: count }).catch(() => {});
+  postStore.invalidateGroupsCache();
   res.json({ success: true });
 });
 
@@ -345,6 +348,7 @@ router.post('/groups/:id/leave', verifyAuth, async (req, res) => {
   const snap = await db.collection(GROUP_MEM_COL).get();
   const count = snap.docs.filter(d => d.data().groupId === gid).length;
   await collections.guruGroups.doc(gid).update({ memberCount: Math.max(0, count) }).catch(() => {});
+  postStore.invalidateGroupsCache();
   res.json({ success: true });
 });
 
@@ -356,6 +360,7 @@ router.post('/groups/:id/ban/:userId', verifyAuth, async (req, res) => {
     groupId: gid, userId: uid, bannedAt: new Date().toISOString(), bannedBy: req.userId
   });
   await db.collection(GROUP_MEM_COL).doc(`${gid}_${uid}`).delete();
+  postStore.invalidateGroupsCache();
   res.json({ success: true });
 });
 
