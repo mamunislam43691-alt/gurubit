@@ -1,0 +1,24 @@
+{
+  "guests": [
+    {
+      "id": "guest_1780211491675_a4947165",
+      "name": "Guest User",
+      "email": "guest_1780211491675_a4947165@guest.local",
+      "phone": "",
+      "telegram": "",
+      "cryptoAddress": "",
+      "referralEmail": "",
+      "earningsBalance": 0,
+      "totalOtps": 0,
+      "failedOtps": 0,
+      "isBanned": false,
+      "isAdmin": false,
+      "isGuest": true,
+      "agentApproved": true,
+      "profileComplete": true,
+      "emailVerified": true,
+      "createdAt": "2026-05-31T07:11:31.692Z",
+      "updatedAt": "2026-05-31T07:11:31.692Z"
+    }
+  ]
+}

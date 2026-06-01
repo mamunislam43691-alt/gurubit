@@ -1,0 +1,160 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helper functions ──────────────────────────────────────────
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    // ── Users ─────────────────────────────────────────────────────
+    match /users/{userId} {
+      allow read: if isSignedIn() && (isOwner(userId) || isAdmin());
+      allow create: if isSignedIn() && isOwner(userId);
+      allow update: if isSignedIn() && (isOwner(userId) || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // ── Sessions ──────────────────────────────────────────────────
+    match /sessions/{sessionId} {
+      allow read, write: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+
+    // ── Phone Numbers ─────────────────────────────────────────────
+    // NOTE: phoneNumbers are stored locally on the server (not in Firestore)
+    // match /phoneNumbers/{numberId} { ... }  ← disabled
+
+    // ── SMS Messages ──────────────────────────────────────────────
+    // NOTE: smsMessages are stored locally on the server (not in Firestore)
+    // match /smsMessages/{msgId} { ... }  ← disabled
+
+    // ── Catalog (Countries, Servers, Platforms) ───────────────────
+    // NOTE: catalog data is stored locally in catalog.json (not in Firestore)
+    // match /catalogCountries/{id} { ... }  ← disabled
+    // match /catalogServers/{id} { ... }    ← disabled
+    // match /catalogPlatforms/{id} { ... }  ← disabled
+    // ── Withdrawal Requests ───────────────────────────────────────
+    match /withdrawalRequests/{wdId} {
+      allow read: if isSignedIn() && (
+        resource.data.userId == request.auth.uid || isAdmin()
+      );
+      allow create: if isSignedIn();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ── SMS Providers ─────────────────────────────────────────────
+    match /smsProviders/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // ── Cost Rates ────────────────────────────────────────────────
+    match /costRates/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // ── Broadcasts ────────────────────────────────────────────────
+    match /broadcasts/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // ── Admin Staff ───────────────────────────────────────────────
+    match /adminStaff/{id} {
+      allow read, write: if isAdmin();
+    }
+
+    // ── Agent Approvals ───────────────────────────────────────────
+    match /agentApprovals/{id} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isAdmin();
+    }
+
+    // ── User API Keys ─────────────────────────────────────────────
+    match /userApiKeys/{id} {
+      allow read: if isSignedIn() && (
+        resource.data.userId == request.auth.uid || isAdmin()
+      );
+      allow create: if isSignedIn();
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    // ── Support Sessions & Messages ───────────────────────────────
+    match /supportSessions/{id} {
+      allow read, write: if isSignedIn();
+    }
+    match /supportMessages/{id} {
+      allow read, write: if isSignedIn();
+    }
+
+    // ── Social: Posts, Groups, Messages ──────────────────────────
+    match /guruPosts/{id} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && (
+        resource.data.userId == request.auth.uid || isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+    match /guruGroups/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+    match /guruGroupMessages/{id} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow delete: if isAdmin();
+    }
+    match /guruFollows/{id} {
+      allow read, write: if isSignedIn();
+    }
+    match /guruReports/{id} {
+      allow read: if isAdmin();
+      allow create: if isSignedIn();
+    }
+    match /guruSettings/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // ── Group Membership & Bans ───────────────────────────────────
+    match /groupMembers/{id} {
+      allow read: if isSignedIn();
+      allow create, delete: if isSignedIn();
+    }
+    match /groupBans/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // ── Announcements ─────────────────────────────────────────────
+    match /announcements/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // ── API Keys (admin) ──────────────────────────────────────────
+    match /apiKeys/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // ── Helper: isAdmin ───────────────────────────────────────────
+    // NOTE: Admin check is done server-side via Admin SDK.
+    // Client-side rules use user document's isAdmin field.
+    function isAdmin() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+    }
+  }
+}

@@ -1,0 +1,67 @@
+<svg width="200" height="200" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Glow effect -->
+  <defs>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <linearGradient id="goldGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FFD700;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#FFA500;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="cyanGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00CED1;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1E90FF;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Top crown -->
+  <path d="M100 20 L85 35 L100 30 L115 35 Z" fill="url(#goldGradient)" filter="url(#glow)"/>
+  <circle cx="75" cy="35" r="4" fill="url(#goldGradient)"/>
+  <circle cx="125" cy="35" r="4" fill="url(#goldGradient)"/>
+  
+  <!-- Guru head outline -->
+  <ellipse cx="100" cy="80" rx="35" ry="40" fill="none" stroke="url(#goldGradient)" stroke-width="3" filter="url(#glow)"/>
+  
+  <!-- Turban -->
+  <path d="M70 60 Q100 45 130 60 L130 75 Q100 65 70 75 Z" fill="url(#goldGradient)" opacity="0.3"/>
+  <path d="M75 55 Q100 50 125 55" stroke="url(#goldGradient)" stroke-width="2" fill="none"/>
+  
+  <!-- Face -->
+  <ellipse cx="100" cy="85" rx="25" ry="30" fill="url(#cyanGradient)" opacity="0.2"/>
+  
+  <!-- Eyes -->
+  <line x1="90" y1="80" x2="90" y2="82" stroke="url(#cyanGradient)" stroke-width="2"/>
+  <line x1="110" y1="80" x2="110" y2="82" stroke="url(#cyanGradient)" stroke-width="2"/>
+  
+  <!-- Nose -->
+  <path d="M100 85 L100 95" stroke="url(#cyanGradient)" stroke-width="1.5"/>
+  
+  <!-- Beard -->
+  <path d="M85 95 Q100 110 115 95" stroke="url(#cyanGradient)" stroke-width="2" fill="none"/>
+  <path d="M88 100 Q100 112 112 100" stroke="url(#cyanGradient)" stroke-width="2" fill="none"/>
+  <path d="M90 105 Q100 115 110 105" stroke="url(#cyanGradient)" stroke-width="2" fill="none"/>
+  
+  <!-- Shield on chest -->
+  <path d="M100 120 L85 125 L85 140 Q85 150 100 155 Q115 150 115 140 L115 125 Z" 
+        fill="none" stroke="url(#cyanGradient)" stroke-width="2" filter="url(#glow)"/>
+  
+  <!-- Body outline -->
+  <path d="M70 115 Q65 130 65 145 L75 160" stroke="url(#goldGradient)" stroke-width="3" fill="none"/>
+  <path d="M130 115 Q135 130 135 145 L125 160" stroke="url(#goldGradient)" stroke-width="3" fill="none"/>
+  
+  <!-- Decorative dots -->
+  <circle cx="60" cy="70" r="1.5" fill="url(#goldGradient)" opacity="0.6"/>
+  <circle cx="55" cy="80" r="1" fill="url(#goldGradient)" opacity="0.4"/>
+  <circle cx="58" cy="90" r="1.5" fill="url(#goldGradient)" opacity="0.5"/>
+  <circle cx="140" cy="70" r="1.5" fill="url(#goldGradient)" opacity="0.6"/>
+  <circle cx="145" cy="80" r="1" fill="url(#goldGradient)" opacity="0.4"/>
+  <circle cx="142" cy="90" r="1.5" fill="url(#goldGradient)" opacity="0.5"/>
+  
+  <!-- Bottom chevrons -->
+  <path d="M100 170 L85 180 L100 175 L115 180 Z" fill="url(#cyanGradient)" opacity="0.7"/>
+  <path d="M100 180 L90 187 L100 183 L110 187 Z" fill="url(#cyanGradient)" opacity="0.5"/>
+</svg>
