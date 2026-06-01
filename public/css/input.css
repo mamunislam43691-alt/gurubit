@@ -1011,3 +1011,319 @@ html.light .mobile-nav-item.is-active {
 .reveal-up.delay-3 { animation-delay: 0.3s; }
 .reveal-up.delay-4 { animation-delay: 0.4s; }
 .reveal-up.delay-5 { animation-delay: 0.5s; }
+
+/* ═══════════════════════════════════════════════════════════════
+   COMPREHENSIVE MOBILE RESPONSIVE FIXES — User Panel
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Base mobile resets ─────────────────────────────────────── */
+@media (max-width: 767px) {
+  /* Prevent horizontal overflow */
+  body, #app { overflow-x: hidden; max-width: 100vw; }
+
+  /* User shell full width */
+  .user-shell { min-height: 100vh; }
+
+  /* Main content — add bottom padding for mobile nav */
+  .user-content {
+    padding: 0.75rem 0.75rem 5.5rem !important;
+    min-height: calc(100vh - 57px);
+  }
+
+  /* Topbar compact */
+  .user-topbar {
+    padding: 0.6rem 0.85rem !important;
+    min-height: 52px;
+  }
+
+  /* Glass cards — full width, less padding */
+  .glass-card {
+    border-radius: 1rem !important;
+  }
+
+  /* Input fields — larger touch targets */
+  .input-field {
+    padding: 0.75rem 1rem !important;
+    font-size: 16px !important; /* Prevent iOS zoom */
+    border-radius: 0.75rem !important;
+  }
+
+  /* Neon buttons — full width on mobile */
+  .neon-btn {
+    padding: 0.75rem 1.25rem !important;
+    font-size: 0.75rem !important;
+  }
+
+  /* Tables — horizontal scroll */
+  .number-history-table,
+  .live-sms-table,
+  .agent-table-scroll {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+  }
+
+  /* Number table cells */
+  .number-history-table th,
+  .number-history-table td {
+    padding: 0.6rem 0.75rem !important;
+    font-size: 0.75rem !important;
+  }
+
+  /* Stat labels */
+  .stat-label { font-size: 9px !important; }
+
+  /* Profile dropdown — full width */
+  .user-profile-dropdown {
+    right: -0.5rem !important;
+    width: 220px !important;
+  }
+
+  /* Movement feed */
+  .movement-feed { max-width: 100% !important; }
+  .movement-post { padding: 0.75rem !important; }
+
+  /* Dashboard stats grid — 2 cols on mobile */
+  .grid.grid-cols-4 { grid-template-columns: repeat(2, 1fr) !important; }
+  .grid.grid-cols-3 { grid-template-columns: repeat(2, 1fr) !important; }
+
+  /* Number selection controls */
+  .number-controls { padding: 0.75rem !important; }
+  .number-table-wrap { margin-top: 0.75rem !important; }
+
+  /* Filter buttons — scrollable row */
+  .number-filter-btn {
+    padding: 0.4rem 0.75rem !important;
+    font-size: 0.65rem !important;
+    white-space: nowrap;
+  }
+
+  /* Live SMS feed */
+  .live-feed-panel { border-radius: 1rem !important; }
+
+  /* Agent table */
+  .agent-page-section { padding: 0 !important; }
+
+  /* Withdraw page */
+  .max-w-3xl { max-width: 100% !important; }
+  .max-w-lg { max-width: 100% !important; }
+
+  /* Profile page */
+  .profile-menu-btn { padding: 0.85rem 1rem !important; }
+
+  /* Post feed composer */
+  #authModalPanel { max-width: calc(100vw - 1.5rem) !important; }
+
+  /* Groups chat full screen */
+  #groupChatView { height: 100dvh !important; }
+
+  /* Announcement cards */
+  .movement-post img { max-height: 200px !important; }
+
+  /* Copy line buttons */
+  .copy-line { font-size: 0.8rem !important; }
+  .copy-line--phone { font-size: 0.85rem !important; }
+
+  /* OTP display */
+  .copy-line--otp { font-size: 1rem !important; letter-spacing: 1px !important; }
+
+  /* Dashboard quick actions */
+  .grid.grid-cols-2.sm\:grid-cols-4 {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* Chart bars */
+  .user-chart-bars { height: 80px !important; }
+  .user-chart-bar { width: 100% !important; }
+}
+
+/* ── Small phones (< 400px) ─────────────────────────────────── */
+@media (max-width: 399px) {
+  .user-topbar { padding: 0.5rem 0.65rem !important; }
+  .user-content { padding: 0.5rem 0.5rem 5.5rem !important; }
+  .glass-card { border-radius: 0.75rem !important; }
+  .mobile-nav-label { font-size: 8px !important; }
+  .mobile-nav-icon { font-size: 1rem !important; }
+  .neon-btn { padding: 0.65rem 1rem !important; font-size: 0.7rem !important; }
+}
+
+/* ── Tablet (768px - 1023px) ────────────────────────────────── */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .user-content { padding: 1rem 1rem 1.5rem !important; }
+  .user-topbar { padding: 0.75rem 1.25rem !important; }
+  .number-history-table th,
+  .number-history-table td { padding: 0.65rem 0.85rem !important; }
+}
+
+/* ── Mobile nav — hide on desktop ───────────────────────────── */
+@media (min-width: 768px) {
+  .mobile-bottom-nav { display: none !important; }
+}
+
+/* ── User topbar — sticky with blur ────────────────────────── */
+.user-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: rgba(2, 11, 24, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1.25rem;
+}
+
+/* ── Number selection mobile ────────────────────────────────── */
+@media (max-width: 767px) {
+  /* Server/range select full width */
+  #countrySelect, #serverSelect { width: 100% !important; }
+
+  /* Number table mobile cards */
+  .number-row--new { animation: highlight-row 1.5s ease; }
+  @keyframes highlight-row {
+    0% { background: rgba(0, 210, 255, 0.15); }
+    100% { background: transparent; }
+  }
+
+  /* Status badges */
+  .number-history-table .text-green-400,
+  .number-history-table .text-orange-400,
+  .number-history-table .text-red-400 {
+    font-size: 0.65rem !important;
+  }
+
+  /* Countdown timer */
+  .sms-timer { font-size: 0.7rem !important; }
+
+  /* Generate button */
+  #generateBtn {
+    width: 100% !important;
+    padding: 0.85rem !important;
+    font-size: 0.8rem !important;
+  }
+}
+
+/* ── Movement page mobile ───────────────────────────────────── */
+@media (max-width: 767px) {
+  /* Feed tabs sticky */
+  .movement-feed .sticky { top: 52px !important; }
+
+  /* Post action bar */
+  .movement-post .flex.items-center.border-t {
+    gap: 0 !important;
+  }
+
+  /* Like/Comment/Share buttons */
+  .like-btn, .comment-toggle-btn, .share-btn {
+    padding: 0.6rem 0.5rem !important;
+    font-size: 0.7rem !important;
+  }
+
+  /* FAB button position */
+  #openComposer {
+    bottom: 5rem !important;
+    right: 1rem !important;
+    width: 52px !important;
+    height: 52px !important;
+  }
+
+  /* Composer modal */
+  #composerOverlay {
+    padding: 0.5rem !important;
+    align-items: flex-end !important;
+  }
+  #authModalPanel, #composerOverlay > div {
+    border-radius: 1.25rem 1.25rem 0 0 !important;
+    max-height: 90vh !important;
+    overflow-y: auto !important;
+  }
+
+  /* Group chat */
+  #inlineGroupMsgs { padding: 0.75rem !important; }
+  .group-inline-row { padding: 0.75rem 1rem !important; }
+}
+
+/* ── Dashboard mobile ───────────────────────────────────────── */
+@media (max-width: 767px) {
+  /* Stats cards 2-col */
+  .grid.grid-cols-2.sm\:grid-cols-4.gap-3 {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 0.5rem !important;
+  }
+
+  /* Chart */
+  .user-market-chart { padding: 0.85rem !important; }
+
+  /* Quick action grid */
+  .grid.grid-cols-2.sm\:grid-cols-4 {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 0.5rem !important;
+  }
+
+  /* Welcome banner */
+  .glass-card.p-5.mb-5.flex.items-center {
+    flex-direction: column !important;
+    text-align: center !important;
+    gap: 0.75rem !important;
+  }
+}
+
+/* ── Live SMS feed mobile ───────────────────────────────────── */
+@media (max-width: 767px) {
+  .live-feed-panel .hidden.md\:block { display: none !important; }
+  .live-feed-panel .md\:hidden { display: block !important; }
+}
+
+/* ── Auth modal mobile ──────────────────────────────────────── */
+@media (max-width: 480px) {
+  #authModal { padding: 0.5rem !important; }
+  #authModalPanel { max-width: 100% !important; }
+  #authModalPanel > div { border-radius: 1rem !important; }
+}
+
+/* ── Profile page mobile ────────────────────────────────────── */
+@media (max-width: 767px) {
+  .profile-menu-btn {
+    padding: 1rem 1.25rem !important;
+    font-size: 0.875rem !important;
+  }
+  .max-w-lg.mx-auto.glass-card { margin: 0 !important; border-radius: 1rem !important; }
+}
+
+/* ── Withdraw page mobile ───────────────────────────────────── */
+@media (max-width: 767px) {
+  .max-w-3xl.space-y-6 { padding: 0 !important; }
+  .max-w-3xl .glass-card { border-radius: 1rem !important; }
+}
+
+/* ── Safe area insets (iPhone notch) ────────────────────────── */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .mobile-bottom-nav {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 4px);
+  }
+  @media (max-width: 767px) {
+    .user-content {
+      padding-bottom: calc(5rem + env(safe-area-inset-bottom)) !important;
+    }
+  }
+}
+
+/* ── Touch improvements ─────────────────────────────────────── */
+@media (hover: none) and (pointer: coarse) {
+  /* Larger touch targets */
+  .mobile-nav-item { min-height: 52px; }
+  .neon-btn { min-height: 44px; }
+  .input-field { min-height: 48px; }
+  button { min-height: 36px; }
+
+  /* Remove hover effects on touch */
+  .neon-btn:hover { transform: none !important; }
+  .glass-card:hover { transform: none !important; }
+
+  /* Faster tap response */
+  * { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+}
