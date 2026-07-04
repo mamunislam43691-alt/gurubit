@@ -81,6 +81,17 @@ export class AgentDashboard {
     }
   }
 
+  async toggleApi(userId) {
+    const res = await fetch(`/api/agent/users/${userId}/toggle-api`, { method: 'PUT' });
+    const data = await res.json();
+    if (data.success) {
+      if (window.apiCache) window.apiCache.clear();
+      await this.load();
+    } else {
+      alert(data.error?.message || 'Failed to toggle API access');
+    }
+  }
+
   async loadApiKeys() {
     const fetchFn = window.optimizedFetch || ((url) => fetch(url).then(r => r.json()));
     const data = await fetchFn('/api/user/api-keys').catch(() => ({}));
@@ -727,6 +738,11 @@ curl "${host}/api/open/sms?apiKey=${exampleKey}&numberId=YOUR_NUMBER_ID"</pre>
                         ${m.isBanned ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'}">
                         ${m.isBanned ? 'Unban' : 'Ban'}
                       </button>
+                      <button type="button" data-toggle-api="${m.id}" data-api-enabled="${!!m.apiEnabled}"
+                        class="px-3 py-1.5 rounded text-[10px] font-black uppercase
+                        ${m.apiEnabled ? 'bg-primary/20 text-primary border border-primary/30' : 'bg-gray-500/20 text-gray-400 border border-gray-500/30'}">
+                        <i class="fas fa-key text-[9px] mr-0.5"></i>${m.apiEnabled ? 'API On' : 'API Off'}
+                      </button>
                       <button type="button" data-user-delete="${m.id}"
                         class="px-3 py-1.5 rounded text-[10px] font-black uppercase bg-rose-500/10 text-rose-400 border border-rose-500/20">
                         Delete
@@ -862,6 +878,9 @@ curl "${host}/api/open/sms?apiKey=${exampleKey}&numberId=YOUR_NUMBER_ID"</pre>
     });
     document.querySelectorAll('[data-toggle-ban]').forEach((btn) => {
       btn.addEventListener('click', () => this.toggleBan(btn.dataset.toggleBan));
+    });
+    document.querySelectorAll('[data-toggle-api]').forEach((btn) => {
+      btn.addEventListener('click', () => this.toggleApi(btn.dataset.toggleApi));
     });
     document.querySelectorAll('[data-user-delete]').forEach((btn) => {
       btn.addEventListener('click', () => this.deleteUser(btn.dataset.userDelete));

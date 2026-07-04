@@ -101,7 +101,8 @@ router.get('/dashboard', verifyAgent, async (req, res) => {
       totalSms: m.totalOtps || 0,
       revenue: m.earningsBalance || 0,
       agentApproved: m.agentApproved !== false,
-      isBanned: !!m.isBanned
+      isBanned: !!m.isBanned,
+      apiEnabled: !!m.apiEnabled
     }));
 
     // Only include approved members in the members list — pending go in the separate pending list
@@ -217,6 +218,22 @@ router.put('/users/:userId/toggle-ban', verifyAgent, async (req, res) => {
     const nextBanStatus = !u.isBanned;
     await collections.users.doc(req.params.userId).update({ isBanned: nextBanStatus, updatedAt: new Date().toISOString() });
     res.json({ success: true, isBanned: nextBanStatus, message: nextBanStatus ? 'User banned' : 'User unbanned' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: { message: error.message } });
+  }
+});
+
+router.put('/users/:userId/toggle-api', verifyAgent, async (req, res) => {
+  try {
+    const userDoc = await collections.users.doc(req.params.userId).get();
+    if (!userDoc.exists) return res.status(404).json({ success: false, error: { message: 'User not found' } });
+    const u = userDoc.data();
+    if (!memberOfAgent(u, req.agent.email)) {
+      return res.status(403).json({ success: false, error: { message: 'Not your member' } });
+    }
+    const next = !u.apiEnabled;
+    await collections.users.doc(req.params.userId).update({ apiEnabled: next, updatedAt: new Date().toISOString() });
+    res.json({ success: true, apiEnabled: next, message: next ? 'API access enabled' : 'API access disabled' });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: error.message } });
   }

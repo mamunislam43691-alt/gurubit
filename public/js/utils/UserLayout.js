@@ -7,7 +7,8 @@ export const USER_NAV = [
   { id: 'dashboard', label: 'Dashboard', href: '/dashboard', icon: 'home' },
   { id: 'numbers',   label: 'Number',    href: '/numbers',   icon: 'mobile-alt' },
   { id: 'live-feed', label: 'Live SMS',  href: '/live-feed', icon: 'satellite-dish' },
-  { id: 'post',      label: 'Movement', href: '/post',      icon: 'bolt' }
+  { id: 'post',      label: 'Movement', href: '/post',      icon: 'bolt' },
+  { id: 'api',       label: 'API',      href: '/api-access', icon: 'key', apiOnly: true }
 ];
 
 // Session cache — avoid repeated /api/auth/session calls
@@ -116,7 +117,7 @@ export class UserLayout {
             <span class="font-black gradient-text text-sm uppercase tracking-widest">GURUBIT</span>
           </a>
           <nav class="user-sidebar-nav flex-1">
-            ${USER_NAV.map((n) => `
+            ${USER_NAV.filter(n => !n.apiOnly || user?.apiEnabled || user?.isAgent || user?.isAdmin).map((n) => `
               <a href="${n.href}" class="user-nav-link spa-link ${n.id === activeId ? 'is-active' : ''}">
                 <i class="fas fa-${n.icon} w-5 text-center"></i>
                 <span>${n.label}</span>
@@ -158,7 +159,7 @@ export class UserLayout {
 
         <!-- ── Mobile bottom navigation ── -->
         <nav class="mobile-bottom-nav md:hidden" id="mobileBottomNav">
-          ${USER_NAV.map((n) => `
+          ${USER_NAV.filter(n => !n.apiOnly || user?.apiEnabled || user?.isAgent || user?.isAdmin).map((n) => `
             <a href="${n.href}" class="mobile-nav-item spa-link ${n.id === activeId ? 'is-active' : ''}">
               <i class="fas fa-${n.icon} mobile-nav-icon"></i>
               <span class="mobile-nav-label">${n.label}</span>

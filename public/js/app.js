@@ -142,6 +142,7 @@ const ROUTES = {
   '/verify-email':      () => import('./components/VerifyEmailPage.js').then(m => m.VerifyEmailPage),
   '/reset-password':    () => import('./components/ResetPasswordPage.js').then(m => m.ResetPasswordPage),
   '/news':              () => import('./components/NewsFeed.js?v=1').then(m => m.NewsFeed),
+  '/api-access':        () => import('./components/UserApiPage.js').then(m => m.UserApiPage),
 };
 
 // Simple client-side router

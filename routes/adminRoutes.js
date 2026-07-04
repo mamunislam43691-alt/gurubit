@@ -713,6 +713,25 @@ router.put('/users/:id/unban', verifyAdmin, async (req, res) => {
 });
 
 /**
+ * PUT /api/admin/users/:id/toggle-api
+ * Enable or disable API access for a user
+ */
+router.put('/users/:id/toggle-api', verifyAdmin, async (req, res) => {
+  try {
+    const userDoc = await collections.users.doc(req.params.id).get();
+    if (!userDoc.exists) return res.status(404).json({ success: false, error: { message: 'User not found' } });
+    const current = !!userDoc.data().apiEnabled;
+    await collections.users.doc(req.params.id).update({
+      apiEnabled: !current,
+      updatedAt: new Date().toISOString()
+    });
+    res.json({ success: true, apiEnabled: !current, message: !current ? 'API access enabled' : 'API access disabled' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: { message: error.message } });
+  }
+});
+
+/**
  * GET /api/admin/withdrawals
  */
 router.get('/withdrawals', verifyAdmin, async (req, res) => {

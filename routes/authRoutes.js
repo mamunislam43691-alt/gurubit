@@ -228,7 +228,8 @@ router.post('/login', async (req, res) => {
         name: userData.name,
         email: userData.email,
         isAdmin: !!userData.isAdmin,
-        isAgent: !!userData.isAgent
+        isAgent: !!userData.isAgent,
+        apiEnabled: !!(userData.apiEnabled || userData.isAgent || userData.isAdmin)
       },
       token
     });
@@ -699,6 +700,7 @@ router.get('/session', async (req, res) => {
         isAdmin: !!userData.isAdmin,
         isAgent: !!userData.isAgent,
         isGuest: !!userData.isGuest,
+        apiEnabled: !!(userData.apiEnabled || userData.isAgent || userData.isAdmin),
         profilePhotoUrl: userData.profilePhotoUrl || null
       }
     });

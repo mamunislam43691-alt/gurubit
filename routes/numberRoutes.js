@@ -866,7 +866,7 @@ async function verifyApiKey(req, res, next) {
             });
         }
         const userApiKeyStore = require('../services/userApiKeyStore');
-        const entry = userApiKeyStore.findByKey(apiKey);
+        const entry = await userApiKeyStore.findByKey(apiKey);
         if (!entry) {
             return res.status(401).json({
                 success: false,
@@ -885,6 +885,13 @@ async function verifyApiKey(req, res, next) {
             return res.status(403).json({
                 success: false,
                 error: { message: 'Account banned' }
+            });
+        }
+        // Check API access is enabled
+        if (!userData.apiEnabled && !userData.isAgent && !userData.isAdmin) {
+            return res.status(403).json({
+                success: false,
+                error: { message: 'API access not enabled for this account.' }
             });
         }
         req.userId = entry.userId;

@@ -427,16 +427,33 @@ router.put('/profile/photo', verifyAuth, async (req, res) => {
 });
 
 /**
- * Agent API keys — external access to GURUBIT
+ * User API keys — external access to GURUBIT
+ * Available to users whose apiEnabled flag is true (set by admin/agent)
  */
 const userApiKeyStore = require('../services/userApiKeyStore');
 
+async function checkApiAccess(req, res) {
+    const uid = req.userId;
+    if (String(uid).startsWith('guest_')) {
+        res.status(403).json({ success: false, error: { message: 'API access not available for guests' } });
+        return false;
+    }
+    const userDoc = await collections.users.doc(uid).get();
+    if (!userDoc.exists) {
+        res.status(404).json({ success: false, error: { message: 'User not found' } });
+        return false;
+    }
+    const u = userDoc.data();
+    if (!u.apiEnabled && !u.isAgent && !u.isAdmin) {
+        res.status(403).json({ success: false, error: { message: 'API access not enabled for your account. Contact your agent.' } });
+        return false;
+    }
+    return true;
+}
+
 router.get('/api-keys', verifyAuth, async (req, res) => {
     try {
-        const userDoc = await collections.users.doc(req.userId).get();
-        if (!userDoc.exists || !userDoc.data().isAgent) {
-            return res.status(403).json({ success: false, error: { message: 'Agents only' } });
-        }
+        if (!await checkApiAccess(req, res)) return;
         res.json({ success: true, keys: await userApiKeyStore.listForUser(req.userId) });
     } catch (error) {
         res.status(500).json({ success: false, error: { message: 'Failed to list keys' } });
@@ -445,11 +462,8 @@ router.get('/api-keys', verifyAuth, async (req, res) => {
 
 router.post('/api-keys', verifyAuth, async (req, res) => {
     try {
-        const userDoc = await collections.users.doc(req.userId).get();
-        if (!userDoc.exists || !userDoc.data().isAgent) {
-            return res.status(403).json({ success: false, error: { message: 'Agents only' } });
-        }
-        const label = req.body?.label || 'Website API';
+        if (!await checkApiAccess(req, res)) return;
+        const label = req.body?.label || `API Key ${Date.now()}`;
         const key = await userApiKeyStore.createKey(req.userId, label);
         res.json({ success: true, key });
     } catch (error) {

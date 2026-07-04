@@ -35,6 +35,13 @@ export class AdminUsers {
     await this.loadData();
   }
 
+  async toggleApi(id, currentEnabled) {
+    const res = await adminFetch(`/api/admin/users/${id}/toggle-api`, { method: 'PUT' });
+    const data = await res.json();
+    if (data.success) await this.loadData();
+    else alert(data.error?.message || 'Failed to toggle API access');
+  }
+
   async blueVerify(id, verified) {
     await adminFetch(`/api/admin/users/${id}/blue-verify`, {
       method: 'PUT',
@@ -541,6 +548,9 @@ export class AdminUsers {
                     <button type="button" class="ban-btn px-2 py-1 rounded text-[10px] font-black uppercase ${u.isBanned ? 'bg-green-500 text-dark' : 'bg-red-500 text-white'}" data-id="${u.id}" data-banned="${!!u.isBanned}">
                       ${u.isBanned ? 'Unban' : 'Ban'}
                     </button>
+                    <button type="button" class="api-toggle-btn px-2 py-1 rounded text-[10px] font-black uppercase ${u.apiEnabled ? 'bg-primary/20 text-primary border border-primary/30' : 'bg-gray-500/20 text-gray-400 border border-gray-500/30'}" data-id="${u.id}" data-enabled="${!!u.apiEnabled}" title="${u.apiEnabled ? 'Disable API' : 'Enable API'}">
+                      <i class="fas fa-key text-[9px] mr-0.5"></i>${u.apiEnabled ? 'API On' : 'API Off'}
+                    </button>
                     <button type="button" class="del-user-btn text-[10px] text-red-400 uppercase hover:underline" data-id="${u.id}">
                       <i class="fas fa-trash"></i> Del
                     </button>
@@ -663,6 +673,9 @@ export class AdminUsers {
     // Shared events
     document.querySelectorAll('.ban-btn').forEach((btn) => {
       btn.addEventListener('click', () => this.toggleBan(btn.dataset.id, btn.dataset.banned === 'true'));
+    });
+    document.querySelectorAll('.api-toggle-btn').forEach((btn) => {
+      btn.addEventListener('click', () => this.toggleApi(btn.dataset.id, btn.dataset.enabled === 'true'));
     });
     document.querySelectorAll('.blue-btn').forEach((btn) => {
       btn.addEventListener('click', () => this.blueVerify(btn.dataset.id, btn.dataset.v !== 'true'));
