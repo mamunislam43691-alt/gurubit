@@ -652,7 +652,10 @@ async function pollIntegratedAPI(wss) {
         .replace(/\/numbers$/, '')
         .replace(/\/otp$/, '')
         .replace(/\/$/, '');
-      const isStex = smsBase.includes('public/api/success-otp') || smsBase.includes('@public/api/');
+      // Detect STEX from either getSmsUrl OR getNumberUrl (admin may only fill getNumberUrl)
+      const rawNumBase = (provider.getNumberUrl || provider.baseUrl || '').replace(/\/$/, '');
+      const isStex = smsBase.includes('public/api/success-otp') || smsBase.includes('@public/api/')
+        || rawNumBase.includes('public/api/getnum') || rawNumBase.includes('@public/api/');
 
       // Process numbers assigned to this provider
       const providerNumbers = numbersToCheck.filter(n => n.providerId === provider.id);
@@ -669,7 +672,13 @@ async function pollIntegratedAPI(wss) {
             // ── STEX SMS: GET /public/api/success-otp
             // Returns last 50 successful OTPs for numbers assigned to this API key
             // We filter by number client-side
-            const stexBase = smsBase.replace(/\/public\/api\/success-otp.*$/, '');
+            let stexBase;
+            if (smsBase.includes('public/api/success-otp')) {
+              stexBase = smsBase.replace(/\/public\/api\/success-otp.*$/, '');
+            } else {
+              // getSmsUrl is empty or doesn't contain success-otp — derive from getNumberUrl
+              stexBase = rawNumBase.replace(/\/public\/api\/getnum.*$/, '');
+            }
             otpUrl = `${stexBase}/public/api/success-otp`;
             fetchHeaders = {
               'mauthapi': provider.apiKey,
@@ -688,7 +697,7 @@ async function pollIntegratedAPI(wss) {
           }
 
           if (process.env.DEBUG_POLLING === 'true') {
-            console.log(`[Poll ${isStex ? 'STEX' : 'Integrated'}] → ${provider.serviceName}: ${phone}`);
+            console.log(`[Poll ${isStex ? 'STEX' : 'Integrated'}] → ${provider.serviceName}: ${phone} | URL: ${otpUrl}`);
           }
 
           // Fetch with retry (up to 2 attempts, 20s each)
@@ -712,19 +721,25 @@ async function pollIntegratedAPI(wss) {
 
           const body = await res.json();
 
-          // STEX: { data: { otps: [ { otp_id, number, message, time } ] } }
+          // Log raw response for debugging
+          if (process.env.DEBUG_POLLING === 'true') {
+            const bodyStr = JSON.stringify(body).slice(0, 500);
+            console.log(`[Poll ${isStex ? 'STEX' : 'Integrated'}] ← ${provider.serviceName}: ${res.status} | ${phone} | body: ${bodyStr}`);
+          }
+
+          // STEX: { data: { otps: [ { otp_id, number, message, time } ] } } or { data: [...] }
           // Generic: { data: [ { number, message, ... } ] }
           let messages = [];
           if (isStex) {
-            const otps = body.data?.otps || body.otps || [];
+            const otps = body.data?.otps || body.otps || (Array.isArray(body.data) ? body.data : []) || [];
             // Filter to only OTPs for this specific number
             messages = otps
-              .filter(o => String(o.number || '').replace(/\D/g, '') === phone)
+              .filter(o => String(o.number || o.phone || '').replace(/\D/g, '') === phone)
               .map(o => ({
-                id: o.otp_id,
-                number: o.number,
-                message: o.message,
-                content: o.message,
+                id: o.otp_id || o.id,
+                number: o.number || o.phone,
+                message: o.message || o.otp || o.code || '',
+                content: o.message || o.otp || o.code || '',
                 created_at: o.time ? new Date(o.time).toISOString() : new Date().toISOString()
               }));
           } else {
