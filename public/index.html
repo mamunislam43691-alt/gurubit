@@ -508,6 +508,7 @@
             display: flex;
             flex-direction: column;
             color: #0f172a;
+            min-width: 0;
         }
         .support-powered {
             text-align: center;
@@ -533,7 +534,7 @@
         }
         .support-input::placeholder { color: #94a3b8; }
         .support-input:focus { border-color: #00d2ff; box-shadow: 0 0 0 2px rgba(0,210,255,0.15); background: #fff; }
-        .support-chat { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+        .support-chat { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
         .support-date {
             text-align: center;
             font-size: 10px;
@@ -546,12 +547,14 @@
         .support-messages {
             flex: 1;
             overflow-y: auto;
+            overflow-x: hidden;
             padding: 0 1rem 0.75rem;
             display: flex;
             flex-direction: column;
             gap: 0.65rem;
+            min-width: 0;
         }
-        .support-msg { display: flex; gap: 0.5rem; align-items: flex-end; max-width: 92%; }
+        .support-msg { display: flex; gap: 0.5rem; align-items: flex-end; max-width: 92%; min-width: 0; }
         .support-msg-visitor { align-self: flex-end; flex-direction: row-reverse; }
         .support-msg-admin { align-self: flex-start; }
         .support-msg-avatar { width: 1.75rem; height: 1.75rem; flex-shrink: 0; }
@@ -562,6 +565,10 @@
             box-shadow: 0 2px 8px rgba(0,0,0,0.06);
             border: 1px solid #e2e8f0;
             color: #0f172a;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+            min-width: 0;
+            max-width: 100%;
         }
         .support-msg-visitor .support-msg-bubble {
             background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%);
@@ -576,6 +583,7 @@
             padding: 0.75rem;
             border-top: 1px solid #e2e8f0;
             background: #f8fafc;
+            min-width: 0;
         }
         .support-compose .support-input { margin: 0; flex: 1; background: #fff; }
         .support-send-btn {

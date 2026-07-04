@@ -463,7 +463,7 @@ export class LiveSupportWidget {
 
           ${!isVisitor ? '<img src="/assets/logo-icon.svg" alt="" class="support-msg-avatar">' : ''}
 
-          <div class="support-msg-bubble">
+          <div class="support-msg-bubble" style="word-break:break-word;overflow-wrap:anywhere;min-width:0;max-width:80%">
 
             ${m.imageUrl ? `<img src="${m.imageUrl}" alt="" class="support-msg-image rounded-lg max-w-full mb-1">` : ''}
             ${m.text ? `<p>${esc(m.text)}</p>` : ''}
@@ -486,7 +486,7 @@ export class LiveSupportWidget {
           <button type="button" id="supportCloseChatBtn" style="font-size:11px;padding:3px 10px;border-radius:6px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3);color:#f87171;cursor:pointer;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;" title="End this chat session">Close ✕</button>
         </div>
 
-        <div id="supportMessages" class="support-messages">${msgs}</div>
+        <div id="supportMessages" class="support-messages" style="min-width:0;overflow-x:hidden">${msgs}</div>
 
         <div class="support-compose">
           <button type="button" id="supportImageBtn" class="support-attach-btn" title="Send screenshot"><i class="fas fa-image"></i></button>
