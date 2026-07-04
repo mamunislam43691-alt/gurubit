@@ -218,19 +218,19 @@ export class Dashboard {
 
       <!-- Quick actions -->
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-        <a href="/numbers" class="glass-card p-4 text-center hover:border-primary/30 transition-all border border-white/5 group">
+        <a href="/numbers" class="glass-card p-4 text-center hover:border-primary/30 transition-all border border-white/5 group spa-link">
           <i class="fas fa-mobile-alt text-2xl text-primary mb-2 block group-hover:scale-110 transition-transform"></i>
           <p class="text-xs font-bold text-white uppercase">Get Number</p>
         </a>
-        <a href="/live-feed" class="glass-card p-4 text-center hover:border-cyan-500/30 transition-all border border-white/5 group">
+        <a href="/live-feed" class="glass-card p-4 text-center hover:border-cyan-500/30 transition-all border border-white/5 group spa-link">
           <i class="fas fa-satellite-dish text-2xl text-cyan-400 mb-2 block group-hover:scale-110 transition-transform"></i>
           <p class="text-xs font-bold text-white uppercase">Live SMS</p>
         </a>
-        <a href="/post" class="glass-card p-4 text-center hover:border-yellow-500/30 transition-all border border-white/5 group">
-          <i class="fas fa-bolt text-2xl text-yellow-400 mb-2 block group-hover:scale-110 transition-transform"></i>
-          <p class="text-xs font-bold text-white uppercase">Movement</p>
+        <a href="/api-access" class="glass-card p-4 text-center hover:border-primary/30 transition-all border border-white/5 group spa-link">
+          <i class="fas fa-key text-2xl text-primary mb-2 block group-hover:scale-110 transition-transform"></i>
+          <p class="text-xs font-bold text-white uppercase">API Key</p>
         </a>
-        <a href="/withdraw" class="glass-card p-4 text-center hover:border-green-500/30 transition-all border border-white/5 group">
+        <a href="/withdraw" class="glass-card p-4 text-center hover:border-green-500/30 transition-all border border-white/5 group spa-link">
           <i class="fas fa-wallet text-2xl text-green-400 mb-2 block group-hover:scale-110 transition-transform"></i>
           <p class="text-xs font-bold text-white uppercase">Withdraw</p>
         </a>

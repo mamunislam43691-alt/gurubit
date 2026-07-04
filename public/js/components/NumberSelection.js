@@ -33,6 +33,7 @@ export class NumberSelection {
     this.topSelection = null;
     this.loadingPromises = {};
     this._wsUnsubs = []; // GWS unsubscribe functions
+    this._activeTab = 'number'; // 'number' | 'summary'
   }
 
   sortNumbers() {
@@ -467,6 +468,31 @@ export class NumberSelection {
           </span>
         </h2>
         <div class="number-controls glass-card p-3 mb-3">
+          <button type="button" id="toggleFiltersBtn" class="flex items-center gap-2 text-gray-400 hover:text-white text-[11px] font-bold uppercase tracking-wider transition-colors w-full md:hidden mb-2">
+            <i class="fas fa-chart-bar text-[10px]"></i> Summary
+            <span class="ml-auto px-2 py-0.5 rounded-full bg-primary/15 text-primary text-[10px] font-black">${this.numbers.length}</span>
+            <i class="fas fa-chevron-down text-[10px] ml-1 transition-transform" id="filterChevron"></i>
+          </button>
+          <div id="filtersPanel" class="hidden mb-3 pt-2 border-t border-white/5">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <div class="bg-white/[0.03] rounded-xl p-2.5 text-center">
+                <p class="text-xl font-black text-white">${this.numbers.length}</p>
+                <p class="text-[9px] text-gray-500 uppercase tracking-wider mt-0.5">Total</p>
+              </div>
+              <div class="bg-white/[0.03] rounded-xl p-2.5 text-center">
+                <p class="text-xl font-black text-emerald-400">${this.numbers.filter(n => numberStatus(n) === 'successful').length}</p>
+                <p class="text-[9px] text-gray-500 uppercase tracking-wider mt-0.5">Delivered</p>
+              </div>
+              <div class="bg-white/[0.03] rounded-xl p-2.5 text-center">
+                <p class="text-xl font-black text-red-400">${this.numbers.filter(n => numberStatus(n) === 'failed').length}</p>
+                <p class="text-[9px] text-gray-500 uppercase tracking-wider mt-0.5">Failed</p>
+              </div>
+              <div class="bg-white/[0.03] rounded-xl p-2.5 text-center">
+                <p class="text-xl font-black text-amber-400">${this.numbers.filter(n => numberStatus(n) === 'pending').length}</p>
+                <p class="text-[9px] text-gray-500 uppercase tracking-wider mt-0.5">Pending</p>
+              </div>
+            </div>
+          </div>
           <!-- Mobile: collapsible settings -->
           <div class="md:hidden">
             <button type="button" id="mobileSettingsToggle" class="flex items-center gap-2 w-full text-left text-gray-400 hover:text-white text-xs font-bold uppercase tracking-wider transition-colors mb-2">
@@ -547,6 +573,12 @@ export class NumberSelection {
     document.getElementById('mobileSettingsToggle')?.addEventListener('click', () => {
       const panel = document.getElementById('mobileSettingsPanel');
       const chevron = document.getElementById('mobileSettingsChevron');
+      if (panel) panel.classList.toggle('hidden');
+      if (chevron) chevron.style.transform = panel?.classList.contains('hidden') ? '' : 'rotate(180deg)';
+    });
+    document.getElementById('toggleFiltersBtn')?.addEventListener('click', () => {
+      const panel = document.getElementById('filtersPanel');
+      const chevron = document.getElementById('filterChevron');
       if (panel) panel.classList.toggle('hidden');
       if (chevron) chevron.style.transform = panel?.classList.contains('hidden') ? '' : 'rotate(180deg)';
     });

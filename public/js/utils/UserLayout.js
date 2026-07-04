@@ -18,7 +18,14 @@ let _sessionFetchPromise = null;
 function _loadSessionFromStorage() {
   try {
     const raw = sessionStorage.getItem('_usession');
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    // Invalidate old caches that don't have apiEnabled — force fresh fetch
+    if (parsed && !('apiEnabled' in parsed)) {
+      sessionStorage.removeItem('_usession');
+      return null;
+    }
+    return parsed;
   } catch (_) { return null; }
 }
 function _saveSessionToStorage(user) {

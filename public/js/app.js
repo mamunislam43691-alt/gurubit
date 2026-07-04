@@ -110,7 +110,7 @@ const ROUTES = {
   '/signup':            () => import('./components/AuthPage.js').then(m => m.AuthPage),
   '/forgot-password':   () => import('./components/AuthPage.js').then(m => m.AuthPage),
   '/admin':             () => import('./components/AdminPanel.js').then(m => m.AdminPanel),
-  '/dashboard':         () => import('./components/Dashboard.js').then(m => m.Dashboard),
+  '/dashboard':         () => import('./components/Dashboard.js?v=3').then(m => m.Dashboard),
   '/agent':             () => import('./components/AgentDashboard.js?v=3').then(m => m.AgentDashboard),
   '/profile':           () => import('./components/ProfilePage.js').then(m => m.ProfilePage),
   '/numbers':           () => import('./components/NumberSelection.js?v=4').then(m => m.NumberSelection),
