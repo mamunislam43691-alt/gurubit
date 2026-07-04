@@ -1,5 +1,5 @@
 ﻿/**
- * Number selection page ΓÇö clean layout with newest-first table
+ * Number selection page — clean layout with newest-first table
  */
 
 import { UserLayout } from '../utils/UserLayout.js';
@@ -47,7 +47,7 @@ export class NumberSelection {
   countryOptionLabel(c) {
     const code = (c.code || '').trim();
     const codePart = code ? ` (${code.startsWith('+') ? code : `+${code.replace(/^\+/, '')}`})` : '';
-    return `${c.flag || '≡ƒîì'} ${c.name}${codePart}`;
+    return `${c.flag || '🌍'} ${c.name}${codePart}`;
   }
 
   async loadCountries() {
@@ -91,7 +91,7 @@ export class NumberSelection {
 
   countryLabel(n) {
     const flag = countryFlag(n.countryId, this.countryMap);
-    const name = n.countryName || this.countryMap[n.countryId]?.name || n.countryId || 'ΓÇö';
+    const name = n.countryName || this.countryMap[n.countryId]?.name || n.countryId || '—';
     return `<span class="country-cell">${flag} <span>${name}</span></span>`;
   }
 
@@ -126,7 +126,7 @@ export class NumberSelection {
     this._wsUnsubs.forEach(fn => fn());
     this._wsUnsubs = [];
 
-    // Use global WS ΓÇö connect once for the whole app
+    // Use global WS — connect once for the whole app
     window.GWS.connect(this.user.id);
 
     // Status indicators
@@ -161,7 +161,7 @@ export class NumberSelection {
           });
           this.highlightId = numberId;
           this.render();
-          showToast(`≡ƒô¼ OTP received: ${otp || 'SMS received'}`);
+          showToast(`🔔 OTP received: ${otp || 'SMS received'}`);
           return;
         }
       }
@@ -193,13 +193,13 @@ export class NumberSelection {
 
   async generateNumber() {
     if (!this.selectedCountry || !this.selectedServer) {
-      this._showNotification('ΓÜá∩╕Å Please select a country and range first', 'warning');
+      this._showNotification('⚠ Please select a country and range first', 'warning');
       return;
     }
     this.isGenerating = true;
     this.render();
     // Show "please wait" notification while generating
-    this._showNotification('ΓÅ│ Please wait, finding a number...', 'info');
+    this._showNotification('⏳ Please wait, finding a number...', 'info');
     try {
       const res = await fetch('/api/numbers/generate', {
         method: 'POST',
@@ -215,7 +215,7 @@ export class NumberSelection {
         if (window.apiCache) window.apiCache.clear();
         const num = data.number;
         this.highlightId = num.id;
-        // Preserve current country/server selection ΓÇö only reload servers list, don't reset selection
+        // Preserve current country/server selection — only reload servers list, don't reset selection
         if (this.selectedCountry?.id) {
           const prevServerId = this.selectedServer?.id;
           await this.loadServers(this.selectedCountry.id);
@@ -235,22 +235,22 @@ export class NumberSelection {
           num.format || this.numberFormat,
           this.selectedCountry?.code
         );
-        // Copy silently ΓÇö no toast popup
+        // Copy silently — no toast popup
         try { await navigator.clipboard.writeText(copyVal); } catch (_) {}
-        // Don't recreate WS ΓÇö it's already running from init()
+        // Don't recreate WS — it's already running from init()
         this.render();
-        this._showNotification('Γ£à Number generated & copied!', 'success');
+        this._showNotification('✅ Number generated & copied!', 'success');
       } else {
         const errMsg = data.error?.message || 'Failed to generate number';
         const isNoNumbers = errMsg.toLowerCase().includes('no number') || errMsg.toLowerCase().includes('not available') || errMsg.toLowerCase().includes('no range');
         if (isNoNumbers) {
           this._showNoNumbersNotification();
         } else {
-          this._showNotification(`ΓÜá∩╕Å ${errMsg}`, 'warning');
+          this._showNotification(`⚠ ${errMsg}`, 'warning');
         }
       }
     } catch {
-      this._showNotification('ΓÜá∩╕Å Request failed. Please check your connection.', 'warning');
+      this._showNotification('⚠ Request failed. Please check your connection.', 'warning');
     } finally {
       this.isGenerating = false;
       this.render();
@@ -312,7 +312,7 @@ export class NumberSelection {
   }
 
   formatRelative(iso) {
-    if (!iso) return 'ΓÇö';
+    if (!iso) return '—';
     const diff = Date.now() - new Date(iso).getTime();
     const m = Math.floor(diff / 60000);
     if (m < 1) return 'Just now';
@@ -338,7 +338,11 @@ export class NumberSelection {
     if (otp) {
       return `<button type="button" class="copy-line copy-line--otp font-mono font-black text-base" data-copy="${otp}" data-copy-msg="OTP copied!" style="letter-spacing:2px">${otp}</button>`;
     }
-    return '<span class="text-gray-500 text-xs">ΓÇö</span>';
+    const st = numberStatus(n);
+    if (st === 'failed') {
+      return '<span class="text-red-400/50 text-xs">-</span>';
+    }
+    return '<span class="text-orange-400 text-xs animate-pulse">Waiting...</span>';
   }
 
   renderSmsCell(n) {
@@ -350,7 +354,7 @@ export class NumberSelection {
       return `<span class="text-emerald-400 text-xs font-medium">${this.esc(platform)} <span class="text-gray-400 font-normal">Your verification code is</span> <span class="text-white font-black font-mono">****</span></span>`;
     }
     if (st === 'failed') {
-      return '<span class="text-red-400 text-xs">ΓÇö</span>';
+      return '<span class="text-red-400/50 text-xs">-</span>';
     }
     // Pending: show countdown
     const cd = countdownText(n.expiresAt);
@@ -393,15 +397,15 @@ export class NumberSelection {
               );
               return `<tr class="${hl}">
                 <td>${this.countryLabel(n)}</td>
-                <td class="server-col">${n.serverName || 'ΓÇö'}</td>
+                <td class="server-col">${n.serverName || '—'}</td>
                 <td>
-                  <button type="button" class="copy-line copy-line--phone" data-copy="${phoneCopy}" data-number-id="${n.id}" data-copy-msg="Number copied!">${n.phoneNumber || 'ΓÇö'}</button>
+                  <button type="button" class="copy-line copy-line--phone" data-copy="${phoneCopy}" data-number-id="${n.id}" data-copy-msg="Number copied!">${n.phoneNumber || '—'}</button>
                 </td>
                 <td>${this.renderStatusCell(n)}</td>
                 <td>${this.renderOtpCell(n)}</td>
                 <td class="text-gray-500 text-xs">${this.formatRelative(n.createdAt)}</td>
               </tr>`;
-            }).join('') : '<tr><td colspan="6" class="p-8 text-center text-gray-500">No numbers yet ΓÇö click Get SMS Number</td></tr>'}
+            }).join('') : '<tr><td colspan="6" class="p-8 text-center text-gray-500">No numbers yet — click Get SMS Number</td></tr>'}
           </tbody>
         </table>
       </div>`;
@@ -453,7 +457,7 @@ export class NumberSelection {
       `<option value="${c.id}" ${this.selectedCountry?.id === c.id ? 'selected' : ''}>${this.countryOptionLabel(c)}</option>`
     ).join('');
     const serverOpts = this.servers.map((s) => {
-      // Show only the server name ΓÇö no API/count info for users
+      // Show only the server name — no API/count info for users
       return `<option value="${s.id}" ${this.selectedServer?.id === s.id ? 'selected' : ''}>${s.name}</option>`;
     }).join('');
 
@@ -559,7 +563,7 @@ export class NumberSelection {
   render() {
     const layout = this.user?.isAgent ? AgentLayout : UserLayout;
     layout.renderShell({ activeId: 'numbers', title: 'Number', bodyHtml: this.renderBody(), user: this.user });
-    // Restore WS status after re-render ΓÇö use GWS, not this.ws
+    // Restore WS status after re-render — use GWS, not this.ws
     this.updateWsStatus(window.GWS?.isConnected() === true);
     document.getElementById('countrySelect')?.addEventListener('change', (e) => this.handleCountryChange(e.target.value));
     document.getElementById('serverSelect')?.addEventListener('change', (e) => this.handleServerChange(e.target.value));

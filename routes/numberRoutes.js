@@ -529,7 +529,7 @@ router.post('/numbers/generate', verifyAuth, async (req, res) => {
             countryId,
             countryName: country.name || countryId,
             serverId,
-            serverName: srv?.name || serverId,
+            serverName: srv?.name || (provider && provider.cliRange) || serverId,
             platformId,
             format: format || 'natural',
             status: 'pending',
@@ -762,7 +762,7 @@ router.get('/user/numbers', verifyAuth, async (req, res) => {
             .where('userId', '==', req.userId)
             .orderBy('createdAt', 'desc')
             .limit(50)
-            .select('id', 'phoneNumber', 'countryId', 'countryName', 'platformId', 'status', 'createdAt', 'expiresAt', 'otpReceived', 'otp', 'smsMessage')
+            .select('id', 'phoneNumber', 'countryId', 'countryName', 'serverId', 'serverName', 'platformId', 'format', 'status', 'createdAt', 'expiresAt', 'otpReceived', 'otp', 'smsMessage')
             .get();
 
         const numbers = [];
@@ -1228,7 +1228,7 @@ router.get('/open/generate', verifyApiKey, async (req, res) => {
             countryId,
             countryName: country.name || countryId,
             serverId,
-            serverName: srv?.name || serverId,
+            serverName: srv?.name || (provider && provider.cliRange) || serverId,
             platformId: resolvedPlatform,
             format: format || 'natural',
             status: 'pending',
