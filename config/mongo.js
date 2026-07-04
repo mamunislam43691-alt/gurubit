@@ -8,8 +8,13 @@
 const mongoose = require('mongoose');
 const fs = require('fs');
 const path = require('path');
+const EventEmitter = require('events');
 
 const DB_CONFIG_PATH = path.join(__dirname, 'databases.json');
+
+// Event emitter so server.js can react when DB becomes ready
+const dbEvents = new EventEmitter();
+dbEvents.setMaxListeners(20);
 
 // ── Connection pool ─────────────────────────────────────────────────────────
 // Map<dbId, { conn, isConnected, keepAliveInterval, config }>
@@ -48,6 +53,10 @@ function addDbConfig(entry) {
     cfg.databases.push(entry);
   }
   saveDbConfig(cfg);
+  // Keep env in sync if primary URI was added/updated
+  if ((entry.isDefault || entry.id === _primaryId) && entry.uri && entry.uri.trim()) {
+    process.env.MONGODB_URI = entry.uri.trim();
+  }
   return entry;
 }
 
@@ -57,6 +66,10 @@ function updateDbConfig(id, patch) {
   if (!db) return null;
   Object.assign(db, patch);
   saveDbConfig(cfg);
+  // Keep env in sync if primary URI was updated
+  if ((db.isDefault || id === _primaryId) && patch.uri && patch.uri.trim()) {
+    process.env.MONGODB_URI = patch.uri.trim();
+  }
   return db;
 }
 
@@ -174,6 +187,16 @@ async function connectSingle(entry) {
 
   _startKeepAlive(instance, dbId);
   console.log(`✅ MongoDB [${dbId}] connected → ${dbName}`);
+
+  // Emit event for primary connection so server.js can trigger store loading
+  if (dbId === _primaryId || entry.isDefault) {
+    // Also keep process.env in sync so other modules can read it
+    if (uri && uri !== 'mongodb://127.0.0.1:27017/gurubit') {
+      process.env.MONGODB_URI = uri;
+    }
+    dbEvents.emit('primaryConnected', { uri, dbName });
+  }
+
   return instance;
 }
 
@@ -189,7 +212,12 @@ async function connectAllDatabases() {
   _primaryId = primary.id;
 
   // Always connect primary first using default mongoose instance
-  await connectMongo();
+  const primaryConn = await connectMongo();
+
+  // If connectMongo returned null (no URI), skip — admin will configure later
+  if (!primaryConn) {
+    return null;
+  }
 
   // If config primary ID differs from the default 'db_primary', fix the map entry
   if (_primaryId !== 'db_primary' && _connections.has('db_primary')) {
@@ -256,12 +284,25 @@ async function connectMongo() {
     return mongoose.connection;
   }
 
+  // Also check databases.json primary entry for a saved URI
+  const dbCfg = loadDbConfig();
+  const primaryCfg = dbCfg.databases && dbCfg.databases.find(d => d.isDefault || d.id === 'db_primary');
+  if (primaryCfg && primaryCfg.uri && primaryCfg.uri.trim()) {
+    process.env.MONGODB_URI = primaryCfg.uri.trim();
+  }
+
   const uri =
     process.env.MONGODB_URI ||
     process.env.MONGO_URI ||
     process.env.MONGO_URL ||
     process.env.DATABASE_URL ||
-    'mongodb://127.0.0.1:27017/gurubit';
+    '';
+
+  // If no URI configured at all, skip connection attempt — admin must set it first
+  if (!uri) {
+    console.warn('⚠️  No MongoDB URI configured. Set MONGODB_URI in environment or via admin panel.');
+    return null;
+  }
 
   const dbName =
     process.env.MONGODB_DB ||
@@ -287,6 +328,9 @@ async function connectMongo() {
 
   _isConnected = true;
   _startKeepAliveLegacy();
+
+  // Emit event so server.js can trigger store loading if not done yet
+  dbEvents.emit('primaryConnected', { uri, dbName });
 
   // Also register as primary in multi-db map
   _connections.set(_primaryId, {
@@ -459,5 +503,8 @@ module.exports = {
   addDbConfig,
   updateDbConfig,
   removeDbConfig,
-  setPrimaryDb
+  setPrimaryDb,
+
+  // Events
+  dbEvents
 };

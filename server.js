@@ -16,13 +16,31 @@ const compression = require('compression');
 (async () => {
   try {
     const { connectAllDatabases, ensureIndexes } = require('./config/mongo');
-    await connectAllDatabases();
-    await ensureIndexes();
-    console.log('✅ MongoDB connected and indexes synced');
+    const conn = await connectAllDatabases();
+    if (conn) {
+      await ensureIndexes();
+      console.log('✅ MongoDB connected and indexes synced');
+    } else {
+      console.warn('⚠️  MongoDB URI not set — waiting for admin panel configuration');
+    }
   } catch (e) {
     console.error('❌ MongoDB connection failed:', e.message);
   }
 })();
+
+// Listen for late/admin-panel MongoDB connections and reload stores if needed
+let _storesLoaded = false;
+let _loadAllStores = async () => {}; // will be replaced once server starts
+const { dbEvents } = require('./config/mongo');
+dbEvents.on('primaryConnected', async () => {
+  if (_storesLoaded) return; // already loaded, skip
+  console.log('🔄 MongoDB became ready — loading stores...');
+  try {
+    const { ensureIndexes } = require('./config/mongo');
+    await ensureIndexes();
+  } catch (e) { /* non-critical */ }
+  await _loadAllStores();
+});
 
 // Import routes
 const authRoutes = require('./routes/authRoutes');
@@ -447,8 +465,8 @@ async function startServer() {
 
     // Start HTTP server
     server.listen(PORT, async () => {
-      // Load all stores after MongoDB is confirmed ready
-      const loadStores = async () => {
+      // ── Shared store loader (used at startup AND after admin-panel DB connect) ──
+      async function _loadAllStoresInternal() {
         const { isMongoConnected } = require('./config/mongo');
 
         // Wait up to 15s for MongoDB to be ready
@@ -462,6 +480,12 @@ async function startServer() {
           console.warn('⚠️ Stores not loaded — MongoDB not ready after 15s');
           return;
         }
+
+        if (_storesLoaded) {
+          console.log('ℹ️  Stores already loaded, skipping reload');
+          return;
+        }
+        _storesLoaded = true;
 
         // Load catalog
         try {
@@ -516,6 +540,14 @@ async function startServer() {
         } catch (e) {
           console.warn('Provider poller:', e.message);
         }
+      }
+
+      // Assign to outer-scope so dbEvents listener can call it too
+      _loadAllStores = _loadAllStoresInternal;
+
+      // Load all stores after MongoDB is confirmed ready
+      const loadStores = async () => {
+        await _loadAllStoresInternal();
       };
 
       // Run store loading in background (non-blocking)
