@@ -5,7 +5,7 @@
 const express = require('express');
 const router = express.Router();
 const { processIncomingSMS } = require('../utils/smsProcessor');
-const { collections } = require('../config/firebase');
+const { collections } = require('../config/db');
 
 // Country code → name/server mapping (extended)
 const COUNTRY_MAP = {

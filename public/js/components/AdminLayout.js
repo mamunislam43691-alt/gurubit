@@ -8,6 +8,7 @@ export const ADMIN_NAV = [
   { id: 'dashboard', label: 'Dashboard', href: '/admin', icon: 'chart-pie', perm: 'dashboard' },
   { id: 'agents', label: 'Agents', href: '/admin/agents', icon: 'user-tie', perm: 'agents' },
   { id: 'users', label: 'Users', href: '/admin/users', icon: 'users', perm: 'users' },
+  { id: 'pending-users', label: 'Pending Users', href: '/admin/pending-users', icon: 'user-clock', perm: 'users' },
   { id: 'services', label: 'Service', href: '/admin/services', icon: 'globe', perm: 'services' },
   { id: 'provider', label: 'Provider', href: '/admin/provider', icon: 'server', perm: 'provider' },
   { id: 'sms-feed', label: 'SMS Feed', href: '/admin/sms-feed', icon: 'signal', perm: 'provider' },

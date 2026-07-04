@@ -1,5 +1,5 @@
 /**
- * WebSocket handlers for live support — async (Firestore backed)
+ * WebSocket handlers for live support — async (MongoDB backed)
  */
 
 const supportStore = require('../services/supportStore');

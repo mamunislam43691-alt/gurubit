@@ -1,24 +1,26 @@
 ﻿/**
- * Admin Database Management — Multi-database support + Firebase + SMTP + Backup
+ * Admin Database Management — Multi-DB + SMTP + Backup
  */
 
 import { AdminLayout } from './AdminLayout.js';
 
 export class AdminDatabase {
   constructor() {
-    this.admin = null;
-    this.config = null;
+    this.admin   = null;
+    this.config  = null;
     this.backups = [];
-    this.envConfig = { firebase: {}, smtp: {} };
-    this.dbTab = 'connect';
-    this.selectedDbType = 'firebase';
+    this.envConfig = { mongodb: {}, smtp: {} };
+    this.dbTab   = 'connect';
+    this.databases = [];
+    this.editingDb = null;
+    this.showAddForm = false;
   }
 
   fmtSize(bytes) {
     if (!bytes) return '0 B';
     if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+    if (bytes < 1048576) return `${(bytes/1024).toFixed(1)} KB`;
+    return `${(bytes/1048576).toFixed(2)} MB`;
   }
 
   fmtDate(iso) {
@@ -26,520 +28,574 @@ export class AdminDatabase {
     return new Date(iso).toLocaleString();
   }
 
+  esc(s) {
+    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  showToast(msg, kind = 'success') {
+    const el = document.createElement('div');
+    el.textContent = msg;
+    el.style.cssText = `position:fixed;bottom:24px;right:24px;padding:.75rem 1.25rem;border-radius:.75rem;color:#fff;z-index:9999;box-shadow:0 6px 24px rgba(0,0,0,.4);font-size:.85rem;font-weight:700;${kind==='error'?'background:#dc2626':'background:#16a34a'}`;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 3500);
+  }
+
   async load() {
-    const [dbRes, envRes] = await Promise.all([
-      fetch('/api/admin/database'),
-      fetch('/api/admin/database/env-config')
-    ]);
-    const dbData = await dbRes.json();
-    const envData = await envRes.json();
-    if (dbData.success) { this.config = dbData.config; this.backups = dbData.backups || []; }
-    if (envData.success) { this.envConfig = envData; }
+    try {
+      const [dbListRes, envRes, backupRes] = await Promise.all([
+        fetch('/api/admin/database/list', { credentials: 'include' }),
+        fetch('/api/admin/database/env-config', { credentials: 'include' }),
+        fetch('/api/admin/database', { credentials: 'include' })
+      ]);
+      const dbListData = await dbListRes.json().catch(() => ({}));
+      const envData    = await envRes.json().catch(() => ({}));
+      const backupData = await backupRes.json().catch(() => ({}));
+      if (dbListData.success) this.databases = dbListData.databases || [];
+      if (envData.success)    this.envConfig = envData;
+      if (backupData.success) { this.config = backupData.config; this.backups = backupData.backups || []; }
+    } catch (e) {
+      console.warn('Database load error:', e.message);
+    }
+  }
+
+  // ── Database CRUD ──────────────────────────────────────────────────────
+  async addDatabase(formData) {
+    const res = await fetch('/api/admin/database/list', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(formData)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data.success) {
+      this.showToast(`"${formData.name}" added ✅`);
+      this.showAddForm = false;
+      await this.load();
+      this.render();
+    } else {
+      this.showToast(data.error?.message || 'Failed to add database', 'error');
+    }
+  }
+
+  async updateDatabase(id, formData) {
+    const res = await fetch(`/api/admin/database/list/${id}`, {
+      method: 'PUT', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(formData)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data.success) {
+      this.showToast(`Updated ✅`);
+      this.editingDb = null;
+      await this.load();
+      this.render();
+    } else {
+      this.showToast(data.error?.message || 'Failed to update', 'error');
+    }
+  }
+
+  async deleteDatabase(id, name) {
+    if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    const res = await fetch(`/api/admin/database/list/${id}`, {
+      method: 'DELETE', credentials: 'include'
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data.success) {
+      this.showToast(`"${name}" removed ✅`);
+      await this.load();
+      this.render();
+    } else {
+      this.showToast(data.error?.message || 'Failed to delete', 'error');
+    }
+  }
+
+  async setPrimary(id) {
+    const res = await fetch(`/api/admin/database/list/${id}/set-primary`, {
+      method: 'PUT', credentials: 'include'
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data.success) {
+      this.showToast('Primary database updated ✅');
+      await this.load();
+      this.render();
+    } else {
+      this.showToast(data.error?.message || 'Failed', 'error');
+    }
+  }
+
+  async testConnection(id) {
+    const res = await fetch(`/api/admin/database/list/${id}/test`, {
+      method: 'POST', credentials: 'include'
+    });
+    const data = await res.json().catch(() => ({}));
+    this.showToast(data.message || (data.success ? 'Connected ✅' : 'Failed'), data.success ? 'success' : 'error');
+    await this.load();
+    this.render();
+  }
+
+  // ── SMTP & Backup (unchanged) ──────────────────────────────────────────
+  async saveSmtp() {
+    const btn = document.getElementById('saveSmtpBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    const user = document.getElementById('smtpUser')?.value?.trim();
+    const data = {
+      host:   document.getElementById('smtpHost')?.value?.trim(),
+      port:   document.getElementById('smtpPort')?.value?.trim() || '587',
+      secure: document.getElementById('smtpSecure')?.value || 'false',
+      user,
+      pass:   document.getElementById('smtpPass')?.value?.trim(),
+      from:   document.getElementById('smtpFrom')?.value?.trim() || (user ? `"GURUBIT" <${user}>` : '')
+    };
+    const res    = await fetch('/api/admin/database/env-config', { method:'PUT', credentials:'include', headers:{'Content-Type':'application/json'}, body:JSON.stringify({section:'smtp',data}) });
+    const result = await res.json().catch(() => ({}));
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-save mr-1"></i>Save SMTP'; }
+    this.showToast(result.message || (result.success ? 'Saved ✅' : 'Failed'), result.success ? 'success' : 'error');
+    if (result.success) { await this.load(); this.render(); }
+  }
+
+  async testEmail() {
+    const to  = document.getElementById('testEmailTo')?.value?.trim();
+    if (!to) return this.showToast('Enter a recipient email', 'error');
+    const btn = document.getElementById('testEmailBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+    const res  = await fetch('/api/admin/database/test-email', { method:'POST', credentials:'include', headers:{'Content-Type':'application/json'}, body:JSON.stringify({to}) });
+    const data = await res.json().catch(() => ({}));
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane mr-1"></i>Send Test'; }
+    this.showToast(data.message || (data.success ? 'Sent ✅' : 'Failed'), data.success ? 'success' : 'error');
   }
 
   async saveSchedule() {
     const body = {
-      enabled: document.getElementById('autoBackupEnabled')?.checked,
+      enabled:      document.getElementById('autoBackupEnabled')?.checked,
       intervalDays: parseInt(document.getElementById('backupDays')?.value, 10) || 1,
-      time: document.getElementById('backupTime')?.value || '09:00',
-      botToken: document.getElementById('botToken')?.value?.trim() || undefined,
-      adminChatId: document.getElementById('adminChatId')?.value?.trim() || undefined
+      time:         document.getElementById('backupTime')?.value || '09:00',
+      botToken:     document.getElementById('botToken')?.value?.trim() || undefined,
+      adminChatId:  document.getElementById('adminChatId')?.value?.trim() || undefined
     };
-    const res = await fetch('/api/admin/database/schedule', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    const data = await res.json();
-    if (data.success) { this.config = data.config; this.showToast('Schedule saved ✅'); this.renderPage(); }
+    const res  = await fetch('/api/admin/database/schedule', { method:'PUT', credentials:'include', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    const data = await res.json().catch(() => ({}));
+    if (data.success) { this.config = data.config; this.showToast('Schedule saved ✅'); this.render(); }
     else this.showToast(data.error?.message || 'Failed', 'error');
-  }
-
-  async saveSmtp() {
-    const btn = document.getElementById('saveSmtpBtn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
-    const user = document.getElementById('smtpUser')?.value?.trim();
-    const fromVal = document.getElementById('smtpFrom')?.value?.trim();
-    const data = {
-      host: document.getElementById('smtpHost')?.value?.trim(),
-      port: document.getElementById('smtpPort')?.value?.trim() || '587',
-      secure: document.getElementById('smtpSecure')?.value || 'false',
-      user, pass: document.getElementById('smtpPass')?.value?.trim(),
-      from: fromVal || (user ? `"GURUBIT" <${user}>` : '')
-    };
-    const res = await fetch('/api/admin/database/env-config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ section: 'smtp', data }) });
-    const result = await res.json();
-    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-save mr-1"></i> Save SMTP'; }
-    this.showToast(result.message || (result.success ? 'Saved ✅' : 'Failed'), result.success ? 'success' : 'error');
-    if (result.success) { await this.load(); this.renderPage(); }
-  }
-
-  async testEmail() {
-    const to = document.getElementById('testEmailTo')?.value?.trim();
-    if (!to) return this.showToast('Enter a recipient email', 'error');
-    const btn = document.getElementById('testEmailBtn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
-    const res = await fetch('/api/admin/database/test-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to }) });
-    const data = await res.json();
-    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane mr-1"></i> Send Test'; }
-    this.showToast(data.message || (data.success ? 'Sent ✅' : 'Failed'), data.success ? 'success' : 'error');
-  }
-
-  async saveFirebase() {
-    const btn = document.getElementById('saveFirebaseBtn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
-    const data = {
-      databaseUrl: document.getElementById('firebaseDatabaseUrl')?.value?.trim(),
-      serviceAccount: document.getElementById('firebaseServiceAccount')?.value?.trim()
-    };
-    const res = await fetch('/api/admin/database/env-config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ section: 'firebase', data }) });
-    const result = await res.json();
-    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-save mr-1"></i> Save & Connect Firebase'; }
-    this.showToast(result.message || (result.success ? 'Saved ✅' : 'Failed'), result.success ? 'success' : 'error');
-    if (result.success) { await this.load(); this.renderPage(); }
   }
 
   async runManual(type) {
-    const res = await fetch(`/api/admin/database/${type}`, { method: 'POST' });
-    const data = await res.json();
-    if (data.success) { this.showToast(type === 'export' ? 'Backup created ✅' : 'Done ✅'); await this.load(); this.renderPage(); }
-    else this.showToast(data.error?.message || 'Failed', 'error');
+    const res  = await fetch(`/api/admin/database/${type}`, { method:'POST', credentials:'include' });
+    const data = await res.json().catch(() => ({}));
+    this.showToast(data.message || (data.success ? 'Done ✅' : 'Failed'), data.success ? 'success' : 'error');
+    if (data.success) { await this.load(); this.render(); }
   }
 
-  showToast(msg, type = 'success') {
-    const t = document.createElement('div');
-    t.className = `fixed bottom-6 right-6 z-50 px-5 py-3 rounded-xl text-sm font-bold shadow-xl transition-all ${type === 'error' ? 'bg-red-500 text-white' : 'bg-emerald-500 text-white'}`;
-    t.textContent = msg;
-    document.body.appendChild(t);
-    setTimeout(() => t.remove(), 3500);
+  async deleteBackup(id) {
+    if (!confirm('Delete this backup?')) return;
+    const res  = await fetch(`/api/admin/database/backups/${id}`, { method:'DELETE', credentials:'include' });
+    const data = await res.json().catch(() => ({}));
+    if (data.success) { await this.load(); this.render(); }
   }
 
-  renderBody() {
-    const c = this.config || {};
-    const fb = this.envConfig?.firebase || {};
-    const smtp = this.envConfig?.smtp || {};
+  // ── Render ──────────────────────────────────────────────────────────────
+  render() {
     const tabs = [
-      { id: 'connect', label: 'Connect DB',   icon: 'plug' },
-      { id: 'smtp',    label: 'Email (SMTP)', icon: 'envelope' },
-      { id: 'backup',  label: 'Backup',       icon: 'history' },
+      { id:'connect', label:'Databases',  icon:'database'  },
+      { id:'backup',  label:'Backup/Restore', icon:'cloud-download-alt'  },
+      { id:'smtp',    label:'SMTP Email',     icon:'envelope'  }
     ];
-    return `
-      <div class="flex flex-wrap items-center gap-2 mb-5 p-4 glass-card border border-primary/10 text-xs">
-        <span class="flex items-center gap-1.5">
-          <span class="w-2 h-2 rounded-full ${fb.serviceAccountSet ? 'bg-green-400 animate-pulse' : 'bg-gray-600'}"></span>
-          <span class="font-bold ${fb.serviceAccountSet ? 'text-green-400' : 'text-gray-500'}">
-            Firebase${fb.serviceAccountSet ? (fb.projectId ? ' · ' + fb.projectId : ' ✅') : ' ✗'}
-          </span>
-        </span>
-        <span class="text-gray-700">·</span>
-        <span class="flex items-center gap-1.5">
-          <i class="fas fa-hdd text-primary"></i>
-          <span class="font-bold text-primary">Local JSON ✅</span>
-        </span>
-        ${(this.envConfig?.mongodb?.connected) ? '<span class="text-gray-700">·</span><span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span><span class="font-bold text-green-400">MongoDB ✅</span></span>' : ''}
-        ${(this.envConfig?.postgresql?.connected) ? '<span class="text-gray-700">·</span><span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-blue-400 animate-pulse"></span><span class="font-bold text-blue-400">PostgreSQL ✅</span></span>' : ''}
-        ${(this.envConfig?.mysql?.connected) ? '<span class="text-gray-700">·</span><span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span><span class="font-bold text-cyan-400">MySQL ✅</span></span>' : ''}
-        ${(this.envConfig?.redis?.connected) ? '<span class="text-gray-700">·</span><span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-red-400 animate-pulse"></span><span class="font-bold text-red-400">Redis ✅</span></span>' : ''}
-        ${(this.envConfig?.supabase?.connected) ? '<span class="text-gray-700">·</span><span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span><span class="font-bold text-emerald-400">Supabase ✅</span></span>' : ''}
-        ${(this.envConfig?.planetscale?.connected) ? '<span class="text-gray-700">·</span><span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-purple-400 animate-pulse"></span><span class="font-bold text-purple-400">PlanetScale ✅</span></span>' : ''}
-        <span class="text-gray-700">·</span>
-        <span class="flex items-center gap-1.5">
-          <span class="w-2 h-2 rounded-full ${smtp.passSet ? 'bg-blue-400' : 'bg-gray-600'}"></span>
-          <span class="font-bold ${smtp.passSet ? 'text-blue-400' : 'text-gray-500'}">
-            SMTP${smtp.passSet ? ' ✅' : ' ✗'}
-          </span>
-        </span>
-      </div>
-      <div class="flex gap-1 mb-5 flex-wrap">
+    const smtp = this.envConfig?.smtp || {};
+    const cfg  = this.config || {};
+
+    const bodyHtml = `
+      <div class="flex gap-2 border-b border-white/10 mb-6 overflow-x-auto">
         ${tabs.map(t => `
-          <button type="button" data-db-tab="${t.id}"
-            class="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all
-            ${this.dbTab === t.id ? 'bg-primary/20 text-primary border border-primary/30' : 'text-gray-500 border border-white/5 hover:border-white/10 hover:text-gray-300'}">
-            <i class="fas fa-${t.icon} text-[10px]"></i> ${t.label}
+          <button data-tab="${t.id}" class="db-tab-btn px-5 py-3 text-xs font-bold uppercase tracking-wide whitespace-nowrap transition-all
+            ${this.dbTab===t.id ? 'text-primary border-b-2 border-primary' : 'text-gray-500 hover:text-gray-300'}">
+            <i class="fas fa-${t.icon} mr-2"></i>${t.label}
           </button>`).join('')}
       </div>
-      ${this.dbTab === 'connect' ? this._renderConnectTab(fb) : ''}
-      ${this.dbTab === 'smtp'    ? this._renderSmtpTab(smtp) : ''}
-      ${this.dbTab === 'backup'  ? this._renderBackupTab(c) : ''}`;
+
+      ${this.dbTab === 'connect' ? this.renderDatabasesTab() : ''}
+      ${this.dbTab === 'backup'  ? this.renderBackupTab(cfg) : ''}
+      ${this.dbTab === 'smtp'    ? this.renderSmtpTab(smtp) : ''}
+    `;
+
+    AdminLayout.renderShell({
+      activeId:  'database',
+      title:     'Database',
+      subtitle:  'Multi-database management, backups & SMTP',
+      bodyHtml,
+      admin:     this.admin
+    });
+
+    // Tab buttons
+    document.querySelectorAll('.db-tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => { this.dbTab = btn.dataset.tab; this.render(); });
+    });
+
+    // Database tab events
+    this.bindDatabaseEvents();
+
+    // SMTP & Backup events
+    document.getElementById('saveSmtpBtn')?.addEventListener('click',   () => this.saveSmtp());
+    document.getElementById('testEmailBtn')?.addEventListener('click',  () => this.testEmail());
+    document.getElementById('manualBackupBtn')?.addEventListener('click', () => this.runManual('export'));
+    document.getElementById('manualWipeBtn')?.addEventListener('click', () => {
+      if (confirm('⚠️ This will wipe major collections. Are you sure?')) this.runManual('wipe');
+    });
+    document.getElementById('autoBackupEnabled')?.addEventListener('change', () => this.saveSchedule());
+    document.getElementById('backupDays')?.addEventListener('change',  () => this.saveSchedule());
+    document.getElementById('backupTime')?.addEventListener('change',  () => this.saveSchedule());
+    document.getElementById('botToken')?.addEventListener('change',    () => this.saveSchedule());
+    document.getElementById('adminChatId')?.addEventListener('change', () => this.saveSchedule());
+    document.querySelectorAll('.delete-backup-btn').forEach(b =>
+      b.addEventListener('click', () => this.deleteBackup(b.dataset.id)));
   }
 
-  _renderDbForm(type) {
-    const cfg = this.envConfig || {};
-    const db = cfg[type] || {};
-    const connected = db.connected;
+  renderDatabasesTab() {
+    const dbs = this.databases;
+    const activeCount = dbs.filter(d => d.connected).length;
+    const shardedCount = dbs.filter(d => d.active).length;
 
-    const header = (icon, color, name, desc) => `
-      <div class="flex items-center gap-3 mb-4">
-        <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background:${color}22;">
-          <i class="fas fa-${icon} text-lg" style="color:${color};"></i>
+    return `
+      <div class="mb-6 flex items-center justify-between flex-wrap gap-3">
+        <div class="flex items-center gap-4">
+          <div class="glass-card px-4 py-2 text-center">
+            <p class="text-2xl font-black text-primary">${dbs.length}</p>
+            <p class="text-[10px] text-gray-500 uppercase">Total</p>
+          </div>
+          <div class="glass-card px-4 py-2 text-center">
+            <p class="text-2xl font-black text-green-400">${activeCount}</p>
+            <p class="text-[10px] text-gray-500 uppercase">Connected</p>
+          </div>
+          <div class="glass-card px-4 py-2 text-center">
+            <p class="text-2xl font-black text-cyan-300">${shardedCount}</p>
+            <p class="text-[10px] text-gray-500 uppercase">Active Shards</p>
+          </div>
         </div>
-        <div class="flex-1"><p class="font-black text-white">${name}</p><p class="text-xs text-gray-500">${desc}</p></div>
-        ${connected
-          ? `<span class="px-3 py-1 rounded-full text-xs font-black bg-green-500/20 text-green-400 border border-green-500/30">✅ Connected</span>`
-          : `<span class="px-3 py-1 rounded-full text-xs font-black bg-gray-500/20 text-gray-400 border border-gray-500/30">Not Connected</span>`}
-      </div>`;
-
-    const saveBtn = (section) => `
-      <div class="flex gap-3 flex-wrap mt-4">
-        <button type="button" class="neon-btn px-6 py-3 text-xs uppercase" id="saveDbBtn" data-section="${section}">
-          <i class="fas fa-plug mr-1"></i> Connect & Test
+        <button type="button" id="addDbBtn" class="neon-btn px-6 py-3 text-xs uppercase flex items-center gap-2">
+          <i class="fas fa-plus"></i> Add Database
         </button>
-        ${connected ? `<button type="button" class="px-4 py-3 text-xs uppercase border border-red-500/30 text-red-400 rounded-lg hover:bg-red-500/10 transition-all" id="disconnectDbBtn" data-section="${section}">
-          <i class="fas fa-unlink mr-1"></i> Disconnect
-        </button>` : ''}
-      </div>`;
+      </div>
 
-    if (type === 'mongodb') return `
-      ${header('leaf','#22c55e','MongoDB','Atlas or self-hosted MongoDB')}
-      <div class="grid grid-cols-1 gap-4 mb-2">
-        <div><label class="stat-label block mb-1">Connection URI</label>
-          <input type="text" id="mongoUri" class="input-field font-mono text-sm" placeholder="mongodb+srv://user:pass@cluster.mongodb.net/dbname" value="${db.host || ''}">
-          <p class="text-xs text-gray-500 mt-1">Get from MongoDB Atlas → Connect → Drivers</p>
+      ${shardedCount > 1 ? `
+        <div class="glass-card p-4 border border-cyan-500/20 mb-4 text-xs text-gray-400">
+          <i class="fas fa-info-circle text-cyan-400 mr-2"></i>
+          <strong class="text-white">${shardedCount} active databases</strong> — user data is distributed across them.
+          Config data (countries, servers, etc.) stays on the primary database.
         </div>
-        <div><label class="stat-label block mb-1">Database Name</label>
-          <input type="text" id="mongoDbName" class="input-field font-mono text-sm" placeholder="gurubit" value="${db.dbName || ''}">
-        </div>
-      </div>
-      ${saveBtn('mongodb')}`;
+      ` : ''}
 
-    if (type === 'postgresql') return `
-      ${header('database','#3b82f6','PostgreSQL','Relational database')}
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-2">
-        <div><label class="stat-label block mb-1">Host</label><input type="text" id="pgHost" class="input-field font-mono text-sm" placeholder="localhost" value="${db.host || ''}"></div>
-        <div><label class="stat-label block mb-1">Port</label><input type="number" id="pgPort" class="input-field font-mono text-sm" placeholder="5432" value="${db.port || '5432'}"></div>
-        <div><label class="stat-label block mb-1">Database</label><input type="text" id="pgDatabase" class="input-field font-mono text-sm" placeholder="gurubit" value="${db.database || ''}"></div>
-        <div><label class="stat-label block mb-1">Username</label><input type="text" id="pgUser" class="input-field font-mono text-sm" placeholder="postgres" value="${db.user || ''}"></div>
-        <div class="sm:col-span-2"><label class="stat-label block mb-1">Password</label><input type="password" id="pgPassword" class="input-field font-mono text-sm" placeholder="Leave blank to keep existing"></div>
-        <div><label class="stat-label block mb-1">SSL</label>
-          <select id="pgSsl" class="input-field text-sm">
-            <option value="false">No SSL</option>
-            <option value="true">SSL (recommended for cloud)</option>
-          </select>
-        </div>
-      </div>
-      ${saveBtn('postgresql')}`;
+      ${this.showAddForm ? this.renderAddForm() : ''}
+      ${this.editingDb ? this.renderEditForm(this.editingDb) : ''}
 
-    if (type === 'mysql') return `
-      ${header('database','#06b6d4','MySQL / MariaDB','MySQL or MariaDB database')}
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-2">
-        <div><label class="stat-label block mb-1">Host</label><input type="text" id="mysqlHost" class="input-field font-mono text-sm" placeholder="localhost" value="${db.host || ''}"></div>
-        <div><label class="stat-label block mb-1">Port</label><input type="number" id="mysqlPort" class="input-field font-mono text-sm" placeholder="3306" value="${db.port || '3306'}"></div>
-        <div><label class="stat-label block mb-1">Database</label><input type="text" id="mysqlDatabase" class="input-field font-mono text-sm" placeholder="gurubit" value="${db.database || ''}"></div>
-        <div><label class="stat-label block mb-1">Username</label><input type="text" id="mysqlUser" class="input-field font-mono text-sm" placeholder="root" value="${db.user || ''}"></div>
-        <div class="sm:col-span-2"><label class="stat-label block mb-1">Password</label><input type="password" id="mysqlPassword" class="input-field font-mono text-sm" placeholder="Leave blank to keep existing"></div>
+      <div class="space-y-3">
+        ${dbs.map(db => this.renderDbCard(db)).join('')}
+        ${dbs.length === 0 ? `
+          <div class="glass-card p-10 text-center text-gray-500">
+            <i class="fas fa-database text-4xl mb-4 opacity-30"></i>
+            <p class="text-sm">No databases configured. Click "Add Database" to start.</p>
+          </div>
+        ` : ''}
       </div>
-      ${saveBtn('mysql')}`;
-
-    if (type === 'redis') return `
-      ${header('bolt','#ef4444','Redis','In-memory data store')}
-      <div class="grid grid-cols-1 gap-4 mb-2">
-        <div><label class="stat-label block mb-1">Redis URL</label>
-          <input type="text" id="redisUrl" class="input-field font-mono text-sm" placeholder="redis://localhost:6379 or rediss://user:pass@host:6380" value="${db.url || ''}">
-          <p class="text-xs text-gray-500 mt-1">Use <code>rediss://</code> for TLS. Upstash, Redis Cloud, etc.</p>
-        </div>
-        <div><label class="stat-label block mb-1">Password (optional)</label><input type="password" id="redisPassword" class="input-field font-mono text-sm" placeholder="Leave blank if no auth"></div>
-      </div>
-      ${saveBtn('redis')}`;
-
-    if (type === 'supabase') return `
-      ${header('database','#10b981','Supabase','PostgreSQL + Auth + Storage')}
-      <div class="grid grid-cols-1 gap-4 mb-2">
-        <div><label class="stat-label block mb-1">Project URL</label>
-          <input type="text" id="supabaseUrl" class="input-field font-mono text-sm" placeholder="https://xxxx.supabase.co" value="${db.url || ''}">
-        </div>
-        <div><label class="stat-label block mb-1 flex items-center gap-2">Anon Key (public)
-          ${db.anonKeySet ? '<span class="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full">✅ Set</span>' : ''}
-        </label><input type="password" id="supabaseAnonKey" class="input-field font-mono text-sm" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."></div>
-        <div><label class="stat-label block mb-1">Service Role Key (secret)</label><input type="password" id="supabaseServiceKey" class="input-field font-mono text-sm" placeholder="Leave blank to keep existing"></div>
-      </div>
-      <p class="text-xs text-gray-500 mb-2">Get keys from Supabase Dashboard → Project Settings → API</p>
-      ${saveBtn('supabase')}`;
-
-    if (type === 'planetscale') return `
-      ${header('database','#8b5cf6','PlanetScale','Serverless MySQL platform')}
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-2">
-        <div><label class="stat-label block mb-1">Host</label><input type="text" id="psHost" class="input-field font-mono text-sm" placeholder="aws.connect.psdb.cloud" value="${db.host || ''}"></div>
-        <div><label class="stat-label block mb-1">Database</label><input type="text" id="psDatabase" class="input-field font-mono text-sm" placeholder="gurubit" value="${db.database || ''}"></div>
-        <div><label class="stat-label block mb-1">Username</label><input type="text" id="psUsername" class="input-field font-mono text-sm" placeholder="username" value="${db.username || ''}"></div>
-        <div><label class="stat-label block mb-1">Password</label><input type="password" id="psPassword" class="input-field font-mono text-sm" placeholder="pscale_pw_..."></div>
-      </div>
-      <p class="text-xs text-gray-500 mb-2">Get credentials from PlanetScale Dashboard → Connect → Connect with MySQL</p>
-      ${saveBtn('planetscale')}`;
-
-    return `<p class="text-gray-500 text-sm text-center py-4">Select a database type above.</p>`;
+    `;
   }
 
-  _renderConnectTab(fb) {
-    const dbTypes = [
-      { id: 'firebase',    name: 'Firebase',    icon: 'fire',     color: '#f97316', desc: 'Firestore + Auth' },
-      { id: 'mongodb',     name: 'MongoDB',     icon: 'leaf',     color: '#22c55e', desc: 'Atlas or self-hosted' },
-      { id: 'postgresql',  name: 'PostgreSQL',  icon: 'database', color: '#3b82f6', desc: 'Relational DB' },
-      { id: 'mysql',       name: 'MySQL',       icon: 'database', color: '#06b6d4', desc: 'MySQL / MariaDB' },
-      { id: 'redis',       name: 'Redis',       icon: 'bolt',     color: '#ef4444', desc: 'In-memory store' },
-      { id: 'supabase',    name: 'Supabase',    icon: 'database', color: '#10b981', desc: 'PostgreSQL + Auth' },
-      { id: 'planetscale', name: 'PlanetScale', icon: 'database', color: '#8b5cf6', desc: 'Serverless MySQL' },
-      { id: 'local',       name: 'Local JSON',  icon: 'hdd',      color: '#6b7280', desc: 'Default (active)' },
-    ];
+  renderDbCard(db) {
+    const statusColor = db.connected ? 'green' : db.active ? 'amber' : 'gray';
+    const statusText = db.connected ? 'Connected' : db.active ? 'Active (Not Connected)' : 'Inactive';
     return `
-      <div class="glass-card p-5 mb-5">
-        <h3 class="font-black text-white text-sm uppercase mb-3 flex items-center gap-2">
-          <i class="fas fa-plug text-primary"></i> Connect Your Database
-        </h3>
-        <p class="text-xs text-gray-400 mb-4">Select a database type to connect. Multiple databases can be connected simultaneously.</p>
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
-          ${dbTypes.map(db => `
-            <button type="button" data-db-type="${db.id}"
-              class="p-3 rounded-xl border text-left transition-all
-              ${this.selectedDbType === db.id ? 'border-primary/50 bg-primary/10' : 'border-white/5 hover:border-white/15 bg-white/[0.02]'}">
-              <div class="w-8 h-8 rounded-lg flex items-center justify-center mb-2" style="background:${db.color}22;">
-                <i class="fas fa-${db.icon} text-sm" style="color:${db.color};"></i>
-              </div>
-              <p class="text-xs font-bold text-white truncate">${db.name}</p>
-              <p class="text-[10px] text-gray-500 mt-0.5">${db.desc}</p>
-            </button>`).join('')}
-        </div>
-        ${this.selectedDbType === 'firebase' ? `
-        <div class="border-t border-white/10 pt-5">
-          <div class="flex items-center gap-3 mb-4">
-            <div class="w-10 h-10 rounded-xl bg-orange-500/15 flex items-center justify-center"><i class="fas fa-fire text-orange-400 text-lg"></i></div>
-            <div class="flex-1"><p class="font-black text-white">Firebase / Firestore</p><p class="text-xs text-gray-500">Google Firebase Realtime + Firestore</p></div>
-            ${fb.serviceAccountSet
-              ? '<span class="px-3 py-1 rounded-full text-xs font-black bg-green-500/20 text-green-400 border border-green-500/30">✅ Connected</span>'
-              : '<span class="px-3 py-1 rounded-full text-xs font-black bg-gray-500/20 text-gray-400 border border-gray-500/30">Not Connected</span>'}
+      <div class="glass-card p-5 border ${db.isDefault ? 'border-primary/40' : 'border-white/5'} hover:border-white/10 transition-all">
+        <div class="flex items-start gap-4">
+          <div class="w-12 h-12 rounded-xl ${db.connected ? 'bg-green-500/20' : 'bg-gray-500/20'} flex items-center justify-center flex-shrink-0">
+            <i class="fas fa-database text-xl ${db.connected ? 'text-green-400' : 'text-gray-500'}"></i>
           </div>
-          <div class="grid grid-cols-1 gap-4 mb-4">
-            <div>
-              <label class="stat-label block mb-1">Firebase Database URL</label>
-              <input type="text" id="firebaseDatabaseUrl" class="input-field font-mono text-sm"
-                placeholder="https://your-project-default-rtdb.firebaseio.com" value="${fb.databaseUrl || ''}">
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <h3 class="font-black text-white text-base">${this.esc(db.name)}</h3>
+              ${db.isDefault ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-primary/20 text-primary">Primary</span>' : ''}
+              ${db.active ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-${statusColor}-500/20 text-${statusColor}-400">${statusText}</span>` : '<span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-gray-500/20 text-gray-400">Inactive</span>'}
             </div>
-            <div>
-              <label class="stat-label block mb-1 flex items-center gap-2">Service Account JSON
-                ${fb.serviceAccountSet
-                  ? '<span class="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full">✅ Configured</span>'
-                  : '<span class="text-xs bg-red-500/20 text-red-400 px-2 py-0.5 rounded-full">⚠️ Not set</span>'}
-              </label>
-              <textarea id="firebaseServiceAccount" class="input-field font-mono text-xs" rows="4"
-                placeholder='{"type":"service_account","project_id":"..."}' style="resize:vertical"></textarea>
-              <p class="text-xs text-gray-500 mt-1">Firebase Console → Project Settings → Service Accounts → Generate new private key</p>
-            </div>
+            <p class="text-xs text-gray-500 font-mono mt-1 truncate">${this.esc(db.uri ? db.uri.replace(/\/\/[^@]+@/, '//***@') : 'Default URI')}</p>
+            <p class="text-[10px] text-gray-600 mt-1">DB: ${this.esc(db.dbName)} ${db.createdAt ? `· Added ${this.fmtDate(db.createdAt)}` : ''}</p>
           </div>
-          <div class="flex gap-3 flex-wrap">
-            <button type="button" id="saveFirebaseBtn" class="neon-btn px-6 py-3 text-xs uppercase">
-              <i class="fas fa-save mr-1"></i> Save & Connect Firebase
+          <div class="flex gap-2 flex-shrink-0">
+            <button data-id="${db.id}" class="test-db-btn px-2 py-1 rounded text-[10px] font-black uppercase bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30" title="Test connection">
+              <i class="fas fa-plug"></i> Test
             </button>
-            ${fb.serviceAccountSet ? '<button type="button" id="disconnectFirebaseBtn" class="px-4 py-3 text-xs uppercase border border-red-500/30 text-red-400 rounded-lg hover:bg-red-500/10 transition-all"><i class="fas fa-unlink mr-1"></i> Disconnect</button>' : ''}
+            <button data-id="${db.id}" class="edit-db-btn px-2 py-1 rounded text-[10px] font-black uppercase bg-blue-500/20 text-blue-400 hover:bg-blue-500/30" title="Edit">
+              <i class="fas fa-edit"></i> Edit
+            </button>
+            ${!db.isDefault ? `
+              <button data-id="${db.id}" class="primary-db-btn px-2 py-1 rounded text-[10px] font-black uppercase bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30" title="Set as primary">
+                <i class="fas fa-star"></i>
+              </button>
+              <button data-id="${db.id}" data-name="${this.esc(db.name)}" class="del-db-btn px-2 py-1 rounded text-[10px] font-black uppercase bg-red-500/20 text-red-400 hover:bg-red-500/30" title="Delete">
+                <i class="fas fa-trash"></i>
+              </button>
+            ` : ''}
           </div>
-        </div>` : ''}
-        ${this.selectedDbType === 'local' ? `
-        <div class="border-t border-white/10 pt-5">
-          <div class="flex items-center gap-3 mb-4">
-            <div class="w-10 h-10 rounded-xl bg-gray-500/15 flex items-center justify-center"><i class="fas fa-hdd text-gray-400 text-lg"></i></div>
-            <div class="flex-1"><p class="font-black text-white">Local JSON Storage</p><p class="text-xs text-gray-500">Currently active for numbers, SMS, catalog</p></div>
-            <span class="px-3 py-1 rounded-full text-xs font-black bg-primary/20 text-primary border border-primary/30">✅ Active</span>
-          </div>
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div class="glass-card p-4 text-center"><i class="fas fa-file-code text-primary text-xl mb-2 block"></i><p class="text-xs font-bold text-white">catalog.json</p><p class="text-[10px] text-gray-500">Countries, Servers, Numbers</p></div>
-            <div class="glass-card p-4 text-center"><i class="fas fa-file-code text-cyan-400 text-xl mb-2 block"></i><p class="text-xs font-bold text-white">phone-store.json</p><p class="text-[10px] text-gray-500">Allocated Numbers, SMS</p></div>
-            <div class="glass-card p-4 text-center"><i class="fas fa-file-code text-green-400 text-xl mb-2 block"></i><p class="text-xs font-bold text-white">guest-store.json</p><p class="text-[10px] text-gray-500">Guest Sessions</p></div>
-          </div>
-        </div>` : ''}
-        ${!['firebase','local'].includes(this.selectedDbType) ? `
-        <div class="border-t border-white/10 pt-5">
-          ${this._renderDbForm(this.selectedDbType)}
-        </div>` : ''}
-      </div>
-      <div class="glass-card p-5">
-        <h3 class="font-black text-white text-sm uppercase mb-4 flex items-center gap-2"><i class="fas fa-tools text-orange-400"></i> Data Management</h3>
-        <div class="db-manual-btns">
-          <button type="button" id="exportDb" class="db-btn db-btn--green"><i class="fas fa-download"></i> Export All Data</button>
-          <button type="button" id="importDb" class="db-btn db-btn--blue"><i class="fas fa-upload"></i> Import Data</button>
-          <button type="button" id="wipeDb" class="db-btn db-btn--red"><i class="fas fa-trash"></i> Wipe Database</button>
         </div>
-        <input type="file" id="importFile" accept=".json" class="hidden">
-      </div>`;
+      </div>
+    `;
   }
 
-  _renderSmtpTab(smtp) {
+  renderAddForm() {
     return `
-      <div class="glass-card p-6">
-        <h3 class="font-black text-white text-sm uppercase mb-1 flex items-center gap-2">
-          <i class="fas fa-envelope text-blue-400"></i> SMTP Email Configuration
-          ${smtp.passSet ? '<span class="ml-auto px-3 py-1 rounded-full text-xs font-black bg-blue-500/20 text-blue-400 border border-blue-500/30">✅ Configured</span>' : ''}
+      <div class="glass-card p-6 border border-primary/30 mb-4" style="animation:fadeIn .2s ease">
+        <h3 class="font-black text-white uppercase mb-4 text-sm flex items-center gap-2">
+          <i class="fas fa-plus-circle text-primary"></i> Add New Database
         </h3>
-        <p class="text-xs text-gray-400 mb-4">Configure email for verification & password reset.</p>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-          <div><label class="stat-label block mb-1">SMTP Host</label><input type="text" id="smtpHost" class="input-field font-mono text-sm" placeholder="smtp.gmail.com" value="${smtp.host || ''}"></div>
-          <div><label class="stat-label block mb-1">Port</label><input type="number" id="smtpPort" class="input-field font-mono text-sm" placeholder="587" value="${smtp.port || '587'}"></div>
-          <div><label class="stat-label block mb-1">Secure (SSL)</label>
-            <select id="smtpSecure" class="input-field text-sm">
-              <option value="false" ${smtp.secure !== 'true' ? 'selected' : ''}>No (Port 587)</option>
-              <option value="true" ${smtp.secure === 'true' ? 'selected' : ''}>Yes (Port 465)</option>
+        <form id="addDbForm" class="space-y-3">
+          <div class="grid md:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Name *</label>
+              <input type="text" id="addDbName" class="input-field w-full" placeholder="e.g. Shard 2" required>
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Database Name</label>
+              <input type="text" id="addDbDbName" class="input-field w-full" placeholder="gurubit" value="gurubit">
+            </div>
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Connection URI *</label>
+            <input type="text" id="addDbUri" class="input-field w-full font-mono text-xs" placeholder="mongodb+srv://user:pass@host/database?appName=Gurubit" required>
+          </div>
+          <div class="flex gap-2 pt-2">
+            <button type="submit" class="neon-btn flex-1 py-3 text-xs uppercase flex items-center justify-center gap-2">
+              <i class="fas fa-check"></i> Add & Connect
+            </button>
+            <button type="button" id="cancelAddDb" class="flex-1 py-3 text-xs border border-white/10 rounded-lg text-gray-400 hover:bg-white/5 transition-all">Cancel</button>
+          </div>
+        </form>
+      </div>
+    `;
+  }
+
+  renderEditForm(db) {
+    return `
+      <div class="glass-card p-6 border border-blue-500/30 mb-4" style="animation:fadeIn .2s ease">
+        <h3 class="font-black text-white uppercase mb-4 text-sm flex items-center gap-2">
+          <i class="fas fa-edit text-blue-400"></i> Edit: ${this.esc(db.name)}
+        </h3>
+        <form id="editDbForm" class="space-y-3">
+          <div class="grid md:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Name</label>
+              <input type="text" id="editDbName" class="input-field w-full" value="${this.esc(db.name)}" required>
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Database Name</label>
+              <input type="text" id="editDbDbName" class="input-field w-full" value="${this.esc(db.dbName)}">
+            </div>
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Connection URI</label>
+            <input type="text" id="editDbUri" class="input-field w-full font-mono text-xs" value="${this.esc(db.uri || '')}">
+          </div>
+          <div class="flex items-center gap-3">
+            <input type="checkbox" id="editDbActive" ${db.active ? 'checked' : ''} class="w-4 h-4 accent-cyan-500">
+            <label for="editDbActive" class="text-sm text-gray-300">Active (included in sharding)</label>
+          </div>
+          <div class="flex gap-2 pt-2">
+            <button type="submit" class="neon-btn flex-1 py-3 text-xs uppercase flex items-center justify-center gap-2">
+              <i class="fas fa-save"></i> Save Changes
+            </button>
+            <button type="button" id="cancelEditDb" class="flex-1 py-3 text-xs border border-white/10 rounded-lg text-gray-400 hover:bg-white/5 transition-all">Cancel</button>
+          </div>
+        </form>
+      </div>
+    `;
+  }
+
+  renderBackupTab(cfg) {
+    return `
+      <div class="grid lg:grid-cols-3 gap-4">
+        <div class="glass-card p-6 lg:col-span-1">
+          <h2 class="text-base font-bold text-white mb-4"><i class="fas fa-clock mr-2 text-cyan-400"></i>Schedule</h2>
+          <div class="space-y-3">
+            <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+              <input id="autoBackupEnabled" type="checkbox" ${cfg.enabled?'checked':''} class="accent-cyan-500">
+              Enable automatic backups
+            </label>
+            <div>
+              <label class="text-xs uppercase tracking-wider text-gray-400 block mb-1">Interval (days)</label>
+              <input id="backupDays" type="number" min="1" value="${cfg.intervalDays||1}" class="input-field w-full">
+            </div>
+            <div>
+              <label class="text-xs uppercase tracking-wider text-gray-400 block mb-1">Time</label>
+              <input id="backupTime" type="time" value="${cfg.time||'09:00'}" class="input-field w-full">
+            </div>
+            <div>
+              <label class="text-xs uppercase tracking-wider text-gray-400 block mb-1">Telegram Bot Token (optional)</label>
+              <input id="botToken" type="text" value="${cfg.botToken||''}" class="input-field w-full" placeholder="123456:ABC...">
+            </div>
+            <div>
+              <label class="text-xs uppercase tracking-wider text-gray-400 block mb-1">Telegram Chat ID (optional)</label>
+              <input id="adminChatId" type="text" value="${cfg.adminChatId||''}" class="input-field w-full" placeholder="-100…">
+            </div>
+          </div>
+          <div class="flex gap-2 mt-5">
+            <button id="manualBackupBtn" class="neon-btn py-2 px-3 text-xs uppercase flex-1">
+              <i class="fas fa-download mr-1"></i>Backup Now
+            </button>
+            <button id="manualWipeBtn" class="py-2 px-3 text-xs uppercase border border-red-500/40 text-red-300 rounded-lg hover:bg-red-500/10 flex-1">
+              <i class="fas fa-trash mr-1"></i>Wipe Data
+            </button>
+          </div>
+        </div>
+        <div class="glass-card p-6 lg:col-span-2">
+          <h2 class="text-base font-bold text-white mb-4"><i class="fas fa-database mr-2 text-cyan-400"></i>Backups (${this.backups.length})</h2>
+          ${this.backups.length === 0
+            ? '<p class="text-gray-500 text-sm">No backups yet. Click "Backup Now" to create one.</p>'
+            : `<div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                  <thead><tr class="text-gray-400 text-left text-xs uppercase">
+                    <th class="py-2 pr-4">ID</th><th class="pr-4">Created</th><th class="pr-4">Size</th><th></th>
+                  </tr></thead>
+                  <tbody>
+                    ${this.backups.map(b => `
+                      <tr class="border-t border-white/5 hover:bg-white/2">
+                        <td class="py-2 pr-4 text-cyan-300 font-mono text-xs">${b.id}</td>
+                        <td class="pr-4 text-gray-300 text-xs">${this.fmtDate(b.createdAt)}</td>
+                        <td class="pr-4 text-gray-400 text-xs">${this.fmtSize(b.size)}</td>
+                        <td class="text-right">
+                          <a href="/api/admin/database/download/${b.id}" target="_blank" class="text-cyan-400 hover:text-cyan-300 text-xs mr-3"><i class="fas fa-download"></i></a>
+                          <button data-id="${b.id}" class="delete-backup-btn text-red-400 hover:text-red-300 text-xs"><i class="fas fa-trash"></i></button>
+                        </td>
+                      </tr>`).join('')}
+                  </tbody>
+                </table>
+              </div>`}
+        </div>
+      </div>
+    `;
+  }
+
+  renderSmtpTab(smtp) {
+    return `
+      <div class="glass-card p-6 max-w-2xl">
+        <h2 class="text-base font-bold text-white mb-1"><i class="fas fa-envelope mr-2 text-cyan-400"></i>SMTP Email</h2>
+        <p class="text-gray-400 text-xs mb-5">Used for signup verification and password reset emails.</p>
+        <div class="grid md:grid-cols-2 gap-3">
+          <div class="md:col-span-2">
+            <label class="text-xs uppercase tracking-wider text-gray-400 block mb-1">Host</label>
+            <input id="smtpHost" type="text" class="input-field w-full" placeholder="smtp.gmail.com" value="${smtp.host||''}">
+          </div>
+          <div>
+            <label class="text-xs uppercase tracking-wider text-gray-400 block mb-1">Port</label>
+            <input id="smtpPort" type="text" class="input-field w-full" value="${smtp.port||'587'}">
+          </div>
+          <div>
+            <label class="text-xs uppercase tracking-wider text-gray-400 block mb-1">TLS Mode</label>
+            <select id="smtpSecure" class="input-field w-full">
+              <option value="false" ${String(smtp.secure)==='true'?'':'selected'}>STARTTLS (port 587)</option>
+              <option value="true"  ${String(smtp.secure)==='true'?'selected':''}>SSL/TLS (port 465)</option>
             </select>
           </div>
-          <div><label class="stat-label block mb-1">Email Address</label><input type="email" id="smtpUser" class="input-field font-mono text-sm" placeholder="yourname@gmail.com" value="${smtp.user || ''}"></div>
-          <div><label class="stat-label block mb-1 flex items-center gap-2">Password
-            ${smtp.passSet ? '<span class="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full">✅ Set</span>' : '<span class="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded-full">⚠️ Not set</span>'}
-          </label><input type="password" id="smtpPass" class="input-field font-mono text-sm" placeholder="Leave blank to keep existing" autocomplete="new-password"></div>
-          <div><label class="stat-label block mb-1">From Name & Email</label><input type="text" id="smtpFrom" class="input-field font-mono text-sm" placeholder='"GURUBIT" <you@gmail.com>' value="${smtp.from || (smtp.user ? '"GURUBIT" <' + smtp.user + '>' : '')}"></div>
-        </div>
-        <div class="flex flex-wrap gap-3 items-center border-t border-white/10 pt-4">
-          <button type="button" id="saveSmtpBtn" class="neon-btn px-6 py-3 text-xs uppercase"><i class="fas fa-save mr-1"></i> Save SMTP</button>
-          <div class="flex gap-2 flex-1 min-w-0">
-            <input type="email" id="testEmailTo" class="input-field text-sm flex-1" placeholder="Send test email to..." style="min-width:0">
-            <button type="button" id="testEmailBtn" class="neon-btn px-4 py-3 text-xs uppercase whitespace-nowrap"><i class="fas fa-paper-plane mr-1"></i> Send Test</button>
+          <div>
+            <label class="text-xs uppercase tracking-wider text-gray-400 block mb-1">Username / Email</label>
+            <input id="smtpUser" type="text" class="input-field w-full" value="${smtp.user||''}">
+          </div>
+          <div>
+            <label class="text-xs uppercase tracking-wider text-gray-400 block mb-1">App Password</label>
+            <input id="smtpPass" type="password" class="input-field w-full" placeholder="${smtp.passSet?'(saved — leave blank to keep)':'App password'}">
+          </div>
+          <div class="md:col-span-2">
+            <label class="text-xs uppercase tracking-wider text-gray-400 block mb-1">From Address</label>
+            <input id="smtpFrom" type="text" class="input-field w-full" value="${smtp.from||''}" placeholder='"GURUBIT" <noreply@example.com>'>
+          </div>
+          <div class="md:col-span-2">
+            <label class="text-xs uppercase tracking-wider text-gray-400 block mb-1">Test Recipient</label>
+            <input id="testEmailTo" type="email" class="input-field w-full" placeholder="you@example.com">
           </div>
         </div>
-        <p class="text-xs text-gray-500 mt-2">💡 Gmail: use <a href="https://myaccount.google.com/apppasswords" target="_blank" class="text-primary underline">App Password</a>. Enable 2FA first.</p>
-      </div>`;
-  }
-
-  _renderBackupTab(c) {
-    return `
-      <div class="glass-card p-6 mb-5">
-        <h3 class="font-black text-white text-sm uppercase mb-4"><i class="fas fa-sync text-primary mr-2"></i> Auto Backup Schedule</h3>
-        <div class="grid grid-cols-2 gap-3 mb-4 text-center">
-          <div class="glass-card p-3"><p class="stat-label text-[10px]">Last Backup</p><p class="text-white font-bold text-sm mt-1">${this.fmtDate(c.lastBackupAt)}</p></div>
-          <div class="glass-card p-3"><p class="stat-label text-[10px]">Next Backup</p><p class="text-white font-bold text-sm mt-1">${this.fmtDate(c.nextBackupAt)}</p></div>
+        <div class="flex gap-2 mt-4">
+          <button id="saveSmtpBtn" class="neon-btn py-2.5 px-5 text-xs uppercase">
+            <i class="fas fa-save mr-1"></i>Save SMTP
+          </button>
+          <button id="testEmailBtn" class="py-2.5 px-5 text-xs uppercase border border-cyan-500/40 text-cyan-300 rounded-lg hover:bg-cyan-500/10">
+            <i class="fas fa-paper-plane mr-1"></i>Send Test
+          </button>
         </div>
-        <label class="flex items-center gap-3 mb-4 cursor-pointer">
-          <input type="checkbox" id="autoBackupEnabled" class="w-5 h-5" ${c.enabled ? 'checked' : ''}>
-          <span class="text-sm font-bold text-white">Enable Auto Backup</span>
-        </label>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-          <div><label class="stat-label block mb-1">Every (days)</label><input type="number" id="backupDays" class="input-field" min="1" value="${c.intervalDays || 1}"></div>
-          <div><label class="stat-label block mb-1">Time (HH:MM)</label><input type="time" id="backupTime" class="input-field" value="${c.time || '09:00'}"></div>
-          <div><label class="stat-label block mb-1">Telegram Bot Token</label><input type="password" id="botToken" class="input-field font-mono text-sm" placeholder="${c.botTokenMasked || 'Bot token'}" autocomplete="off"></div>
-          <div><label class="stat-label block mb-1">Admin Chat ID</label><input type="text" id="adminChatId" class="input-field font-mono text-sm" value="${c.adminChatId || ''}" placeholder="Your Telegram user ID"></div>
-        </div>
-        <button type="button" id="saveScheduleBtn" class="neon-btn px-6 py-3 text-xs uppercase"><i class="fas fa-save mr-1"></i> Save Schedule</button>
       </div>
-      <div class="glass-card p-6">
-        <div class="flex justify-between items-center mb-4">
-          <h3 class="font-black text-white text-sm uppercase"><i class="fas fa-history text-yellow-400 mr-2"></i> Backup History</h3>
-          <button type="button" id="refreshBackups" class="admin-action-btn">Refresh</button>
-        </div>
-        <div class="db-backup-list">
-          ${this.backups.length ? this.backups.map((b) => `
-            <div class="db-backup-item">
-              <div><p class="font-mono text-sm text-white">${b.filename}</p><p class="text-xs text-gray-500">${this.fmtSize(b.size)} · ${this.fmtDate(b.createdAt)}</p></div>
-              <div class="flex gap-2 flex-wrap">
-                <a href="/api/admin/database/download/${b.id}" class="db-icon-btn" title="Download"><i class="fas fa-download"></i></a>
-                <button type="button" data-restore="${b.id}" class="db-btn db-btn--blue text-xs py-2 px-3">Restore</button>
-                <button type="button" data-del="${b.id}" class="db-icon-btn text-red-400" title="Delete"><i class="fas fa-trash"></i></button>
-              </div>
-            </div>`).join('') : '<p class="text-gray-500 text-sm p-4">No backups yet</p>'}
-        </div>
-      </div>`;
+    `;
   }
 
-  renderPage() {
-    AdminLayout.renderShell({
-      activeId: 'database',
-      title: 'Database Management',
-      subtitle: 'Connect databases, SMTP email, backup & restore',
-      bodyHtml: this.renderBody(),
-      admin: this.admin
+  bindDatabaseEvents() {
+    // Add database
+    document.getElementById('addDbBtn')?.addEventListener('click', () => {
+      this.showAddForm = !this.showAddForm;
+      this.editingDb = null;
+      this.render();
     });
-
-    document.querySelectorAll('[data-db-tab]').forEach(btn => {
-      btn.addEventListener('click', () => { this.dbTab = btn.dataset.dbTab; this.renderPage(); });
+    document.getElementById('cancelAddDb')?.addEventListener('click', () => {
+      this.showAddForm = false;
+      this.render();
     });
-    document.querySelectorAll('[data-db-type]').forEach(btn => {
-      btn.addEventListener('click', () => { this.selectedDbType = btn.dataset.dbType; this.renderPage(); });
-    });
-
-    document.getElementById('saveFirebaseBtn')?.addEventListener('click', () => this.saveFirebase());
-    document.getElementById('disconnectFirebaseBtn')?.addEventListener('click', async () => {
-      if (!confirm('Disconnect Firebase? The app will use local storage only.')) return;
-      await fetch('/api/admin/database/env-config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ section: 'firebase', data: { serviceAccount: 'DISCONNECT', databaseUrl: '' } }) });
-      this.showToast('Firebase disconnected');
-      await this.load();
-      this.renderPage();
-    });
-
-    // Generic DB connect/disconnect
-    document.getElementById('saveDbBtn')?.addEventListener('click', async (e) => {
-      const section = e.target.dataset.section;
-      const btn = e.target;
-      btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Connecting...';
-      let data = {};
-      if (section === 'mongodb') {
-        data = { uri: document.getElementById('mongoUri')?.value?.trim(), dbName: document.getElementById('mongoDbName')?.value?.trim() };
-      } else if (section === 'postgresql') {
-        data = { host: document.getElementById('pgHost')?.value?.trim(), port: document.getElementById('pgPort')?.value, database: document.getElementById('pgDatabase')?.value?.trim(), user: document.getElementById('pgUser')?.value?.trim(), password: document.getElementById('pgPassword')?.value, ssl: document.getElementById('pgSsl')?.value };
-      } else if (section === 'mysql') {
-        data = { host: document.getElementById('mysqlHost')?.value?.trim(), port: document.getElementById('mysqlPort')?.value, database: document.getElementById('mysqlDatabase')?.value?.trim(), user: document.getElementById('mysqlUser')?.value?.trim(), password: document.getElementById('mysqlPassword')?.value };
-      } else if (section === 'redis') {
-        data = { url: document.getElementById('redisUrl')?.value?.trim(), password: document.getElementById('redisPassword')?.value };
-      } else if (section === 'supabase') {
-        data = { url: document.getElementById('supabaseUrl')?.value?.trim(), anonKey: document.getElementById('supabaseAnonKey')?.value?.trim(), serviceKey: document.getElementById('supabaseServiceKey')?.value?.trim() };
-      } else if (section === 'planetscale') {
-        data = { host: document.getElementById('psHost')?.value?.trim(), database: document.getElementById('psDatabase')?.value?.trim(), username: document.getElementById('psUsername')?.value?.trim(), password: document.getElementById('psPassword')?.value };
-      }
-      const res = await fetch('/api/admin/database/env-config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ section, data }) });
-      const result = await res.json();
-      btn.disabled = false; btn.innerHTML = '<i class="fas fa-plug mr-1"></i> Connect & Test';
-      this.showToast(result.message || (result.success ? 'Connected ✅' : 'Failed'), result.success ? 'success' : 'error');
-      if (result.success) { await this.load(); this.renderPage(); }
-    });
-
-    document.getElementById('disconnectDbBtn')?.addEventListener('click', async (e) => {
-      const section = e.target.dataset.section;
-      if (!confirm(`Disconnect ${section}?`)) return;
-      const clearMap = { mongodb: { uri: '', dbName: '' }, postgresql: { host: '', database: '', user: '' }, mysql: { host: '', database: '', user: '' }, redis: { url: '' }, supabase: { url: '', anonKey: '' }, planetscale: { host: '', database: '', username: '' } };
-      await fetch('/api/admin/database/env-config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ section, data: clearMap[section] || {} }) });
-      this.showToast(`${section} disconnected`);
-      await this.load();
-      this.renderPage();
-    });
-
-    document.getElementById('saveSmtpBtn')?.addEventListener('click', () => this.saveSmtp());
-    document.getElementById('testEmailBtn')?.addEventListener('click', () => this.testEmail());
-    document.getElementById('saveScheduleBtn')?.addEventListener('click', () => this.saveSchedule());
-
-    document.getElementById('exportDb')?.addEventListener('click', () => this.runManual('export'));
-    document.getElementById('wipeDb')?.addEventListener('click', async () => {
-      if (!confirm('WIPE entire database? This cannot be undone.')) return;
-      if (!confirm('Are you absolutely sure? ALL data will be deleted.')) return;
-      await this.runManual('wipe');
-    });
-    document.getElementById('importDb')?.addEventListener('click', () => document.getElementById('importFile')?.click());
-    document.getElementById('importFile')?.addEventListener('change', async (e) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      const text = await file.text();
-      const res = await fetch('/api/admin/database/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: text });
-      const data = await res.json();
-      if (data.success) { this.showToast('Imported ✅'); await this.load(); this.renderPage(); }
-      else this.showToast(data.error?.message || 'Import failed', 'error');
-      e.target.value = '';
-    });
-
-    document.getElementById('refreshBackups')?.addEventListener('click', async () => { await this.load(); this.renderPage(); });
-    document.querySelectorAll('[data-restore]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        if (!confirm('Restore this backup? Current data may be overwritten.')) return;
-        const res = await fetch(`/api/admin/database/restore/${btn.dataset.restore}`, { method: 'POST' });
-        const data = await res.json();
-        if (data.success) this.showToast('Restored ✅');
-        else this.showToast(data.error?.message || 'Failed', 'error');
+    document.getElementById('addDbForm')?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      this.addDatabase({
+        name: document.getElementById('addDbName')?.value?.trim(),
+        uri: document.getElementById('addDbUri')?.value?.trim(),
+        dbName: document.getElementById('addDbDbName')?.value?.trim() || 'gurubit'
       });
     });
-    document.querySelectorAll('[data-del]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        if (!confirm('Delete this backup file?')) return;
-        await fetch(`/api/admin/database/backups/${btn.dataset.del}`, { method: 'DELETE' });
-        await this.load();
-        this.renderPage();
+
+    // Edit database
+    document.querySelectorAll('.edit-db-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const db = this.databases.find(d => d.id === btn.dataset.id);
+        if (db) {
+          this.editingDb = db;
+          this.showAddForm = false;
+          this.render();
+        }
+      });
+    });
+    document.getElementById('cancelEditDb')?.addEventListener('click', () => {
+      this.editingDb = null;
+      this.render();
+    });
+    document.getElementById('editDbForm')?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (!this.editingDb) return;
+      this.updateDatabase(this.editingDb.id, {
+        name: document.getElementById('editDbName')?.value?.trim(),
+        uri: document.getElementById('editDbUri')?.value?.trim(),
+        dbName: document.getElementById('editDbDbName')?.value?.trim(),
+        active: document.getElementById('editDbActive')?.checked
+      });
+    });
+
+    // Delete database
+    document.querySelectorAll('.del-db-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.deleteDatabase(btn.dataset.id, btn.dataset.name);
+      });
+    });
+
+    // Set primary
+    document.querySelectorAll('.primary-db-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.setPrimary(btn.dataset.id);
+      });
+    });
+
+    // Test connection
+    document.querySelectorAll('.test-db-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.testConnection(btn.dataset.id);
       });
     });
   }
 
   async init() {
     this.admin = await AdminLayout.ensureAuth();
-    if (!this.admin || this.admin.role !== 'super_admin') {
-      window.location.href = '/admin';
-      return;
-    }
-    this.renderPage();
+    if (!this.admin) return;
+    AdminLayout.renderShell({
+      activeId: 'database', title: 'Database', subtitle: 'Loading…',
+      bodyHtml: `<div class="flex items-center justify-center py-20 text-gray-500">
+        <i class="fas fa-spinner fa-spin mr-3"></i> Loading database config…
+      </div>`,
+      admin: this.admin
+    });
     await this.load();
-    this.renderPage();
+    this.render();
   }
 }

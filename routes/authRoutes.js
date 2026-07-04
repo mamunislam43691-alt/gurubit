@@ -1,25 +1,27 @@
 /**
  * Authentication Routes
- * Firebase-based authentication endpoints with advanced profile fields
+ * JWT-based authentication: signup stores user with bcrypt-hashed password,
+ * login signs a JWT stored in the sessionToken cookie.
  */
 
 const express = require('express');
 const router = express.Router();
-const { auth, db, collections, admin, isFirebaseConfigured } = require('../config/firebase');
+const { db, collections, admin } = require('../config/db');
 const { sendVerificationEmail, sendPasswordResetEmail } = require('../services/emailSender');
+const { signToken, verifyToken, hashPassword, comparePassword, genId, SESSION_MS } = require('../services/authService');
 
 const appUrl = () => process.env.APP_URL || 'http://localhost:3000';
 
 /**
  * POST /api/auth/signup
- * Create user document in Firestore after Firebase Auth signup
+ * Create user document + hashed password in MongoDB
  */
 router.post('/signup', async (req, res) => {
   try {
     const {
-      uid,
       name,
       email,
+      password,
       identificationNumber,
       telegramNumber,
       cryptoAddress,
@@ -27,18 +29,31 @@ router.post('/signup', async (req, res) => {
       referralEmail
     } = req.body;
 
-    if (!uid || !email) {
+    if (!email || !password) {
       return res.status(400).json({
-        success: false,
-        error: { message: 'Missing required fields' }
+        success: false, error: { message: 'Email and password are required.' }
+      });
+    }
+    if (password.length < 8) {
+      return res.status(400).json({
+        success: false, error: { message: 'Password must be at least 8 characters.' }
+      });
+    }
+
+    const cleanEmail = String(email).toLowerCase().trim();
+
+    // Reject duplicate email
+    const dup = await collections.users.where('email', '==', cleanEmail).limit(1).get();
+    if (dup.size > 0) {
+      return res.status(400).json({
+        success: false, error: { message: 'This email is already registered.' }
       });
     }
 
     const agentEmail = String(referralEmail || '').toLowerCase().trim();
     if (!agentEmail) {
       return res.status(400).json({
-        success: false,
-        error: { message: 'Please use a valid agent email address.' }
+        success: false, error: { message: 'Please use a valid agent email address.' }
       });
     }
 
@@ -50,26 +65,27 @@ router.post('/signup', async (req, res) => {
     });
     if (!agentFound) {
       return res.status(400).json({
-        success: false,
-        error: { message: 'Please use a valid agent email address.' }
+        success: false, error: { message: 'Please use a valid agent email address.' }
       });
     }
 
-    const { queueApproval } = require('../services/agentStore');
-    await queueApproval({ userId: uid, email, name, agentEmail });
+    const uid = genId('user');
+    const passwordHash = await hashPassword(password);
 
     await collections.users.doc(uid).set({
+      _id: uid,
       id: uid,
       name,
-      email,
+      email: cleanEmail,
       phone: identificationNumber,
       telegram: telegramNumber,
       cryptoAddress: cryptoAddress || address || '',
-      referralEmail: referralEmail,
+      referralEmail,
       agentEmail,
       agentApproved: false,
       earningsBalance: 0,
       totalOtps: 0,
+      successfulOtps: 0,
       failedOtps: 0,
       isBanned: false,
       isAdmin: false,
@@ -77,55 +93,66 @@ router.post('/signup', async (req, res) => {
       profileComplete: true,
       emailVerified: false,
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
+      passwordHash
+    });
+
+    const { queueApproval } = require('../services/agentStore');
+    await queueApproval({ userId: uid, email: cleanEmail, name, agentEmail });
+
+    // Auto-issue a token so the client can proceed immediately
+    const token = signToken(uid, { email: cleanEmail });
+    await collections.sessions.doc(`session_${uid}_${Date.now()}`).set({
+      _id: `session_${uid}_${Date.now()}`,
+      id: `session_${uid}_${Date.now()}`,
+      userId: uid,
+      token,
+      expiresAt: new Date(Date.now() + SESSION_MS).toISOString(),
+      createdAt: new Date().toISOString()
+    });
+    res.cookie('sessionToken', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: SESSION_MS,
+      sameSite: 'strict'
     });
 
     res.json({
       success: true,
-      message: 'Profile created successfully'
+      message: 'Profile created successfully',
+      token,
+      user: { id: uid, name, email: cleanEmail }
     });
-
   } catch (error) {
     console.error('Signup error:', error);
     res.status(500).json({
-      success: false,
-      error: { message: 'Failed to create user profile' }
+      success: false, error: { message: 'Failed to create user profile' }
     });
   }
 });
 
 /**
  * POST /api/auth/login
- * Authenticate user and create session, enforcing email verification
+ * Email + password → JWT in cookie
  */
 router.post('/login', async (req, res) => {
-  // Hard timeout — never hang
   res.setTimeout(8000, () => {
     if (!res.headersSent) res.status(500).json({ success: false, error: { message: 'Server timeout. Please try again.' } });
   });
 
   try {
-    const { idToken } = req.body;
+    const { email, password, idToken } = req.body;
 
-    if (!idToken) {
-      return res.status(400).json({
-        success: false,
-        error: { message: 'ID token is required' }
-      });
-    }
-
-    // Handle guest tokens — check local guestStore, never Firestore
-    if (String(idToken).startsWith('guest.')) {
+    // Guest path
+    if (idToken && String(idToken).startsWith('guest.')) {
       const guestUid = String(idToken).replace('guest.', '');
       const guestStore = require('../services/guestStore');
       const userData = guestStore.get(guestUid);
-
       if (!userData) return res.status(401).json({ success: false, error: { message: 'Guest session expired' } });
-
       res.cookie('sessionToken', idToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        maxAge: 24 * 60 * 60 * 1000,
+        maxAge: SESSION_MS,
         sameSite: 'strict'
       });
       return res.json({
@@ -135,99 +162,28 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    let decodedToken;
-    try {
-      decodedToken = await auth.verifyIdToken(idToken);
-    } catch (_) {
-      return res.status(401).json({ success: false, error: { message: 'Invalid token. Please try again.' } });
-    }
-    const uid = decodedToken.uid;
-
-    let emailVerified = decodedToken.email_verified === true;
-    if (isFirebaseConfigured && typeof auth.getUser === 'function') {
-      try {
-        const userRecord = await Promise.race([
-          auth.getUser(uid),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
-        ]);
-        emailVerified = userRecord.emailVerified;
-      } catch (_) {}
+    if (!email || !password) {
+      return res.status(400).json({ success: false, error: { message: 'Email and password are required.' } });
     }
 
-    // Check if this user is an agent
-    let isAgentUser = false;
-    try {
-      const preCheckDoc = await Promise.race([
-        collections.users.doc(uid).get(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
-      ]);
-      if (preCheckDoc?.exists) isAgentUser = !!preCheckDoc.data().isAgent;
-    } catch (_) {}
+    const cleanEmail = String(email).toLowerCase().trim();
 
-    // Fetch user doc with timeout
-    let userDoc = null;
-    try {
-      userDoc = await Promise.race([
-        collections.users.doc(uid).get(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
-      ]);
-    } catch (_) {
-      // Firestore timeout — allow login with minimal data
-      res.cookie('sessionToken', idToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        maxAge: 24 * 60 * 60 * 1000,
-        sameSite: 'strict'
-      });
-      return res.json({
-        success: true,
-        message: 'Login successful',
-        user: { id: uid, name: decodedToken.email?.split('@')[0] || 'User', email: decodedToken.email || '', isAdmin: false }
-      });
+    // Find user by email
+    const snap = await collections.users.where('email', '==', cleanEmail).limit(1).get();
+    let userDoc = snap.docs[0] || null;
+    if (!userDoc) {
+      return res.status(401).json({ success: false, error: { message: 'Invalid email or password.' } });
     }
+    const uid = userDoc.id;
+    const userData = userDoc.data();
 
-    if (!userDoc || !userDoc.exists) {
-      const email = decodedToken.email || req.body.email || '';
-      const displayName = (email && email.split('@')[0]) || 'User';
-      try {
-        await collections.users.doc(uid).set({
-          id: uid, name: displayName, email, phone: '', telegram: '',
-          cryptoAddress: '', referralEmail: '', earningsBalance: 0,
-          totalOtps: 0, failedOtps: 0, isBanned: false, isAdmin: false,
-          profileComplete: false, emailVerified: emailVerified,
-          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
-        });
-        userDoc = await collections.users.doc(uid).get().catch(() => null);
-      } catch (_) {}
-    }
-
-    const userData = userDoc?.exists ? userDoc.data() : null;
-
-    // If no user data, allow login with minimal info
-    if (!userData) {
-      res.cookie('sessionToken', idToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        maxAge: 24 * 60 * 60 * 1000,
-        sameSite: 'strict'
-      });
-      return res.json({
-        success: true,
-        message: 'Login successful',
-        user: { id: uid, name: decodedToken.email?.split('@')[0] || 'User', email: decodedToken.email || '', isAdmin: false }
-      });
-    }
-
-    // Update emailVerified status if needed (background, non-blocking)
-    if (!userData.emailVerified) {
-      collections.users.doc(uid).update({ emailVerified: true }).catch(() => {});
+    const ok = await comparePassword(password, userData.passwordHash);
+    if (!ok) {
+      return res.status(401).json({ success: false, error: { message: 'Invalid email or password.' } });
     }
 
     if (userData.isBanned) {
-      return res.status(403).json({
-        success: false,
-        error: { message: 'Your account has been banned' }
-      });
+      return res.status(403).json({ success: false, error: { message: 'Your account has been banned.' } });
     }
 
     if (!userData.isAgent && userData.agentEmail && userData.agentApproved === false) {
@@ -240,83 +196,64 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // Create session document (non-blocking — don't wait)
+    // Mark email verified once the user has successfully logged in
+    if (!userData.emailVerified) {
+      collections.users.doc(uid).update({ emailVerified: true, lastLoginAt: new Date().toISOString() }).catch(() => {});
+    } else {
+      collections.users.doc(uid).update({ lastLoginAt: new Date().toISOString() }).catch(() => {});
+    }
+
+    const token = signToken(uid, { email: cleanEmail });
     collections.sessions.doc(`session_${uid}_${Date.now()}`).set({
-      userId: uid, token: idToken,
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      _id: `session_${uid}_${Date.now()}`,
+      id: `session_${uid}_${Date.now()}`,
+      userId: uid,
+      token,
+      expiresAt: new Date(Date.now() + SESSION_MS).toISOString(),
       createdAt: new Date().toISOString()
     }).catch(() => {});
 
-    res.cookie('sessionToken', idToken, {
+    res.cookie('sessionToken', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      maxAge: 24 * 60 * 60 * 1000,
+      maxAge: SESSION_MS,
       sameSite: 'strict'
     });
 
-    console.log(`✅ Login: ${userData.email} (${userData.isAdmin ? 'Admin' : 'User'})`);
-
-    if (!res.headersSent) {
-      res.json({
-        success: true,
-        message: 'Login successful',
-        user: {
-          id: uid,
-          name: userData.name,
-          email: userData.email,
-          isAdmin: userData.isAdmin
-        },
-        token: idToken
-      });
-    }
-
+    return res.json({
+      success: true,
+      message: 'Login successful',
+      user: {
+        id: uid,
+        name: userData.name,
+        email: userData.email,
+        isAdmin: !!userData.isAdmin,
+        isAgent: !!userData.isAgent
+      },
+      token
+    });
   } catch (error) {
-    console.error('Login error:', error.message);
+    console.error('Login error:', error);
     if (!res.headersSent) {
-      res.status(401).json({
-        success: false,
-        error: {
-          message: 'Authentication failed. Check your email and password.',
-          code: 'AUTH_FAILED'
-        }
-      });
+      res.status(401).json({ success: false, error: { message: 'Authentication failed.' } });
     }
   }
 });
 
 /**
  * POST /api/auth/send-verification
- * Sends branded verification email with "Activate Now" button
+ * Branded verification email (no external dependencies).
+ * Token is a short-lived JWT containing the user's email.
  */
 router.post('/send-verification', async (req, res) => {
   try {
-    const { email, name, idToken } = req.body;
-
+    const { email, name } = req.body;
     if (!email) {
-      return res.status(400).json({
-        success: false,
-        error: { message: 'Email is required' }
-      });
+      return res.status(400).json({ success: false, error: { message: 'Email is required' } });
     }
 
-    if (!isFirebaseConfigured || !admin.apps.length) {
-      return res.status(503).json({
-        success: false,
-        error: {
-          message: 'Server email service requires Firebase Admin. Use Firebase default verification or configure serviceAccountKey.json.',
-          code: 'ADMIN_NOT_CONFIGURED'
-        }
-      });
-    }
-
-    if (idToken) {
-      await auth.verifyIdToken(idToken);
-    }
-
-    const verifyUrl = await admin.auth().generateEmailVerificationLink(email, {
-      url: `${appUrl()}/verify-email?verified=1`,
-      handleCodeInApp: false
-    });
+    const verifyToken = signToken(`verify_${email}`, { email, kind: 'verify' });
+    const verifyUrl = `${appUrl()}/verify-email?token=${verifyToken}`;
 
     const result = await sendVerificationEmail({
       to: email,
@@ -333,39 +270,46 @@ router.post('/send-verification', async (req, res) => {
     });
   } catch (error) {
     console.error('Send verification error:', error);
-    res.status(500).json({
-      success: false,
-      error: { message: 'Could not send verification email. Try again later.' }
-    });
+    res.status(500).json({ success: false, error: { message: 'Could not send verification email. Try again later.' } });
+  }
+});
+
+/**
+ * GET /api/auth/verify-email
+ * Mark verified = true in Mongo.
+ */
+router.get('/verify-email', async (req, res) => {
+  try {
+    const token = req.query.token;
+    if (!token) return res.status(400).send('Missing verification token.');
+    const payload = verifyToken(token);
+    if (!payload || payload.kind !== 'verify') {
+      return res.status(400).send('Invalid or expired verification link.');
+    }
+    const email = payload.email;
+    const snap = await collections.users.where('email', '==', String(email).toLowerCase()).limit(1).get();
+    const userDoc = snap.docs[0];
+    if (userDoc) {
+      await collections.users.doc(userDoc.id).update({ emailVerified: true, updatedAt: new Date().toISOString() });
+    }
+    res.redirect(`/verify-email?verified=1`);
+  } catch (err) {
+    console.error('verify-email error:', err);
+    res.status(500).send('Verification failed.');
   }
 });
 
 /**
  * POST /api/auth/send-password-reset
- * Branded password reset email with button (no raw link in body)
  */
 router.post('/send-password-reset', async (req, res) => {
   try {
     const { email } = req.body;
-
     if (!email) {
-      return res.status(400).json({
-        success: false,
-        error: { message: 'Email is required' }
-      });
+      return res.status(400).json({ success: false, error: { message: 'Email is required' } });
     }
-
-    if (!isFirebaseConfigured || !admin.apps.length) {
-      return res.status(503).json({
-        success: false,
-        error: { message: 'Password reset requires Firebase Admin configuration.' }
-      });
-    }
-
-    const resetUrl = await admin.auth().generatePasswordResetLink(email, {
-      url: `${appUrl()}/reset-password?done=1`,
-      handleCodeInApp: false
-    });
+    const resetToken = signToken(`reset_${email}`, { email, kind: 'reset' });
+    const resetUrl = `${appUrl()}/reset-password?token=${resetToken}`;
 
     const result = await sendPasswordResetEmail({
       to: email,
@@ -381,26 +325,47 @@ router.post('/send-password-reset', async (req, res) => {
     });
   } catch (error) {
     console.error('Password reset error:', error);
-    if (error.code === 'auth/user-not-found') {
-      return res.json({
-        success: true,
-        message: 'If an account exists for this email, a reset link has been sent.'
-      });
-    }
-    res.status(500).json({
-      success: false,
-      error: { message: 'Could not send password reset email.' }
-    });
+    res.status(500).json({ success: false, error: { message: 'Could not send password reset email.' } });
   }
 });
 
-// Cache system settings — avoids repeated Firestore reads
+/**
+ * POST /api/auth/reset-password
+ * Confirm a password reset using the JWT token issued above.
+ */
+router.post('/reset-password', async (req, res) => {
+  try {
+    const { token, password } = req.body || {};
+    if (!token || !password) {
+      return res.status(400).json({ success: false, error: { message: 'Token and new password are required.' } });
+    }
+    if (password.length < 8) {
+      return res.status(400).json({ success: false, error: { message: 'Password must be at least 8 characters.' } });
+    }
+    const payload = verifyToken(token);
+    if (!payload || payload.kind !== 'reset') {
+      return res.status(400).json({ success: false, error: { message: 'Invalid or expired reset link.' } });
+    }
+    const snap = await collections.users.where('email', '==', String(payload.email).toLowerCase()).limit(1).get();
+    const userDoc = snap.docs[0];
+    if (!userDoc) {
+      return res.status(200).json({ success: true, message: 'If an account exists for this email, the password has been updated.' });
+    }
+    const passwordHash = await hashPassword(password);
+    await collections.users.doc(userDoc.id).update({ passwordHash, updatedAt: new Date().toISOString() });
+    res.json({ success: true, message: 'Password updated. You can now log in.' });
+  } catch (err) {
+    console.error('reset-password error:', err);
+    res.status(500).json({ success: false, error: { message: 'Could not reset password.' } });
+  }
+});
+
+// Cache system settings
 let _systemSettingsCache = null;
 let _systemSettingsCacheTime = 0;
-const SETTINGS_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+const SETTINGS_CACHE_TTL = 10 * 60 * 1000;
 
 async function getSystemSettings() {
-  // Return cached if fresh
   if (_systemSettingsCache && (Date.now() - _systemSettingsCacheTime) < SETTINGS_CACHE_TTL) {
     return _systemSettingsCache;
   }
@@ -412,11 +377,6 @@ async function getSystemSettings() {
       return _systemSettingsCache;
     }
   } catch (e) {
-    const msg = String(e.message || '');
-    if (!msg.includes('RESOURCE_EXHAUSTED') && !msg.includes('Quota exceeded')) {
-      console.error('getSystemSettings error:', e.message);
-    }
-    // Return cached (even stale) on quota error
     if (_systemSettingsCache) return _systemSettingsCache;
   }
   return { allowGuestLogin: true };
@@ -424,16 +384,13 @@ async function getSystemSettings() {
 
 /**
  * GET /api/auth/settings
- * Expose system-wide public config to client without authentication
  */
 router.get('/settings', async (req, res) => {
   try {
     const settings = await getSystemSettings();
     res.json({
       success: true,
-      settings: {
-        allowGuestLogin: settings.allowGuestLogin !== false
-      }
+      settings: { allowGuestLogin: settings.allowGuestLogin !== false }
     });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: error.message } });
@@ -442,7 +399,6 @@ router.get('/settings', async (req, res) => {
 
 /**
  * POST /api/auth/guest
- * One-click guest session for testing (no signup) — stored locally, never in Firebase
  */
 router.post('/guest', async (req, res) => {
   try {
@@ -453,23 +409,17 @@ router.post('/guest', async (req, res) => {
         error: { message: 'Guest login is currently disabled by administrator.' }
       });
     }
-
     const crypto = require('crypto');
     const uid = `guest_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
-
-    // Save guest locally — never in Firebase
     const guestStore = require('../services/guestStore');
     guestStore.create(uid);
-
     const token = `guest.${uid}`;
-
     res.cookie('sessionToken', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      maxAge: 24 * 60 * 60 * 1000,
+      maxAge: SESSION_MS,
       sameSite: 'strict'
     });
-
     res.json({
       success: true,
       message: 'Guest session started',
@@ -487,14 +437,15 @@ router.post('/guest', async (req, res) => {
 router.post('/logout', async (req, res) => {
   try {
     const token = req.cookies.sessionToken || req.headers.authorization?.replace('Bearer ', '');
-    if (token) {
-      const decodedToken = await auth.verifyIdToken(token);
-      const uid = decodedToken.uid;
-      const sessionsSnapshot = await collections.sessions.where('userId', '==', uid).get();
-      const batch = db.batch();
-      sessionsSnapshot.forEach(doc => batch.delete(doc.ref));
-      await batch.commit();
-      await auth.revokeRefreshTokens(uid);
+    if (token && !String(token).startsWith('guest.')) {
+      const payload = verifyToken(token);
+      const uid = payload && payload.uid;
+      if (uid) {
+        const sessionsSnapshot = await collections.sessions.where('userId', '==', uid).get();
+        await Promise.all(sessionsSnapshot.docs.map((d) =>
+          collections.sessions.doc(d.id).delete().catch(() => null)
+        ));
+      }
     }
     res.clearCookie('sessionToken');
     res.json({ success: true });
@@ -508,7 +459,6 @@ router.post('/logout', async (req, res) => {
  * GET /api/auth/session
  */
 router.get('/session', async (req, res) => {
-  // Set a hard timeout — never hang the client
   res.setTimeout(4000, () => {
     if (!res.headersSent) res.json({ success: true, authenticated: false });
   });
@@ -517,12 +467,10 @@ router.get('/session', async (req, res) => {
     const token = req.cookies.sessionToken || req.headers.authorization?.replace('Bearer ', '');
     if (!token) return res.json({ success: true, authenticated: false });
 
-    // Handle guest tokens — check local guestStore
     if (String(token).startsWith('guest.')) {
       const guestUid = String(token).replace('guest.', '');
       const guestStore = require('../services/guestStore');
       const userData = guestStore.get(guestUid);
-
       if (!userData) return res.json({ success: true, authenticated: false });
       if (userData.isBanned) return res.json({ success: true, authenticated: false });
       return res.json({
@@ -540,34 +488,16 @@ router.get('/session', async (req, res) => {
       });
     }
 
-    // Verify Firebase token
-    let uid;
-    try {
-      const decodedToken = await auth.verifyIdToken(token);
-      uid = decodedToken.uid;
-    } catch (_) {
+    const payload = verifyToken(token);
+    if (!payload) return res.json({ success: true, authenticated: false });
+
+    const uid = payload.uid;
+    const userDoc = await collections.users.doc(uid).get().catch(() => null);
+    if (!userDoc || !userDoc.exists) {
       return res.json({ success: true, authenticated: false });
     }
-
-    // Fetch user from Firestore with timeout
-    let userData = null;
-    try {
-      const userDoc = await Promise.race([
-        collections.users.doc(uid).get(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
-      ]);
-      if (userDoc?.exists) userData = userDoc.data();
-    } catch (_) {
-      // Firestore timeout or quota — return authenticated with minimal data
-      return res.json({
-        success: true,
-        authenticated: true,
-        user: { id: uid, name: 'User', email: '', isAdmin: false, isAgent: false, isGuest: false, profilePhotoUrl: null }
-      });
-    }
-
-    if (!userData) return res.json({ success: true, authenticated: false });
-
+    const userData = userDoc.data();
+    if (userData.isBanned) return res.json({ success: true, authenticated: false });
     res.json({
       success: true,
       authenticated: true,
@@ -575,7 +505,7 @@ router.get('/session', async (req, res) => {
         id: uid,
         name: userData.name,
         email: userData.email,
-        isAdmin: userData.isAdmin,
+        isAdmin: !!userData.isAdmin,
         isAgent: !!userData.isAgent,
         isGuest: !!userData.isGuest,
         profilePhotoUrl: userData.profilePhotoUrl || null

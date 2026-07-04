@@ -3,14 +3,14 @@
  */
 
 import {
-    auth,
-    createUserWithEmailAndPassword,
-    signInWithEmailAndPassword,
-    isFirebaseConfigured,
-    firebaseReady
-} from '../firebase-config.js';
+    loginWithEmail,
+    signupWithEmail,
+    sendPasswordReset,
+    startGuestSession,
+    fetchSession
+} from '../auth-config.js';
 
-const FIREBASE_ERRORS = {
+const AUTH_ERRORS = {
     'auth/invalid-credential': 'Invalid email or password.',
     'auth/wrong-password': 'Invalid email or password.',
     'auth/user-not-found': 'No account found with this email.',
@@ -36,8 +36,8 @@ export class AuthPage {
         this.allowGuestLogin = true;
     }
 
-    mapFirebaseError(error) {
-        return FIREBASE_ERRORS[error?.code] || error?.message || 'Something went wrong. Please try again.';
+    mapAuthError(error) {
+        return AUTH_ERRORS[error?.code] || error?.message || 'Something went wrong. Please try again.';
     }
 
     validateForm() {
@@ -60,22 +60,16 @@ export class AuthPage {
     }
 
     async sendVerificationEmail(user) {
-        const idToken = await user.getIdToken();
         const res = await fetch('/api/auth/send-verification', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 email: user.email,
-                name: this.formData.name || user.email.split('@')[0],
-                idToken
+                name: this.formData.name || (user.email || '').split('@')[0]
             })
         });
-        let data;
-        try {
-            data = await res.json();
-        } catch (e) {
-            data = {};
-        }
+        let data = {};
+        try { data = await res.json(); } catch (_) {}
 
         if (res.ok) {
             if (data.preview) {
@@ -83,14 +77,7 @@ export class AuthPage {
             }
             return { ok: true, preview: data.preview };
         }
-
-        // If Firebase Admin is not configured, skip verification in development
-        if (data.error?.code === 'ADMIN_NOT_CONFIGURED') {
-            console.warn('Firebase Admin not configured - skipping email verification in development');
-            return { ok: true, skipped: true };
-        }
-
-        throw new Error(data.error?.message || 'Could not send verification email. Add config/serviceAccountKey.json and SMTP settings in .env');
+        throw new Error(data.error?.message || 'Could not send verification email. Configure SMTP in admin settings.');
     }
 
     async handleForgotPassword(e) {
@@ -105,23 +92,14 @@ export class AuthPage {
         this.renderModal();
 
         try {
-            await firebaseReady;
-
-            const res = await fetch('/api/auth/send-password-reset', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: this.formData.email })
-            });
-
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok) {
-                throw new Error(data.error?.message || 'Could not send reset email. Configure Firebase Admin + SMTP in .env');
+            const r = await sendPasswordReset(this.formData.email);
+            if (!r.ok) {
+                throw new Error(r.data?.error?.message || 'Could not send reset email. Configure SMTP in admin settings.');
             }
-
             this.errors.submit = null;
             this.showNotice('Check your email and tap the <strong>Reset Password</strong> button (no link text in the email).');
         } catch (error) {
-            this.errors.submit = this.mapFirebaseError(error);
+            this.errors.submit = this.mapAuthError(error);
         }
 
         this.isLoading = false;
@@ -137,15 +115,20 @@ export class AuthPage {
         this.isLoading = true;
         this.renderModal();
         try {
-            if (!isFirebaseConfigured || !auth) throw new Error('Auth unavailable');
-            const { signInWithEmailAndPassword: signIn } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js');
-            const cred = await signIn(auth, this.formData.email, this.formData.password);
-            await this.sendVerificationEmail(cred.user);
-            await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js').then(m => m.signOut(auth));
+            const r = await fetch('/api/auth/send-verification', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    email: this.formData.email,
+                    name: this.formData.email.split('@')[0]
+                })
+            });
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(data.error?.message || 'Could not send verification email');
             this.errors.submit = null;
             this.showNotice('Verification email sent! Tap <strong>Activate Now</strong> in your inbox.', 'green');
         } catch (e) {
-            this.errors.submit = 'Enter your correct password to resend verification, or sign up again.';
+            this.errors.submit = e.message || 'Could not resend verification email.';
         }
         this.isLoading = false;
         this.renderModal();
@@ -159,73 +142,42 @@ export class AuthPage {
         this.renderModal();
 
         try {
-            await firebaseReady;
-
             if (this.isLoginMode) {
-                if (isFirebaseConfigured && auth) {
-                    const cred = await signInWithEmailAndPassword(auth, this.formData.email, this.formData.password);
-                    await cred.user.reload();
-                    // In development mode, we'll let the server decide if email verification is required
-                    // If the server returns EMAIL_NOT_VERIFIED error, we'll show the resend option
-                    const idToken = await cred.user.getIdToken(true);
-                    const res = await fetch('/api/auth/login', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            idToken,
-                            email: cred.user.email
-                        })
-                    });
-                    let data;
-                    try {
-                        data = await res.json();
-                    } catch (e) {
-                        // Response is not JSON, might be HTML
-                        console.error('Login API returned non-JSON response:', res.status);
-                        this.errors.submit = 'Server error. Please try again.';
-                        this.isLoading = false;
-                        this.renderModal();
-                        return;
-                    }
-                    if (res.ok) {
-                        window.location.href = '/numbers';
-                        return;
-                    }
-                    this.errors.submit = data.error?.message || 'Login failed';
-                } else {
+                const r = await loginWithEmail({
+                    email: this.formData.email,
+                    password: this.formData.password
+                });
+                if (r.ok) {
                     window.location.href = '/numbers';
                     return;
                 }
-            } else if (isFirebaseConfigured && auth) {
-                const cred = await createUserWithEmailAndPassword(auth, this.formData.email, this.formData.password);
-                const signupRes = await fetch('/api/auth/signup', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ uid: cred.user.uid, ...this.formData })
+                const code = r.data?.error?.code || 'invalid-credential';
+                this.errors.submit = r.data?.error?.message || AUTH_ERRORS[`auth/${code}`] || 'Login failed';
+            } else {
+                const r = await signupWithEmail({
+                    name: this.formData.name,
+                    email: this.formData.email,
+                    password: this.formData.password,
+                    identificationNumber: this.formData.identificationNumber,
+                    telegramNumber: this.formData.telegramNumber,
+                    cryptoAddress: this.formData.cryptoAddress,
+                    referralEmail: this.formData.referralEmail
                 });
-                if (!signupRes.ok) {
-                    let err;
-                    try {
-                        err = await signupRes.json();
-                    } catch (e) {
-                        throw new Error('Server error. Please try again.');
-                    }
-                    throw new Error(err.error?.message || 'Could not save your profile');
+                if (!r.ok) {
+                    const code = r.data?.error?.code || 'unknown';
+                    throw new Error(r.data?.error?.message || AUTH_ERRORS[`auth/${code}`] || 'Could not sign up.');
                 }
-                const emailResult = await this.sendVerificationEmail(cred.user).catch(() => ({ ok: false, skipped: true }));
+                await this.sendVerificationEmail({ email: this.formData.email }).catch(() => null);
                 this.isLoginMode = true;
                 this.errors.submit = null;
                 this.isLoading = false;
                 this.renderModal();
                 this.showNotice('Account created! ✅<br>Your request has been sent to your agent. Once your agent approves your account, you can log in with your email and password.');
                 return;
-            } else {
-                window.location.href = '/numbers';
-                return;
             }
         } catch (error) {
             console.error('Auth error:', error);
-            this.errors.submit = this.mapFirebaseError(error);
+            this.errors.submit = this.mapAuthError(error);
         }
 
         this.isLoading = false;
@@ -391,9 +343,8 @@ export class AuthPage {
         this.isLoading = true;
         this.renderModal();
         try {
-            const res = await fetch('/api/auth/guest', { method: 'POST' });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error?.message || 'Guest login failed');
+            const r = await startGuestSession();
+            if (!r.ok) throw new Error(r.data?.error?.message || 'Guest login failed');
             window.location.href = '/numbers';
         } catch (error) {
             this.errors.submit = error.message;

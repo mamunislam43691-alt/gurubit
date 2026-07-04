@@ -64,12 +64,6 @@ export class LiveSMSFeed {
         <td class="text-gray-200 text-xs">${country}</td>
         <td class="text-gray-400 text-xs font-semibold">${server}</td>
         <td>
-          ${otp
-            ? `<button type="button" class="otp-copy-btn copy-line" data-copy="${otp}" data-copy-msg="OTP copied!">${otp}</button>`
-            : '<span class="text-gray-500 text-xs font-mono">——</span>'
-          }
-        </td>
-        <td>
           <div class="flex flex-col gap-0.5">
             <span class="sms-service-label">${service}</span>
             <button type="button" class="copy-line text-gray-300 text-xs text-left leading-relaxed" data-copy="${message.replace(/"/g, '&quot;')}" data-copy-msg="SMS copied!">${message || '—'}</button>
@@ -138,7 +132,6 @@ export class LiveSMSFeed {
                 <th>Number</th>
                 <th>Country</th>
                 <th>Server</th>
-                <th>OTP</th>
                 <th>SMS</th>
               </tr>
             </thead>

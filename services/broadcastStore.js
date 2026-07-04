@@ -1,9 +1,9 @@
 /**
- * Broadcast messages — Firestore backed
+ * Broadcast messages — MongoDB backed
  */
 
 const { randomBytes } = require('crypto');
-const { db } = require('../config/firebase');
+const { db } = require('../config/db');
 
 const COLLECTION = 'broadcasts';
 

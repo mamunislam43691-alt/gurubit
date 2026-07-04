@@ -1,16 +1,16 @@
 /**
  * Guru social — feed, groups, follow, reports, AI moderation
- * All data stored in Firestore — no in-memory stores
+ * All data stored in MongoDB — no in-memory stores
  */
 
 const express = require('express');
 const router = express.Router();
-const { auth, collections, db } = require('../config/firebase');
+const { collections, db } = require('../config/db');
 const postStore = require('../services/postStore');
 const { moderateContent } = require('../services/aiModeration');
-const { cachedDocGet, isQuotaError } = require('../utils/firestoreCache');
+const { verifyToken } = require('../services/authService');
 
-// User session cache — avoids repeated Firestore reads per request
+// User session cache — avoids repeated Mongo reads per request
 const _userCache = new Map(); // uid → { user, expiresAt }
 const USER_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
@@ -23,13 +23,12 @@ async function getCachedUser(uid) {
     const user = { ...doc.data(), id: uid };
     _userCache.set(uid, { user, expiresAt: Date.now() + USER_CACHE_TTL });
     return user;
-  } catch (err) {
-    if (isQuotaError(err) && cached) return cached.user; // return stale on quota error
+  } catch (_) {
+    if (cached) return cached.user; // return stale on error
     return null;
   }
 }
 
-// Firestore collections
 const ANN_COL        = 'announcements';
 const GROUP_MEM_COL  = 'groupMembers';   // doc id: groupId_userId
 const GROUP_BAN_COL  = 'groupBans';      // doc id: groupId_userId
@@ -39,11 +38,10 @@ async function verifyAuth(req, res, next) {
     const token = req.cookies.sessionToken || req.headers.authorization?.replace('Bearer ', '');
     if (!token) return res.status(401).json({ success: false, error: { message: 'Unauthorized' } });
 
-    // Handle guest tokens — check local guestStore, never Firestore
     if (String(token).startsWith('guest.')) {
       const guestUid = String(token).replace('guest.', '');
       const guestStore = require('../services/guestStore');
-      const guestData = guestStore.get(guestUid);
+      const guestData = await guestStore.get(guestUid);
       if (!guestData) return res.status(401).json({ success: false, error: { message: 'Guest session expired' } });
       req.userId = guestUid;
       req.user = { id: guestUid, ...guestData };
@@ -51,7 +49,10 @@ async function verifyAuth(req, res, next) {
       return next();
     }
 
-    const decoded = await auth.verifyIdToken(token);
+    const decoded = verifyToken(token);
+    if (!decoded || !decoded.uid) {
+      return res.status(401).json({ success: false, error: { message: 'Invalid session' } });
+    }
     req.userId = decoded.uid;
     const user = await getCachedUser(decoded.uid);
     if (!user) return res.status(401).json({ success: false, error: { message: 'User not found' } });
@@ -382,7 +383,7 @@ router.post('/groups/:id/messages', verifyAuth, async (req, res) => {
   }
 
   if (postStore.hasLink(text) && !req.user.isAdmin) {
-    // Auto-ban from group in Firestore
+    // Auto-ban from group in MongoDB
     await db.collection(GROUP_BAN_COL).doc(`${gid}_${req.userId}`).set({
       groupId: gid, userId: req.userId, bannedAt: new Date().toISOString(), bannedBy: 'system', reason: 'link_detected'
     });
@@ -407,48 +408,129 @@ router.post('/groups/:id/messages', verifyAuth, async (req, res) => {
   res.json({ success: true, message: result });
 });
 
-// ── Announcements — Firestore backed ─────────────────────────────────────────
+// ── Announcements / News Feed — MongoDB backed ─────────────────────────────
 
 const ANN_FS = () => db.collection(ANN_COL);
 
+// GET all announcements (public — no auth needed)
 router.get('/announcements', async (req, res) => {
   try {
     const snap = await ANN_FS().get();
     const items = [];
     snap.forEach(doc => items.push(doc.data()));
-    items.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    items.sort((a, b) => {
+      // Pinned first, then by date
+      if (a.pinned && !b.pinned) return -1;
+      if (!a.pinned && b.pinned) return 1;
+      return new Date(b.createdAt) - new Date(a.createdAt);
+    });
     res.json({ success: true, announcements: items });
   } catch (e) {
     res.json({ success: true, announcements: [] });
   }
 });
 
+// POST create announcement/news (admin only)
 router.post('/announcements', verifyAuth, async (req, res) => {
   if (!req.user.isAdmin) return res.status(403).json({ success: false, error: { message: 'Admin only' } });
-  const { title, body, imageData, imageUrl, linkUrl, linkLabel } = req.body || {};
+
+  const {
+    title, body, imageData, imageUrl,
+    videoUrl,                    // YouTube or direct video URL
+    linkUrl, linkLabel,          // CTA button
+    buttonText, buttonUrl,       // Alias for linkLabel/linkUrl
+    type,                        // 'announcement' | 'news' | 'update' | 'alert'
+    pinned,                      // boolean — pin to top
+    expiresAt                    // optional expiry ISO string
+  } = req.body || {};
+
   if (!title?.trim()) return res.status(400).json({ success: false, error: { message: 'Title required' } });
 
-  // Validate image if provided
   const img = imageData || imageUrl || null;
   if (img && img.length > 2_500_000) {
     return res.status(400).json({ success: false, error: { message: 'Image too large (max ~2MB)' } });
   }
 
+  // Extract YouTube video ID if YouTube URL
+  let embedVideoUrl = null;
+  if (videoUrl) {
+    const ytMatch = String(videoUrl).match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+    embedVideoUrl = ytMatch ? `https://www.youtube.com/embed/${ytMatch[1]}` : videoUrl.trim();
+  }
+
   const id = `ann_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
   const ann = {
     id,
+    type: type || 'announcement',
     title: title.trim(),
     body: (body || '').trim(),
     imageUrl: img || null,
-    linkUrl: linkUrl?.trim() || null,
-    linkLabel: linkLabel?.trim() || null,
+    videoUrl: embedVideoUrl || null,
+    linkUrl: buttonUrl?.trim() || linkUrl?.trim() || null,
+    linkLabel: buttonText?.trim() || linkLabel?.trim() || null,
+    pinned: pinned === true || pinned === 'true',
+    expiresAt: expiresAt || null,
+    active: true,
     createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
     createdBy: req.userId
   };
   await ANN_FS().doc(id).set(ann);
+
+  // Broadcast to connected users via WebSocket
+  try {
+    const wss = req.app.get('wss');
+    if (wss?.broadcast) {
+      wss.broadcast({ type: 'new_announcement', announcement: ann });
+    }
+  } catch (_) {}
+
   res.json({ success: true, announcement: ann });
 });
 
+// PUT update announcement (admin only)
+router.put('/announcements/:id', verifyAuth, async (req, res) => {
+  if (!req.user.isAdmin) return res.status(403).json({ success: false, error: { message: 'Admin only' } });
+  const doc = await ANN_FS().doc(req.params.id).get();
+  if (!doc.exists) return res.status(404).json({ success: false, error: { message: 'Not found' } });
+
+  const existing = doc.data();
+  const {
+    title, body, imageData, imageUrl,
+    videoUrl, linkUrl, linkLabel, buttonText, buttonUrl,
+    type, pinned, expiresAt, active
+  } = req.body || {};
+
+  let embedVideoUrl = existing.videoUrl;
+  if (videoUrl !== undefined) {
+    if (videoUrl) {
+      const ytMatch = String(videoUrl).match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+      embedVideoUrl = ytMatch ? `https://www.youtube.com/embed/${ytMatch[1]}` : videoUrl.trim();
+    } else {
+      embedVideoUrl = null;
+    }
+  }
+
+  const updated = {
+    ...existing,
+    title:    title?.trim() || existing.title,
+    body:     body !== undefined ? (body || '').trim() : existing.body,
+    imageUrl: imageData || imageUrl || existing.imageUrl,
+    videoUrl: embedVideoUrl,
+    linkUrl:  buttonUrl?.trim() || linkUrl?.trim() || existing.linkUrl,
+    linkLabel: buttonText?.trim() || linkLabel?.trim() || existing.linkLabel,
+    type:     type || existing.type,
+    pinned:   pinned !== undefined ? (pinned === true || pinned === 'true') : existing.pinned,
+    expiresAt: expiresAt !== undefined ? expiresAt : existing.expiresAt,
+    active:   active !== undefined ? !!active : existing.active,
+    updatedAt: new Date().toISOString()
+  };
+
+  await ANN_FS().doc(req.params.id).set(updated);
+  res.json({ success: true, announcement: updated });
+});
+
+// DELETE announcement (admin only)
 router.delete('/announcements/:id', verifyAuth, async (req, res) => {
   if (!req.user.isAdmin) return res.status(403).json({ success: false, error: { message: 'Admin only' } });
   await ANN_FS().doc(req.params.id).delete();

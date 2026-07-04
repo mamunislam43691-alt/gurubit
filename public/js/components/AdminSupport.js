@@ -72,6 +72,15 @@ export class AdminSupport {
 
         }
 
+        if (data.type === 'support_session_deleted' && data.sessionId) {
+          this.sessions = this.sessions.filter((s) => s.id !== data.sessionId);
+          if (this.activeId === data.sessionId) {
+            this.activeId = null;
+            this.messages = [];
+          }
+          this.renderPage();
+        }
+
         if (data.type === 'support_session_new' && data.session) {
 
           const exists = this.sessions.some((s) => s.id === data.session.id);
@@ -240,6 +249,27 @@ export class AdminSupport {
     });
   }
 
+  async deleteSession(id) {
+    if (!id || !confirm('Delete this conversation and all messages?')) return;
+    try {
+      const res = await fetch(`/api/support/admin/sessions/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        this.sessions = this.sessions.filter((s) => s.id !== id);
+        if (this.activeId === id) {
+          this.activeId = null;
+          this.messages = [];
+        }
+        this.renderPage();
+        showToast('Conversation deleted');
+      } else {
+        alert(data.error?.message || 'Delete failed');
+      }
+    } catch (e) {
+      console.error('Delete session failed', e);
+    }
+  }
+
   async deleteMessage(msgId) {
     if (!this.activeId || !msgId) return;
     const res = await fetch(`/api/support/admin/sessions/${this.activeId}/messages/${msgId}`, { method: 'DELETE' });
@@ -307,11 +337,11 @@ export class AdminSupport {
 
       return `
 
-        <button type="button" data-session-id="${s.id}" class="w-full text-left px-4 py-4 border-b border-gray-800 hover:bg-black/30 ${active ? 'bg-primary/10 border-l-2 border-l-primary' : ''}">
+        <button type="button" data-session-id="${s.id}" class="group w-full text-left px-4 py-4 border-b border-gray-800 hover:bg-black/30 ${active ? 'bg-primary/10 border-l-2 border-l-primary' : ''}">
 
-          <motion.div class="flex justify-between gap-2">
+          <div class="flex justify-between gap-2">
 
-            <div class="min-w-0">
+            <div class="min-w-0 flex-1">
 
               <p class="font-bold text-white text-sm truncate">${this.esc(s.visitorName)}</p>
 
@@ -321,9 +351,14 @@ export class AdminSupport {
 
             </div>
 
-            ${unread ? `<span class="bg-primary text-dark text-[10px] font-black px-2 py-0.5 rounded-full">${s.unreadAdmin}</span>` : ''}
+            <div class="flex items-start gap-2 shrink-0">
+              ${unread ? `<span class="bg-primary text-dark text-[10px] font-black px-2 py-0.5 rounded-full">${s.unreadAdmin}</span>` : ''}
+              <button type="button" data-delete-session="${s.id}" class="w-6 h-6 rounded-lg bg-white/5 hover:bg-red-500/20 flex items-center justify-center text-gray-500 hover:text-red-400 transition-all opacity-0 group-hover:opacity-100" title="Delete conversation" onclick="event.stopPropagation()">
+                <i class="fas fa-trash text-[9px]"></i>
+              </button>
+            </div>
 
-          </motion.div>
+          </div>
 
         </button>`;
 
@@ -448,9 +483,17 @@ export class AdminSupport {
     });
 
     document.querySelectorAll('[data-session-id]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        if (e.target.closest('[data-delete-session]')) return;
+        this.selectSession(btn.dataset.sessionId);
+      });
+    });
 
-      btn.addEventListener('click', () => this.selectSession(btn.dataset.sessionId));
-
+    document.querySelectorAll('[data-delete-session]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.deleteSession(btn.dataset.deleteSession);
+      });
     });
 
     document.getElementById('adminSupportSend')?.addEventListener('click', () => this.sendReply());

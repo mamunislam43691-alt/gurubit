@@ -1327,3 +1327,65 @@ html.light .mobile-nav-item.is-active {
   /* Faster tap response */
   * { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 }
+
+/* ── News Feed ─────────────────────────────────────────────────────── */
+.news-feed-section {
+  @apply mb-6;
+}
+.news-feed-heading {
+  @apply text-xs font-black text-gray-400 uppercase tracking-widest mb-3 flex items-center;
+}
+.news-feed-list {
+  @apply space-y-3;
+}
+.news-item {
+  @apply glass-card p-4 border border-white/5 transition-all;
+}
+.news-item--pinned {
+  @apply border-primary/25 bg-primary/5;
+}
+.news-item-header {
+  @apply flex items-center gap-2 mb-2 flex-wrap;
+}
+.news-type-badge {
+  @apply px-2 py-0.5 rounded text-[10px] font-black uppercase;
+}
+.news-pin-badge {
+  @apply text-[10px];
+}
+.news-time {
+  @apply text-[10px] text-gray-600 ml-auto;
+}
+.news-title {
+  @apply font-black text-white text-sm mb-2 leading-tight;
+}
+.news-body p {
+  @apply text-gray-300 text-xs leading-relaxed;
+}
+.news-body--collapsed p {
+  @apply line-clamp-3;
+}
+.news-expand-btn {
+  @apply text-[10px] text-primary font-bold mt-1 hover:underline;
+}
+.news-media {
+  @apply mt-3 mb-2 rounded-xl overflow-hidden border border-white/5;
+}
+.news-image {
+  @apply w-full max-h-64 object-cover;
+}
+.news-video-wrap {
+  @apply aspect-video bg-black;
+}
+.news-video {
+  @apply w-full h-full;
+}
+.news-cta {
+  @apply mt-3;
+}
+.news-cta-btn {
+  @apply inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary/20 text-primary border border-primary/30 text-xs font-black hover:bg-primary/30 transition-all;
+}
+.news-empty {
+  @apply text-center py-8 text-gray-600;
+}

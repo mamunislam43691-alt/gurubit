@@ -1,18 +1,22 @@
 /**
  * Agent panel API — members, approvals, stats
- * All store calls are async (Firestore backed)
+ * All store calls are async (MongoDB backed).
  */
 
 const express = require('express');
 const router = express.Router();
-const { auth, collections, db } = require('../config/firebase');
+const { collections, db } = require('../config/db');
+const { verifyToken } = require('../services/authService');
 const agentStore = require('../services/agentStore');
 
 async function verifyAuth(req, res, next) {
   try {
     const token = req.cookies.sessionToken || req.headers.authorization?.replace('Bearer ', '');
     if (!token) return res.status(401).json({ success: false, error: { message: 'Unauthorized' } });
-    const decodedToken = await auth.verifyIdToken(token);
+    const decodedToken = verifyToken(token);
+    if (!decodedToken || !decodedToken.uid) {
+      return res.status(401).json({ success: false, error: { message: 'Invalid token' } });
+    }
     req.userId = decodedToken.uid;
     next();
   } catch {
@@ -24,7 +28,10 @@ async function verifyAgent(req, res, next) {
   try {
     const token = req.cookies.sessionToken || req.headers.authorization?.replace('Bearer ', '');
     if (!token) return res.status(401).json({ success: false, error: { message: 'Unauthorized' } });
-    const decodedToken = await auth.verifyIdToken(token);
+    const decodedToken = verifyToken(token);
+    if (!decodedToken || !decodedToken.uid) {
+      return res.status(401).json({ success: false, error: { message: 'Invalid token' } });
+    }
     req.userId = decodedToken.uid;
     const userDoc = await collections.users.doc(req.userId).get();
     if (!userDoc.exists || !userDoc.data().isAgent) {
@@ -32,7 +39,7 @@ async function verifyAgent(req, res, next) {
     }
     req.agent = userDoc.data();
     next();
-  } catch (e) {
+  } catch {
     return res.status(401).json({ success: false, error: { message: 'Invalid token' } });
   }
 }
@@ -100,6 +107,22 @@ router.get('/dashboard', verifyAgent, async (req, res) => {
     const totalNumbers = members.reduce((s, m) => s + (numberCounts.get(m.id) || 0), 0);
     const bannedMembers = members.filter((m) => !!m.isBanned).length;
 
+    // Count failed numbers for this agent's team
+    let failedNumbers = 0;
+    try {
+      const memberIds = members.map(m => m.id);
+      // Batch query in chunks of 10 (MongoDB 'in' limit workaround)
+      for (let i = 0; i < memberIds.length; i += 10) {
+        const batch = memberIds.slice(i, i + 10);
+        const failedSnap = await collections.phoneNumbers
+          .where('userId', 'in', batch)
+          .get();
+        failedSnap.forEach(doc => {
+          if (doc.data().status === 'failed') failedNumbers++;
+        });
+      }
+    } catch {}
+
     res.json({
       success: true,
       agent: { name: req.agent.name, email: req.agent.email },
@@ -109,7 +132,8 @@ router.get('/dashboard', verifyAgent, async (req, res) => {
         bannedMembers,
         pendingApprovals: pending.length,
         totalSms: members.reduce((s, m) => s + (m.totalOtps || 0), 0),
-        totalNumbers
+        totalNumbers,
+        failedNumbers
       },
       members: memberStats,
       pending
@@ -194,7 +218,7 @@ router.delete('/users/:userId', verifyAgent, async (req, res) => {
       return res.status(403).json({ success: false, error: { message: 'Not your member' } });
     }
 
-    // Delete user from Firestore
+    // Delete user from MongoDB
     await collections.users.doc(userId).delete();
 
     // Delete any approvals associated with this user

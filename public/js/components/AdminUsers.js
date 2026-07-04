@@ -3,6 +3,7 @@
  */
 
 import { AdminLayout } from './AdminLayout.js';
+import { adminFetch } from '../utils/adminAuth.js';
 
 export class AdminUsers {
   constructor() {
@@ -19,34 +20,239 @@ export class AdminUsers {
 
   async loadData() {
     if (this.agentsOnly) {
-      const aData = await fetch('/api/admin/agents/stats').then((r) => r.json());
+      const aData = await adminFetch('/api/admin/agents/stats').then((r) => r.json());
       if (aData.success) this.agents = aData.agents;
     } else {
       const q = this.search ? `?q=${encodeURIComponent(this.search)}` : '';
-      const uData = await fetch(`/api/admin/users/search${q}`).then((r) => r.json());
+      const uData = await adminFetch(`/api/admin/users/search${q}`).then((r) => r.json());
       if (uData.success) this.users = uData.users.filter((u) => !u.isAgent);
     }
     this.render();
   }
 
   async toggleBan(id, isBanned) {
-    await fetch(`/api/admin/users/${id}/${isBanned ? 'unban' : 'ban'}`, { method: 'PUT' });
+    await adminFetch(`/api/admin/users/${id}/${isBanned ? 'unban' : 'ban'}`, { method: 'PUT' });
     await this.loadData();
   }
 
   async blueVerify(id, verified) {
-    await fetch(`/api/admin/users/${id}/blue-verify`, {
+    await adminFetch(`/api/admin/users/${id}/blue-verify`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ verified })
     });
     await this.loadData();
   }
 
   async deleteUser(id) {
-    if (!confirm('Delete this account permanently?')) return;
-    await fetch(`/api/admin/users/${id}`, { method: 'DELETE' });
-    await this.loadData();
+    if (!confirm('Delete this account permanently? This cannot be undone.')) return;
+    try {
+      const res = await adminFetch(`/api/admin/users/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!data.success) {
+        alert(data.error?.message || 'Failed to delete user');
+        return;
+      }
+      await this.loadData();
+    } catch (err) {
+      if (!err.message.includes('Session expired')) alert('Network error. Failed to delete user.');
+    }
+  }
+
+  async deleteAllUsers() {
+    const confirmed = confirm(
+      '⚠️ WARNING: This will permanently delete ALL users (not admins/agents).\n\nThis action CANNOT be undone!\n\nAre you absolutely sure?'
+    );
+    if (!confirmed) return;
+    const doubleConfirm = confirm('FINAL WARNING: Are you 100% sure? Click OK to permanently delete all users.');
+    if (!doubleConfirm) return;
+
+    try {
+      const res = await adminFetch('/api/admin/users/delete-all', {
+        method: 'POST',
+        body: JSON.stringify({ confirm: 'DELETE_ALL_USERS' })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(`✅ ${data.message}`);
+        await this.loadData();
+      } else {
+        alert(data.error?.message || 'Failed to delete all users');
+      }
+    } catch (err) {
+      alert('Network error. Failed to delete all users.');
+    }
+  }
+
+  showEditUserModal(user) {
+    const m = document.createElement('div');
+    m.className = 'fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 overflow-y-auto';
+    m.innerHTML = `
+      <div class="glass-card w-full max-w-lg p-6 my-4" style="animation:fadeIn .2s ease">
+        <h3 class="font-black text-white uppercase mb-4 text-lg flex items-center gap-2">
+          <i class="fas fa-user-edit text-primary"></i> Edit User
+        </h3>
+        <form id="editUserForm" class="space-y-3">
+          <div>
+            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Name</label>
+            <input type="text" id="editName" class="input-field w-full" value="${this.esc(user.name || '')}" required>
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Email</label>
+            <input type="email" id="editEmail" class="input-field w-full" value="${this.esc(user.email || '')}" required>
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Phone</label>
+            <input type="text" id="editPhone" class="input-field w-full" value="${this.esc(user.phone || '')}">
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Telegram</label>
+            <input type="text" id="editTelegram" class="input-field w-full" value="${this.esc(user.telegram || '')}">
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">USDT TRC20 Wallet</label>
+            <input type="text" id="editWallet" class="input-field w-full" value="${this.esc(user.cryptoAddress || '')}">
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Agent Email</label>
+            <input type="email" id="editAgentEmail" class="input-field w-full" value="${this.esc(user.agentEmail || user.referralEmail || '')}">
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Earnings Balance ($)</label>
+            <input type="number" id="editBalance" class="input-field w-full" value="${user.earningsBalance || 0}" step="0.01" min="0">
+          </div>
+          <div class="flex items-center gap-3">
+            <input type="checkbox" id="editBanned" ${user.isBanned ? 'checked' : ''} class="w-4 h-4">
+            <label for="editBanned" class="text-sm text-gray-300">User is Banned</label>
+          </div>
+          <div class="flex gap-2 pt-2">
+            <button type="submit" class="neon-btn flex-1 py-3 text-xs uppercase flex items-center justify-center gap-2">
+              <i class="fas fa-save"></i> Save Changes
+            </button>
+            <button type="button" id="cancelEdit" class="flex-1 py-3 text-xs border border-white/10 rounded-lg text-gray-400 hover:bg-white/5 transition-all">
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>`;
+    document.body.appendChild(m);
+    m.querySelector('#cancelEdit')?.addEventListener('click', () => m.remove());
+    m.addEventListener('click', (e) => { if (e.target === m) m.remove(); });
+    m.querySelector('#editUserForm')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const submitBtn = m.querySelector('button[type="submit"]');
+      if (submitBtn) submitBtn.disabled = true;
+      const body = {
+        name: m.querySelector('#editName')?.value?.trim(),
+        email: m.querySelector('#editEmail')?.value?.trim(),
+        phone: m.querySelector('#editPhone')?.value?.trim(),
+        telegram: m.querySelector('#editTelegram')?.value?.trim(),
+        cryptoAddress: m.querySelector('#editWallet')?.value?.trim(),
+        agentEmail: m.querySelector('#editAgentEmail')?.value?.trim(),
+        earningsBalance: parseFloat(m.querySelector('#editBalance')?.value || 0),
+        isBanned: m.querySelector('#editBanned')?.checked
+      };
+      try {
+        const res = await adminFetch(`/api/admin/users/${user.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (data.success) {
+          m.remove();
+          await this.loadData();
+        } else {
+          alert(data.error?.message || 'Failed to update user');
+          if (submitBtn) submitBtn.disabled = false;
+        }
+      } catch (err) {
+        alert('Network error. Failed to update user.');
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    });
+  }
+
+  showAddUserModal() {
+    const m = document.createElement('div');
+    m.className = 'fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 overflow-y-auto';
+    m.innerHTML = `
+      <div class="glass-card w-full max-w-lg p-6 my-4" style="animation:fadeIn .2s ease">
+        <h3 class="font-black text-white uppercase mb-4 text-lg flex items-center gap-2">
+          <i class="fas fa-user-plus text-primary"></i> Add New User
+        </h3>
+        <p class="text-xs text-gray-400 mb-4">Admin-created users are automatically email-verified.</p>
+        <form id="addUserForm" class="space-y-3">
+          <div>
+            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Full Name *</label>
+            <input type="text" id="addUserName" class="input-field w-full" placeholder="Full Name" required>
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Email *</label>
+            <input type="email" id="addUserEmail" class="input-field w-full" placeholder="user@example.com" required>
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Password *</label>
+            <input type="password" id="addUserPassword" class="input-field w-full" placeholder="Min. 8 characters" required minlength="8">
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Phone (Optional)</label>
+            <input type="text" id="addUserPhone" class="input-field w-full" placeholder="+880...">
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Telegram (Optional)</label>
+            <input type="text" id="addUserTelegram" class="input-field w-full" placeholder="username">
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">USDT Wallet (Optional)</label>
+            <input type="text" id="addUserWallet" class="input-field w-full" placeholder="T...">
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Agent Email (Optional)</label>
+            <input type="email" id="addUserAgentEmail" class="input-field w-full" placeholder="agent@example.com">
+          </div>
+          <div class="flex gap-2 pt-2">
+            <button type="submit" class="neon-btn flex-1 py-3 text-xs uppercase flex items-center justify-center gap-2">
+              <i class="fas fa-check"></i> Create User
+            </button>
+            <button type="button" id="cancelAddUser" class="flex-1 py-3 text-xs border border-white/10 rounded-lg text-gray-400 hover:bg-white/5 transition-all">
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>`;
+    document.body.appendChild(m);
+    m.querySelector('#cancelAddUser')?.addEventListener('click', () => m.remove());
+    m.addEventListener('click', (e) => { if (e.target === m) m.remove(); });
+    m.querySelector('#addUserForm')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const submitBtn = m.querySelector('button[type="submit"]');
+      if (submitBtn) submitBtn.disabled = true;
+      const body = {
+        name: m.querySelector('#addUserName')?.value?.trim(),
+        email: m.querySelector('#addUserEmail')?.value?.trim(),
+        password: m.querySelector('#addUserPassword')?.value,
+        phone: m.querySelector('#addUserPhone')?.value?.trim(),
+        telegram: m.querySelector('#addUserTelegram')?.value?.trim(),
+        cryptoAddress: m.querySelector('#addUserWallet')?.value?.trim(),
+        agentEmail: m.querySelector('#addUserAgentEmail')?.value?.trim()
+      };
+      try {
+        const res = await adminFetch('/api/admin/users', {
+          method: 'POST',
+          body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (data.success) {
+          m.remove();
+          await this.loadData();
+        } else {
+          alert(data.error?.message || 'Failed to create user');
+          if (submitBtn) submitBtn.disabled = false;
+        }
+      } catch (err) {
+        alert('Network error. Failed to create user.');
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    });
   }
 
   // ── Agent VIEW modal ──────────────────────────────────────────────
@@ -217,9 +423,8 @@ export class AdminUsers {
     m.querySelector('#confirmUnagent')?.addEventListener('click', async () => {
       const transferToEmail = m.querySelector('#transferEmail')?.value?.trim();
       if (!transferToEmail) return alert('Enter target agent email');
-      const res = await fetch(`/api/admin/agents/${agent.id}/unagent`, {
+      const res = await adminFetch(`/api/admin/agents/${agent.id}/unagent`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ transferToEmail })
       });
       const data = await res.json();
@@ -285,9 +490,15 @@ export class AdminUsers {
 
   renderUsers() {
     return `
-      <div class="mb-4 flex gap-3">
+      <div class="mb-4 flex gap-3 items-center flex-wrap">
         <input type="search" id="userSearch" class="input-field flex-1" placeholder="Search user or agent email..." value="${this.esc(this.search)}">
         <button type="button" id="userSearchBtn" class="neon-btn px-6 py-3 text-xs uppercase">Search</button>
+        <button type="button" id="addUserBtn" class="neon-btn px-6 py-3 text-xs uppercase flex items-center gap-2">
+          <i class="fas fa-user-plus"></i> Add User
+        </button>
+        <button type="button" id="deleteAllUsersBtn" class="px-6 py-3 text-xs uppercase border border-red-500 rounded-lg text-red-400 hover:bg-red-500/20 transition-all flex items-center gap-2">
+          <i class="fas fa-trash-alt"></i> Delete All
+        </button>
       </div>
       <div class="overflow-x-auto glass-card border border-gray-800 rounded-2xl">
         <table class="w-full text-sm text-left min-w-[800px]">
@@ -300,7 +511,7 @@ export class AdminUsers {
               <th class="p-4">SMS</th>
               <th class="p-4">Revenue</th>
               <th class="p-4">Verify</th>
-              <th class="p-4">Ban</th>
+              <th class="p-4">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -323,10 +534,17 @@ export class AdminUsers {
                   </button>
                 </td>
                 <td class="p-4">
-                  <button type="button" class="ban-btn px-2 py-1 rounded text-[10px] font-black uppercase ${u.isBanned ? 'bg-green-500 text-dark' : 'bg-red-500 text-white'}" data-id="${u.id}" data-banned="${!!u.isBanned}">
-                    ${u.isBanned ? 'Unban' : 'Ban'}
-                  </button>
-                  <button type="button" class="del-user-btn text-[10px] text-red-400 ml-2 uppercase" data-id="${u.id}">Del</button>
+                  <div class="flex gap-2 flex-wrap items-center">
+                    <button type="button" class="edit-user-btn px-2 py-1 rounded text-[10px] font-black uppercase bg-blue-500/20 text-blue-400 hover:bg-blue-500/30" data-id="${u.id}">
+                      <i class="fas fa-edit"></i> Edit
+                    </button>
+                    <button type="button" class="ban-btn px-2 py-1 rounded text-[10px] font-black uppercase ${u.isBanned ? 'bg-green-500 text-dark' : 'bg-red-500 text-white'}" data-id="${u.id}" data-banned="${!!u.isBanned}">
+                      ${u.isBanned ? 'Unban' : 'Ban'}
+                    </button>
+                    <button type="button" class="del-user-btn text-[10px] text-red-400 uppercase hover:underline" data-id="${u.id}">
+                      <i class="fas fa-trash"></i> Del
+                    </button>
+                  </div>
                 </td>
               </tr>
             `).join('') || '<tr><td colspan="8" class="p-8 text-gray-500 text-center">No users</td></tr>'}
@@ -389,9 +607,8 @@ export class AdminUsers {
       const telegram = m.querySelector('#agentTelegram')?.value?.trim();
       const cryptoAddress = m.querySelector('#agentWallet')?.value?.trim();
       try {
-        const res = await fetch('/api/admin/agents', {
+        const res = await adminFetch('/api/admin/agents', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name, email, password, phone, telegram, cryptoAddress })
         });
         const data = await res.json();
@@ -432,9 +649,15 @@ export class AdminUsers {
     document.getElementById('userSearch')?.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') { this.search = e.target.value.trim(); this.loadData(); }
     });
+    document.getElementById('addUserBtn')?.addEventListener('click', () => this.showAddUserModal());
+    document.getElementById('deleteAllUsersBtn')?.addEventListener('click', () => this.deleteAllUsers());
     document.querySelectorAll('.info-btn').forEach((btn) => {
       const u = this.users.find((x) => x.id === btn.dataset.id);
       if (u) btn.addEventListener('click', () => this.showInfoModal(u));
+    });
+    document.querySelectorAll('.edit-user-btn').forEach((btn) => {
+      const u = this.users.find((x) => x.id === btn.dataset.id);
+      if (u) btn.addEventListener('click', () => this.showEditUserModal(u));
     });
 
     // Shared events

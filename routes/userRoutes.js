@@ -5,10 +5,10 @@
 
 const express = require('express');
 const router = express.Router();
-const { auth, collections } = require('../config/firebase');
-const { isQuotaError } = require('../utils/firestoreCache');
+const { collections } = require('../config/db');
+const { verifyToken } = require('../services/authService');
 
-// User session cache — 5 min TTL, avoids repeated Firestore reads
+// User session cache — 5 min TTL, avoids repeated DB reads
 const _userCache = new Map();
 const USER_CACHE_TTL = 60 * 1000; // 1 minute — fast refresh
 
@@ -21,9 +21,8 @@ async function getCachedUser(uid) {
     const user = { ...doc.data(), id: uid };
     _userCache.set(uid, { user, expiresAt: Date.now() + USER_CACHE_TTL });
     return user;
-  } catch (err) {
-    if (isQuotaError(err) && cached) return cached.user;
-    return null;
+  } catch (_) {
+    return cached ? cached.user : null;
   }
 }
 
@@ -45,21 +44,23 @@ async function verifyAuth(req, res, next) {
             });
         }
 
-        // Handle guest tokens — check local guestStore
         if (String(token).startsWith('guest.')) {
             const guestUid = String(token).replace('guest.', '');
             const guestStore = require('../services/guestStore');
-            if (!guestStore.exists(guestUid)) {
+            if (!(await guestStore.exists(guestUid))) {
                 return res.status(401).json({ success: false, error: { message: 'Guest session expired' } });
             }
             req.userId = guestUid;
             return next();
         }
 
-        const decodedToken = await auth.verifyIdToken(token);
+        const decodedToken = verifyToken(token);
+        if (!decodedToken || !decodedToken.uid) {
+            return res.status(401).json({ success: false, error: { message: 'Invalid token' } });
+        }
         req.userId = decodedToken.uid;
         next();
-    } catch (error) {
+    } catch (_) {
         return res.status(401).json({
             success: false,
             error: { message: 'Invalid token' }
@@ -227,7 +228,7 @@ router.get('/dashboard', verifyAuth, async (req, res) => {
                 Promise.resolve(require('../services/statsHelper'))
             ]);
         } catch (quotaErr) {
-            // On Firestore quota error, return minimal dashboard
+            // On database error, return minimal dashboard
             return res.json({
                 success: true,
                 dashboard: {

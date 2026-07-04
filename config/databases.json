@@ -1,0 +1,13 @@
+{
+  "databases": [
+    {
+      "id": "db_primary",
+      "name": "Primary",
+      "uri": "",
+      "dbName": "gurubit",
+      "active": true,
+      "isDefault": true,
+      "createdAt": null
+    }
+  ]
+}

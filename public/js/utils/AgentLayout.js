@@ -5,11 +5,12 @@
 import { UserLayout } from './UserLayout.js';
 
 export const AGENT_NAV = [
-  { id: 'overview', label: 'Dashboard', href: '/agent', icon: 'home' },
-  { id: 'numbers', label: 'Number', href: '/numbers', icon: 'mobile-alt' },
-  { id: 'live-feed', label: 'Live SMS', href: '/live-feed', icon: 'satellite-dish' },
-  { id: 'users', label: 'Users', href: '/agent#users', icon: 'users' },
-  { id: 'api', label: 'API', href: '/agent#api', icon: 'key' }
+  { id: 'overview', label: 'Dashboard', href: '/agent',         icon: 'home'    },
+  { id: 'numbers',  label: 'Number',    href: '/numbers',        icon: 'mobile-alt' },
+  { id: 'live-feed',label: 'Live SMS',  href: '/live-feed',      icon: 'satellite-dish' },
+  { id: 'users',    label: 'Users',     href: '/agent#users',    icon: 'users'   },
+  { id: 'pending',  label: 'Pending Users', href: '/agent#pending', icon: 'user-clock' },
+  { id: 'api',      label: 'API',       href: '/agent#api',      icon: 'key'     }
 ];
 
 export class AgentLayout {
@@ -21,6 +22,8 @@ export class AgentLayout {
       ? 'live-feed'
       : hash === 'users'
       ? 'users'
+      : hash === 'pending'
+      ? 'pending'
       : hash === 'api'
       ? 'api'
       : activeId || 'overview';

@@ -8,8 +8,8 @@ export class AdminCost {
   }
 
   async load() {
-    const res = await fetch('/api/admin/costs');
-    const data = await res.json();
+    const res = await fetch('/api/admin/costs', { credentials: 'include' });
+    const data = await res.json().catch(() => ({}));
     if (data.success) this.countries = data.costs || [];
     if (!this.selectedCountryId && this.countries[0]) {
       this.selectedCountryId = this.countries[0].countryId;
@@ -21,15 +21,31 @@ export class AdminCost {
   }
 
   async save(countryId, serverId, userReward, agentReward) {
-    await fetch(`/api/admin/costs/${countryId}`, {
+    const uR = parseFloat(userReward);
+    const aR = parseFloat(agentReward);
+    if (isNaN(uR) || isNaN(aR) || uR < 0 || aR < 0) {
+      alert('Please enter valid reward amounts (≥ 0)');
+      return;
+    }
+    const res = await fetch(`/api/admin/costs/${countryId}`, {
       method: 'PUT',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        serverId: serverId || '',
-        userReward: parseFloat(userReward),
-        agentReward: parseFloat(agentReward)
-      })
+      body: JSON.stringify({ serverId: serverId || '', userReward: uR, agentReward: aR })
     });
+    const data = await res.json().catch(() => ({}));
+    if (!data.success) {
+      alert(data.error?.message || 'Failed to save');
+      return;
+    }
+    // Show inline confirmation
+    const btn = document.querySelector(`.cost-range-form[data-country="${countryId}"][data-server="${serverId || ''}"] .cost-save-btn`);
+    if (btn) {
+      const orig = btn.innerHTML;
+      btn.innerHTML = '<i class="fas fa-check mr-1"></i> Saved!';
+      btn.style.background = '#16a34a';
+      setTimeout(() => { btn.innerHTML = orig; btn.style.background = ''; }, 2000);
+    }
     await this.load();
     this.render();
   }

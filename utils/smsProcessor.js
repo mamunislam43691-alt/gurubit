@@ -3,7 +3,7 @@
  * Handles OTP extraction and real-time distribution
  */
 
-const { db, collections } = require('../config/firebase');
+const { db, collections } = require('../config/db');
 
 function digitsOnly(phone) {
     return String(phone || '').replace(/\D/g, '');
@@ -108,83 +108,79 @@ async function processIncomingSMS(smsData, wss) {
             }).catch(err => console.error('Number update error:', err.message))
         );
 
-        // Update 3: Update user earnings using costStore rates (non-critical)
+        // Update 3: Update user earnings using costStore rates
         promises.push((async () => {
             try {
-                // Get reward rates from costStore
-                const costStore = require('../services/costStore');
-                const catalogStore = require('../services/catalogStore');
+                const costStore  = require('../services/costStore');
 
-                // Find which country/server this number belongs to
-                const digits = String(phoneNumber).replace(/\D/g, '');
-                let countryId = null, serverId = null;
-                const allCountries = catalogStore.listCountries();
-                for (const country of allCountries) {
-                    const servers = catalogStore.listServers(country.id);
-                    for (const server of servers) {
-                        const nums = server.numbers || [];
-                        if (nums.some(n => String(n).replace(/\D/g, '') === digits)) {
-                            countryId = country.id;
-                            serverId = server.id;
-                            break;
-                        }
-                    }
-                    if (countryId) break;
-                }
+                // ── Get country/server from the number document directly ──
+                // numberData already has countryId and serverId stored when number was allocated
+                const countryId = numberData.countryId || null;
+                const serverId  = numberData.serverId  || null;
 
-                const cost = await costStore.getCost(countryId, serverId);
-                const userReward = parseFloat(cost.userReward) || 0.05;
-                const agentReward = parseFloat(cost.agentReward) || 0.02;
+                // Get configured reward rates (falls back to 0.05 / 0.02 if not set)
+                const cost       = await costStore.getCost(countryId, serverId);
+                const userReward  = Math.max(0, parseFloat(cost?.userReward)  || 0.05);
+                const agentReward = Math.max(0, parseFloat(cost?.agentReward) || 0.02);
 
-                // Update user balance
+                console.log(`   💰 Reward: user=$${userReward} | agent=$${agentReward} | country=${countryId} | server=${serverId}`);
+
+                // ── Update user balance ──────────────────────────────────
                 const userDoc = await collections.users.doc(userId).get();
                 if (userDoc.exists) {
                     const userData = userDoc.data();
+                    const newUserBalance = Math.round(((userData.earningsBalance || 0) + userReward) * 10000) / 10000;
                     await collections.users.doc(userId).update({
-                        earningsBalance: (userData.earningsBalance || 0) + userReward,
-                        totalOtps: (userData.totalOtps || 0) + 1,
-                        updatedAt: new Date().toISOString()
+                        earningsBalance: newUserBalance,
+                        totalOtps:       (userData.totalOtps || 0) + 1,
+                        successfulOtps:  (userData.successfulOtps || 0) + 1,
+                        updatedAt:       new Date().toISOString()
                     });
+                    console.log(`   ✅ User balance updated: $${(userData.earningsBalance || 0).toFixed(4)} → $${newUserBalance.toFixed(4)}`);
 
-                    // Also reward the agent who referred this user
-                    const agentEmail = userData.agentEmail || userData.referralEmail;
+                    // ── Reward agent ─────────────────────────────────────
+                    const agentEmail = (userData.agentEmail || userData.referralEmail || '').toLowerCase().trim();
                     if (agentEmail && agentReward > 0) {
                         try {
-                            const usersSnap = await collections.users.get();
-                            let agentDoc = null;
-                            usersSnap.forEach(doc => {
-                                const d = doc.data();
-                                if (d.isAgent && d.email?.toLowerCase() === agentEmail.toLowerCase()) {
-                                    agentDoc = doc;
-                                }
-                            });
-                            if (agentDoc) {
-                                const agentData = agentDoc.data();
-                                await collections.users.doc(agentDoc.id).update({
-                                    earningsBalance: (agentData.earningsBalance || 0) + agentReward,
-                                    totalOtps: (agentData.totalOtps || 0) + 1,
-                                    updatedAt: new Date().toISOString()
+                            // Query by email — no full scan
+                            const agentSnap = await collections.users
+                                .where('email', '==', agentEmail)
+                                .limit(1)
+                                .get();
+
+                            if (agentSnap.size > 0) {
+                                let agentId = null;
+                                let agentBal = 0;
+                                let agentOtps = 0;
+                                agentSnap.forEach(doc => {
+                                    agentId  = doc.id;
+                                    agentBal  = doc.data().earningsBalance || 0;
+                                    agentOtps = doc.data().totalOtps || 0;
                                 });
-                                if (process.env.DEBUG_SMS === 'true') {
-                                    console.log(`   Agent reward: +$${agentReward} → ${agentEmail}`);
+                                if (agentId) {
+                                    const newAgentBal = Math.round((agentBal + agentReward) * 10000) / 10000;
+                                    await collections.users.doc(agentId).update({
+                                        earningsBalance: newAgentBal,
+                                        totalOtps:       agentOtps + 1,
+                                        updatedAt:       new Date().toISOString()
+                                    });
+                                    console.log(`   ✅ Agent reward: +$${agentReward} → ${agentEmail}`);
                                 }
                             }
                         } catch (agentErr) {
-                            if (process.env.DEBUG_SMS === 'true') {
-                                console.warn('Agent reward error:', agentErr.message);
-                            }
+                            console.warn('   ⚠️ Agent reward error:', agentErr.message);
                         }
                     }
+                } else {
+                    console.warn(`   ⚠️ User not found for reward: ${userId}`);
                 }
 
-                // Store reward amounts for broadcast
-                numberData._userReward = userReward;
+                // Store reward for broadcast (set before Promise.all resolves)
+                numberData._userReward  = userReward;
                 numberData._agentReward = agentReward;
 
             } catch (err) {
-                if (process.env.DEBUG_SMS === 'true') {
-                    console.warn('Reward update error:', err.message);
-                }
+                console.warn('   ⚠️ Reward update error:', err.message);
             }
         })());
 
@@ -339,5 +335,72 @@ async function checkExpiredNumbers(wss) {
 module.exports = {
     processIncomingSMS,
     maskPhoneNumber,
-    checkExpiredNumbers
+    checkExpiredNumbers,
+    cleanupOldNumbers
 };
+
+/**
+ * Delete failed and successful numbers older than 12 hours
+ * Runs on a scheduled interval
+ */
+async function cleanupOldNumbers(wss) {
+    try {
+        const cutoff = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(); // 12 hours ago
+        let deletedCount = 0;
+
+        // Get failed numbers older than 12h
+        const failedSnap = await collections.phoneNumbers
+            .where('status', '==', 'failed')
+            .get();
+
+        // Get successful numbers older than 12h
+        const successSnap = await collections.phoneNumbers
+            .where('status', '==', 'successful')
+            .get();
+
+        const toDelete = [];
+
+        failedSnap.forEach(doc => {
+            const d = doc.data();
+            const age = d.updatedAt || d.createdAt;
+            if (age && age < cutoff) toDelete.push(doc);
+        });
+
+        successSnap.forEach(doc => {
+            const d = doc.data();
+            const age = d.updatedAt || d.createdAt;
+            if (age && age < cutoff) toDelete.push(doc);
+        });
+
+        // Delete in batches
+        for (const doc of toDelete) {
+            try {
+                await collections.phoneNumbers.doc(doc.id).delete();
+                deletedCount++;
+
+                // Notify user via WebSocket
+                const data = doc.data();
+                if (wss && data.userId) {
+                    wss.broadcast({
+                        type: 'number_deleted',
+                        userId: data.userId,
+                        numberId: doc.id,
+                        phoneNumber: data.phoneNumber,
+                        reason: 'auto_cleanup_12h'
+                    });
+                }
+            } catch (e) {
+                // ignore individual delete errors
+            }
+        }
+
+        if (deletedCount > 0) {
+            console.log(`🧹 [Auto Cleanup] Deleted ${deletedCount} old number(s) (failed/successful > 12h)`);
+        }
+
+        return deletedCount;
+    } catch (error) {
+        console.warn('[Auto Cleanup] Error:', error.message);
+        return 0;
+    }
+}

@@ -5,11 +5,6 @@ yarn.lock
 # Environment variables
 .env
 
-# Firebase credentials (NEVER commit — use FIREBASE_SERVICE_ACCOUNT env var on Railway)
-config/serviceAccountKey.json
-firebase-debug.log
-.firebase/
-
 # Logs
 logs/
 *.log
@@ -37,9 +32,7 @@ coverage/
 *.temp
 
 # Local runtime data (generated at runtime, not source code)
-# data/phone-store.json  — uncomment to exclude from git
-# data/guest-store.json  — uncomment to exclude from git
+# data/backups/*  — local backup files (auto-generated)
 
 # NOTE: public/css/output.css is intentionally NOT ignored
-# Railway build step generates it, but we commit it as fallback
-# NOTE: data/catalog.json IS committed — it contains your number pool config
+# Build step regenerates it locally and on deploy.

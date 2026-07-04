@@ -5,7 +5,7 @@
 
 const providerStore = require('./providerStore');
 const { processIncomingSMS } = require('../utils/smsProcessor');
-const { collections } = require('../config/firebase');
+const { collections } = require('../config/db');
 
 // seen: Map of id → receivedAt (to allow re-processing updated SMS for same number)
 const seen = new Map();
@@ -23,11 +23,6 @@ const retryTrackers = new Map();
 const errorTrackers = {};
 const THROTTLE_MS = 5 * 60 * 1000; // 5 minutes
 const connectionStatuses = {}; // providerId -> { status: 'connected' | 'disconnected', lastPollTime: string, lastError: string | null }
-
-// Firestore quota backoff control (on RESOURCE_EXHAUSTED)
-const FIRESTORE_BACKOFF_BASE_MS = Number(process.env.FIRESTORE_BACKOFF_BASE_MS) || 60 * 1000; // 1 minute
-const FIRESTORE_BACKOFF_MAX_MS = Number(process.env.FIRESTORE_BACKOFF_MAX_MS) || 15 * 60 * 1000; // 15 minutes
-const firestoreBackoff = { attempts: 0, pausedUntil: 0 };
 
 // Resource monitoring
 // Integrated Number API polling disabled.
@@ -125,14 +120,43 @@ const RANGE_REFRESH_MS = 2 * 60 * 60 * 1000; // 2 hours
 
 async function refreshBestRange(provider) {
   try {
-    const baseUrl = provider.baseUrl.replace(/\/$/, '');
-    const headers = { 'x-api-key': provider.apiKey, 'Accept': 'application/json' };
+    // Use controlUrl if set, fallback to baseUrl for the range endpoint
+    const rawBase = (provider.controlUrl || provider.baseUrl || '').replace(/\/$/, '');
+    if (!rawBase) return;
 
-    // Fetch CLI ranges with counts
-    const res = await fetchWithTimeout(`${baseUrl}/cli-ranges`, { headers }, 10000);
+    const isStex = rawBase.includes('public/api/liveaccess') || rawBase.includes('@public/api/');
+    const headers = isStex
+      ? { 'mauthapi': provider.apiKey, 'Accept': 'application/json' }
+      : { 'x-api-key': provider.apiKey, 'Accept': 'application/json' };
+
+    // STEX uses /public/api/liveaccess for range info
+    // Generic uses /cli-ranges
+    const stexBase = rawBase.replace(/\/public\/api\/.*$/, '');
+    const rangeUrl = isStex ? `${stexBase}/public/api/liveaccess` : `${rawBase}/cli-ranges`;
+
+    const res = await fetchWithTimeout(rangeUrl, { headers }, 10000);
     if (!res.ok) return;
     const body = await res.json();
-    const ranges = body.data || [];
+
+    let ranges = [];
+    if (isStex) {
+      // STEX liveaccess: { data: { services: [ { sid, last_at, ranges: ["22501XXX","8801XXX"] } ] } }
+      const services = body.data?.services || [];
+      // Build a flat list of ranges with counts (use last_at as activity indicator)
+      const rangeMap = {};
+      services.forEach(svc => {
+        (svc.ranges || []).forEach(r => {
+          if (!rangeMap[r]) rangeMap[r] = { name: r, count: 0, lastAt: 0 };
+          rangeMap[r].count++;
+          const t = svc.last_at || 0;
+          if (t > rangeMap[r].lastAt) rangeMap[r].lastAt = t;
+        });
+      });
+      ranges = Object.values(rangeMap);
+    } else {
+      ranges = body.data || [];
+    }
+
     if (ranges.length === 0) return;
 
     // Pick range with highest OTP count (or highest number count as fallback)
@@ -486,7 +510,7 @@ async function pollOnce(wss) {
     // ALL manual catalog numbers → poll via SMS-only webhook provider (no country filter)
     if (allProviders.length > 0) {
       try {
-        const { collections } = require('../config/firebase');
+        const { collections } = require('../config/db');
         const now = new Date();
         const snap = await collections.phoneNumbers
           .where('status', '==', 'pending')
@@ -580,15 +604,6 @@ async function pollOnce(wss) {
 
 async function pollIntegratedAPI(wss) {
   try {
-    // Skip polling when we've detected Firestore quota exhaustion — respect backoff window
-    if (Date.now() < firestoreBackoff.pausedUntil) {
-      if (process.env.DEBUG_POLLING === 'true') {
-        const msLeft = firestoreBackoff.pausedUntil - Date.now();
-        console.warn(`🔵 [Firestore Backoff] Skipping integrated polling for ${Math.round(msLeft/1000)}s due to previous quota errors`);
-      }
-      return;
-    }
-
     const providers = providerStore.list().filter(p => p.providerType === 'integrated');
     if (providers.length === 0) return;
 
@@ -597,21 +612,8 @@ async function pollIntegratedAPI(wss) {
       snapshot = await collections.phoneNumbers
         .where('status', '==', 'pending')
         .get();
-      // On success, reset backoff
-      firestoreBackoff.attempts = 0;
-      firestoreBackoff.pausedUntil = 0;
     } catch (dbErr) {
-      // Detect Firestore quota errors and apply exponential backoff
-      const isQuota = dbErr && (dbErr.code === 8 || dbErr.code === 'RESOURCE_EXHAUSTED' || (dbErr.message && dbErr.message.includes('Quota exceeded')));
-      if (isQuota) {
-        firestoreBackoff.attempts = Math.min((firestoreBackoff.attempts || 0) + 1, 10);
-        const backoffMs = Math.min(FIRESTORE_BACKOFF_BASE_MS * Math.pow(2, firestoreBackoff.attempts - 1), FIRESTORE_BACKOFF_MAX_MS);
-        firestoreBackoff.pausedUntil = Date.now() + backoffMs;
-        pollStats.failedPolls++;
-        console.error(`Firestore quota exceeded — pausing integrated polling for ${Math.round(backoffMs/1000)}s (attempt ${firestoreBackoff.attempts}). Consider enabling billing or reducing reads.`);
-      } else {
-        console.warn('Database error in pollIntegratedAPI:', dbErr.message);
-      }
+      console.warn('Database error in pollIntegratedAPI:', dbErr.message);
       return;
     }
 
@@ -637,8 +639,9 @@ async function pollIntegratedAPI(wss) {
 
     // Poll all numbers linked to a provider (both API-allocated and manual-linked)
     await Promise.allSettled(providers.map(async (provider) => {
-      const baseUrl = provider.baseUrl.replace(/\/$/, '');
-      const headers = { 'x-api-key': provider.apiKey, 'Accept': 'application/json' };
+      // Use getSmsUrl if set, fallback to baseUrl for OTP polling
+      const smsBase = (provider.getSmsUrl || provider.baseUrl || '').replace(/\/$/, '');
+      const isStex = smsBase.includes('public/api/success-otp') || smsBase.includes('@public/api/');
 
       // Process numbers assigned to this provider
       const providerNumbers = numbersToCheck.filter(n => n.providerId === provider.id);
@@ -649,22 +652,56 @@ async function pollIntegratedAPI(wss) {
         const since = numData.lastPollAt || numData.allocatedAt || numData.createdAt;
 
         try {
-          const otpUrl = `${baseUrl}/otp?number=${encodeURIComponent(phone)}&since=${encodeURIComponent(since)}&limit=10`;
+          let otpUrl, fetchHeaders;
 
-          if (process.env.DEBUG_POLLING === 'true') {
-            console.log(`[Integrated Poll] → ${provider.serviceName}: ${phone} since ${since}`);
+          if (isStex) {
+            // ── STEX SMS: GET /public/api/success-otp
+            // Returns last 50 successful OTPs for numbers assigned to this API key
+            // We filter by number client-side
+            const stexBase = smsBase.replace(/\/public\/api\/success-otp.*$/, '');
+            otpUrl = `${stexBase}/public/api/success-otp`;
+            fetchHeaders = {
+              'mauthapi': provider.apiKey,
+              'Accept': 'application/json'
+            };
+          } else {
+            // Generic integrated API
+            otpUrl = `${smsBase}/otp?number=${encodeURIComponent(phone)}&since=${encodeURIComponent(since)}&limit=10`;
+            fetchHeaders = { 'x-api-key': provider.apiKey, 'Accept': 'application/json' };
           }
 
-          const res = await fetchWithTimeout(otpUrl, { headers }, 10000);
+          if (process.env.DEBUG_POLLING === 'true') {
+            console.log(`[Poll ${isStex ? 'STEX' : 'Integrated'}] → ${provider.serviceName}: ${phone}`);
+          }
+
+          const res = await fetchWithTimeout(otpUrl, { headers: fetchHeaders }, 10000);
           if (!res.ok) {
             if (process.env.DEBUG_POLLING === 'true') {
-              console.warn(`[Integrated Poll] HTTP ${res.status} for ${phone}`);
+              console.warn(`[Poll] HTTP ${res.status} for ${phone}`);
             }
             return;
           }
 
           const body = await res.json();
-          const messages = body.data || [];
+
+          // STEX: { data: { otps: [ { otp_id, number, message, time } ] } }
+          // Generic: { data: [ { number, message, ... } ] }
+          let messages = [];
+          if (isStex) {
+            const otps = body.data?.otps || body.otps || [];
+            // Filter to only OTPs for this specific number
+            messages = otps
+              .filter(o => String(o.number || '').replace(/\D/g, '') === phone)
+              .map(o => ({
+                id: o.otp_id,
+                number: o.number,
+                message: o.message,
+                content: o.message,
+                created_at: o.time ? new Date(o.time).toISOString() : new Date().toISOString()
+              }));
+          } else {
+            messages = body.data || body.otps || [];
+          }
 
           for (const msg of messages) {
             const content = msg.message || msg.content || msg.text || '';

@@ -1,9 +1,9 @@
 /**
- * Per-user API keys (agents) — Firestore backed
+ * Per-user API keys (agents) — MongoDB backed
  */
 
 const crypto = require('crypto');
-const { db } = require('../config/firebase');
+const { db } = require('../config/db');
 
 const COLLECTION = 'userApiKeys';
 

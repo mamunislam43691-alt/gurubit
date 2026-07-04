@@ -5,39 +5,42 @@
 
 const express = require('express');
 const router = express.Router();
-const { db, collections, auth, isFirebaseConfigured } = require('../config/firebase');
+const { db, collections } = require('../config/db');
+const { hashPassword, genId } = require('../services/authService');
 
-async function createFirebaseUser(email, password, displayName) {
-  if (isFirebaseConfigured && auth && typeof auth.createUser === 'function') {
-    try {
-      const user = await auth.createUser({
-        email,
-        password,
-        displayName,
-        emailVerified: true
-      });
-      return user.uid;
-    } catch (e) {
-      console.warn('Real Firebase Admin createUser failed, trying REST API fallback:', e.message);
-    }
+async function createAppUser({ email, password, displayName }) {
+  const cleanEmail = String(email).toLowerCase().trim();
+  const dup = await collections.users.where('email', '==', cleanEmail).limit(1).get();
+  if (dup.size > 0) {
+    const err = new Error('This email is already registered.');
+    err.code = 'EMAIL_EXISTS';
+    throw err;
   }
-
-  const apiKey = process.env.FIREBASE_API_KEY || "AIzaSyCnX58oQu4fxTwp6sZTkO3yPp6YjaUMBhg";
-  const url = `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`;
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      email,
-      password,
-      returnSecureToken: true
-    })
+  const uid = genId('user');
+  const passwordHash = await hashPassword(password);
+  await collections.users.doc(uid).set({
+    _id: uid,
+    id: uid,
+    name: displayName || cleanEmail.split('@')[0],
+    email: cleanEmail,
+    phone: '',
+    telegram: '',
+    cryptoAddress: '',
+    referralEmail: '',
+    earningsBalance: 0,
+    totalOtps: 0,
+    successfulOtps: 0,
+    failedOtps: 0,
+    isBanned: false,
+    isAdmin: false,
+    isAgent: false,
+    profileComplete: true,
+    emailVerified: true,
+    passwordHash,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
   });
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.error?.message || 'Failed to create user in Firebase Auth');
-  }
-  return data.localId;
+  return uid;
 }
 const {
   getAdminPassword,
@@ -231,7 +234,7 @@ router.get('/dashboard', async (req, res) => {
       }
       return res.json({
         success: true,
-        stats: { totalUsers:0, activeUsers:0, bannedUsers:0, totalServices:0, totalNumbers:0, totalSms:0, totalOtps:0, providers:0, agents:0, activeAgents:0, withdrawalsSuccess:0, withdrawalsPending:0, supportChats:0, broadcasts:0 },
+        stats: { totalUsers:0, activeUsers:0, bannedUsers:0, totalServices:0, totalNumbers:0, totalSms:0, totalOtps:0, failedNumbers:0, providers:0, agents:0, activeAgents:0, withdrawalsSuccess:0, withdrawalsPending:0, supportChats:0, broadcasts:0 },
         topApplications: [], topRanges: [], chart: [], topServices: []
       });
     }
@@ -263,8 +266,16 @@ router.get('/dashboard', async (req, res) => {
       providersCount = kSnap.size;
     } catch {}
 
-    const supportSessions = supportStore.listSessions();
+    const supportSessionsRaw = await supportStore.listSessions().catch(() => []);
+    const supportSessions = Array.isArray(supportSessionsRaw) ? supportSessionsRaw : [];
     const supportOpen = supportSessions.filter((s) => s.status === 'open').length;
+
+    // Count failed numbers
+    let failedNumbers = 0;
+    try {
+      const failedSnap = await collections.phoneNumbers.where('status', '==', 'failed').get();
+      failedNumbers = failedSnap.size || 0;
+    } catch {}
 
     const stats = {
       totalUsers: users.length,
@@ -274,6 +285,7 @@ router.get('/dashboard', async (req, res) => {
       totalNumbers: numbersSnapshot.size || 0,
       totalSms: messagesSnapshot.size || 0,
       totalOtps: messagesSnapshot.size || 0,
+      failedNumbers,
       providers: providersCount,
       agents: agents.length,
       activeAgents: activeAgents.length,
@@ -908,13 +920,19 @@ router.get('/api-keys', verifyAdmin, async (req, res) => {
 
 router.post('/api-keys', verifyAdmin, async (req, res) => {
   try {
-    const { serviceName, apiKey, baseUrl, providerType, additionalUrls, countryId, serverId, apiCountryCode, cliRange } = req.body;
-    if (!baseUrl?.trim() || !apiKey?.trim()) {
-      return res.status(400).json({ success: false, error: { message: 'Base URL and API key are required' } });
+    const { serviceName, apiKey, baseUrl, getNumberUrl, getSmsUrl, controlUrl, providerType, additionalUrls, countryId, serverId, apiCountryCode, cliRange } = req.body;
+    
+    // For integrated providers, at least getNumberUrl or baseUrl is required
+    const effectiveUrl = (getNumberUrl || baseUrl || '').trim();
+    if (!effectiveUrl || !apiKey?.trim()) {
+      return res.status(400).json({ success: false, error: { message: 'Number URL and API key are required' } });
     }
     const key = await providerStore.add({
       serviceName: serviceName || 'SMS Provider',
-      baseUrl: (baseUrl || '').trim(),
+      baseUrl: effectiveUrl,
+      getNumberUrl: (getNumberUrl || baseUrl || '').trim(),
+      getSmsUrl: (getSmsUrl || '').trim(),
+      controlUrl: (controlUrl || '').trim(),
       apiKey: apiKey.trim(),
       providerType: providerType || 'sms_only',
       additionalUrls,
@@ -931,13 +949,18 @@ router.post('/api-keys', verifyAdmin, async (req, res) => {
 
 router.put('/api-keys/:id', verifyAdmin, async (req, res) => {
   try {
-    const { serviceName, apiKey, baseUrl, providerType, additionalUrls, countryId, serverId, apiCountryCode, cliRange } = req.body;
-    if (!baseUrl?.trim() || !apiKey?.trim()) {
-      return res.status(400).json({ success: false, error: { message: 'Base URL and API key are required' } });
+    const { serviceName, apiKey, baseUrl, getNumberUrl, getSmsUrl, controlUrl, providerType, additionalUrls, countryId, serverId, apiCountryCode, cliRange } = req.body;
+    
+    const effectiveUrl = (getNumberUrl || baseUrl || '').trim();
+    if (!effectiveUrl || !apiKey?.trim()) {
+      return res.status(400).json({ success: false, error: { message: 'Number URL and API key are required' } });
     }
     const key = await providerStore.update(req.params.id, {
       serviceName: serviceName || 'SMS Provider',
-      baseUrl: (baseUrl || '').trim(),
+      baseUrl: effectiveUrl,
+      getNumberUrl: (getNumberUrl || baseUrl || '').trim(),
+      getSmsUrl: (getSmsUrl || '').trim(),
+      controlUrl: (controlUrl || '').trim(),
       apiKey: apiKey.trim(),
       providerType: providerType || 'sms_only',
       additionalUrls,
@@ -979,28 +1002,20 @@ router.post('/agents', verifyAdmin, async (req, res) => {
     if (!name || !email || !password) {
       return res.status(400).json({ success: false, error: { message: 'Name, email and password are required' } });
     }
+    if (password.length < 8) {
+      return res.status(400).json({ success: false, error: { message: 'Password must be at least 8 characters.' } });
+    }
 
-    const uid = await createFirebaseUser(email, password, name);
+    const uid = await createAppUser({ email, password, displayName: name });
 
-    await collections.users.doc(uid).set({
-      id: uid,
+    await collections.users.doc(uid).update({
       name,
-      email,
       phone: phone || '',
       telegram: telegram || '',
       cryptoAddress: cryptoAddress || '',
-      referralEmail: '',
-      agentEmail: '',
       agentApproved: true,
-      earningsBalance: 0,
-      totalOtps: 0,
-      failedOtps: 0,
-      isBanned: false,
-      isAdmin: false,
       isAgent: true,
-      profileComplete: true,
-      emailVerified: true,
-      createdAt: new Date().toISOString(),
+      isAdmin: false,
       updatedAt: new Date().toISOString()
     });
 
@@ -1008,7 +1023,7 @@ router.post('/agents', verifyAdmin, async (req, res) => {
   } catch (error) {
     console.error('Create agent error:', error);
     let errMsg = error.message;
-    if (errMsg.includes('EMAIL_EXISTS')) errMsg = 'This email address is already registered.';
+    if (errMsg.includes('EMAIL_EXISTS') || error.code === 'EMAIL_EXISTS') errMsg = 'This email address is already registered.';
     res.status(400).json({ success: false, error: { message: errMsg } });
   }
 });
@@ -1033,6 +1048,26 @@ router.get('/users/search', verifyAdmin, async (req, res) => {
     else if (u.agentEmail?.toLowerCase() === q || u.referralEmail?.toLowerCase() === q) users.push(u);
   });
   res.json({ success: true, users });
+});
+
+/**
+ * GET /api/admin/users/pending
+ * Get users with pending email verification or pending agent approval
+ */
+router.get('/users/pending', verifyAdmin, async (req, res) => {
+  try {
+    const snapshot = await collections.users.get();
+    const users = [];
+    snapshot.forEach((doc) => {
+      const u = doc.data();
+      if (u.isAgent || u.isAdmin) return;
+      if (!u.emailVerified) users.push(u);
+    });
+    users.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    res.json({ success: true, users });
+  } catch (error) {
+    res.status(500).json({ success: false, error: { message: error.message } });
+  }
 });
 
 router.get('/costs', verifyAdminPerm('costs'), async (req, res) => {
@@ -1345,7 +1380,7 @@ router.post('/guru/groups', verifyAdmin, async (req, res) => {
   const { name, description } = req.body || {};
   if (!name?.trim()) return res.status(400).json({ success: false, error: { message: 'Name required' } });
   const id = `group_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-  const { collections: cols } = require('../config/firebase');
+  const { collections: cols } = require('../config/db');
   await cols.guruGroups.doc(id).set({
     id, name: name.trim(), description: description || '',
     memberCount: 0, createdAt: new Date().toISOString(), createdBy: 'admin'
@@ -1355,7 +1390,7 @@ router.post('/guru/groups', verifyAdmin, async (req, res) => {
 
 // Admin: delete group
 router.delete('/guru/groups/:id', verifyAdmin, async (req, res) => {
-  const { collections: cols } = require('../config/firebase');
+  const { collections: cols } = require('../config/db');
   await cols.guruGroups.doc(req.params.id).delete();
   res.json({ success: true });
 });
@@ -1363,7 +1398,7 @@ router.delete('/guru/groups/:id', verifyAdmin, async (req, res) => {
 // Admin: edit group (name, description, icon/logo)
 router.put('/guru/groups/:id', verifyAdmin, async (req, res) => {
   try {
-    const { collections: cols } = require('../config/firebase');
+    const { collections: cols } = require('../config/db');
     const { name, description, icon } = req.body || {};
     const ref = cols.guruGroups.doc(req.params.id);
     const doc = await ref.get();
@@ -1415,9 +1450,278 @@ router.put('/users/:id/blue-verify', verifyAdmin, async (req, res) => {
   res.json({ success: true });
 });
 
+/**
+ * DELETE /api/admin/users/:id
+ * Delete a single user
+ */
 router.delete('/users/:id', verifyAdmin, async (req, res) => {
-  await collections.users.doc(req.params.id).delete();
-  res.json({ success: true });
+  try {
+    const userId = req.params.id;
+    
+    // Check if user exists
+    const userDoc = await collections.users.doc(userId).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ 
+        success: false, 
+        error: { message: 'User not found' } 
+      });
+    }
+
+    // Delete user
+    await collections.users.doc(userId).delete();
+    
+    // Optional: Clean up related data (phone numbers, sessions, etc.)
+    try {
+      // Delete user's phone numbers
+      const numbersSnap = await collections.phoneNumbers.where('userId', '==', userId).get();
+      const numberDeletes = [];
+      numbersSnap.forEach(doc => numberDeletes.push(doc.ref.delete()));
+      await Promise.all(numberDeletes);
+      
+      // Delete user's sessions
+      const sessionsSnap = await collections.sessions.where('userId', '==', userId).get();
+      const sessionDeletes = [];
+      sessionsSnap.forEach(doc => sessionDeletes.push(doc.ref.delete()));
+      await Promise.all(sessionDeletes);
+    } catch (cleanupErr) {
+      console.warn('User cleanup warning:', cleanupErr.message);
+    }
+    
+    res.json({ success: true, message: 'User deleted successfully' });
+  } catch (error) {
+    console.error('Delete user error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: { message: 'Failed to delete user: ' + error.message } 
+    });
+  }
+});
+
+/**
+ * POST /api/admin/users
+ * Add a new user (admin-created users are auto-verified)
+ */
+router.post('/users', verifyAdmin, async (req, res) => {
+  try {
+    const { name, email, password, phone, telegram, cryptoAddress, agentEmail } = req.body || {};
+    
+    if (!name || !email || !password) {
+      return res.status(400).json({ 
+        success: false, 
+        error: { message: 'Name, email, and password are required' } 
+      });
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json({ 
+        success: false, 
+        error: { message: 'Password must be at least 8 characters' } 
+      });
+    }
+
+    const cleanEmail = String(email).toLowerCase().trim();
+    
+    // Check for duplicate email
+    const dup = await collections.users.where('email', '==', cleanEmail).limit(1).get();
+    if (dup.size > 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: { message: 'This email is already registered.' } 
+      });
+    }
+
+    const uid = genId('user');
+    const passwordHash = await hashPassword(password);
+    
+    const userData = {
+      _id: uid,
+      id: uid,
+      name: String(name).trim(),
+      email: cleanEmail,
+      phone: phone ? String(phone).trim() : '',
+      telegram: telegram ? String(telegram).trim() : '',
+      cryptoAddress: cryptoAddress ? String(cryptoAddress).trim() : '',
+      referralEmail: agentEmail ? String(agentEmail).toLowerCase().trim() : '',
+      agentEmail: agentEmail ? String(agentEmail).toLowerCase().trim() : '',
+      earningsBalance: 0,
+      totalOtps: 0,
+      successfulOtps: 0,
+      failedOtps: 0,
+      isBanned: false,
+      isAdmin: false,
+      isAgent: false,
+      profileComplete: true,
+      emailVerified: true,
+      blueVerified: false,
+      passwordHash,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    await collections.users.doc(uid).set(userData);
+
+    // Return without passwordHash
+    const { passwordHash: _ph, ...safeUser } = userData;
+
+    res.json({ 
+      success: true, 
+      message: 'User created successfully',
+      user: safeUser
+    });
+  } catch (error) {
+    console.error('Create user error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: { message: 'Failed to create user: ' + error.message } 
+    });
+  }
+});
+
+/**
+ * PUT /api/admin/users/:id
+ * Edit/update a user
+ */
+router.put('/users/:id', verifyAdmin, async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const { name, email, phone, telegram, cryptoAddress, agentEmail, earningsBalance, isBanned } = req.body || {};
+    
+    // Check if user exists
+    const userDoc = await collections.users.doc(userId).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ 
+        success: false, 
+        error: { message: 'User not found' } 
+      });
+    }
+
+    // Build update object
+    const updateData = {
+      updatedAt: new Date().toISOString()
+    };
+
+    if (name !== undefined) updateData.name = String(name).trim();
+    if (email !== undefined) {
+      // Check if email is already taken by another user
+      const cleanEmail = String(email).toLowerCase().trim();
+      const existingUser = await collections.users.where('email', '==', cleanEmail).limit(1).get();
+      if (existingUser.size > 0) {
+        // Get the found user's id
+        let foundId = null;
+        existingUser.forEach(doc => { foundId = doc.id; });
+        if (foundId && foundId !== userId) {
+          return res.status(400).json({ 
+            success: false, 
+            error: { message: 'Email is already in use by another user' } 
+          });
+        }
+      }
+      updateData.email = cleanEmail;
+    }
+    if (phone !== undefined) updateData.phone = String(phone).trim();
+    if (telegram !== undefined) updateData.telegram = String(telegram).trim();
+    if (cryptoAddress !== undefined) updateData.cryptoAddress = String(cryptoAddress).trim();
+    if (agentEmail !== undefined) {
+      const cleanAgentEmail = String(agentEmail).toLowerCase().trim();
+      updateData.agentEmail = cleanAgentEmail;
+      updateData.referralEmail = cleanAgentEmail;
+    }
+    if (earningsBalance !== undefined && !isNaN(parseFloat(earningsBalance))) {
+      updateData.earningsBalance = parseFloat(earningsBalance);
+    }
+    if (isBanned !== undefined) updateData.isBanned = isBanned === true;
+
+    // Update user
+    await collections.users.doc(userId).update(updateData);
+
+    // Fetch updated user
+    const updatedDoc = await collections.users.doc(userId).get();
+    const user = { id: updatedDoc.id, ...updatedDoc.data() };
+
+    res.json({ 
+      success: true, 
+      message: 'User updated successfully',
+      user 
+    });
+  } catch (error) {
+    console.error('Update user error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: { message: 'Failed to update user: ' + error.message } 
+    });
+  }
+});
+
+/**
+ * POST /api/admin/users/delete-all
+ * Delete all users (with confirmation)
+ * Using POST instead of DELETE because DELETE with body is not semantic
+ */
+router.post('/users/delete-all', verifyAdmin, async (req, res) => {
+  try {
+    const { confirm } = req.body || {};
+    
+    if (confirm !== 'DELETE_ALL_USERS') {
+      return res.status(400).json({ 
+        success: false, 
+        error: { message: 'Confirmation required. Send { "confirm": "DELETE_ALL_USERS" }' } 
+      });
+    }
+
+    // Get all non-admin, non-agent users
+    const snapshot = await collections.users.get();
+    const deletePromises = [];
+    let deleteCount = 0;
+
+    snapshot.forEach(doc => {
+      const user = doc.data();
+      // Don't delete admins and agents
+      if (!user.isAdmin && !user.isAgent) {
+        deletePromises.push(doc.ref.delete());
+        deleteCount++;
+      }
+    });
+
+    await Promise.all(deletePromises);
+
+    // Optional: Clean up related data
+    try {
+      // Get all user IDs that were deleted
+      const deletedUserIds = [];
+      snapshot.forEach(doc => {
+        const user = doc.data();
+        if (!user.isAdmin && !user.isAgent) {
+          deletedUserIds.push(doc.id);
+        }
+      });
+
+      // Delete phone numbers for deleted users
+      if (deletedUserIds.length > 0) {
+        // Firestore doesn't support 'in' with more than 10 items, so batch it
+        for (let i = 0; i < deletedUserIds.length; i += 10) {
+          const batch = deletedUserIds.slice(i, i + 10);
+          const numbersSnap = await collections.phoneNumbers.where('userId', 'in', batch).get();
+          const numberDeletes = [];
+          numbersSnap.forEach(doc => numberDeletes.push(doc.ref.delete()));
+          await Promise.all(numberDeletes);
+        }
+      }
+    } catch (cleanupErr) {
+      console.warn('Bulk cleanup warning:', cleanupErr.message);
+    }
+
+    res.json({ 
+      success: true, 
+      message: `Successfully deleted ${deleteCount} users`,
+      deletedCount: deleteCount
+    });
+  } catch (error) {
+    console.error('Delete all users error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: { message: 'Failed to delete users: ' + error.message } 
+    });
+  }
 });
 
 async function buildNumberCountsByUser() {
@@ -1518,6 +1822,172 @@ router.get('/database', requireSuperAdminRoute, (req, res) => {
   });
 });
 
+// ── Multi-Database Management ──────────────────────────────────────────────
+const mongoManager = require('../config/mongo');
+
+/**
+ * GET /api/admin/database/list
+ * List all configured databases with connection status
+ */
+router.get('/database/list', requireSuperAdminRoute, async (req, res) => {
+  try {
+    const dbs = mongoManager.getDbList();
+    const statuses = mongoManager.getAllConnStatus();
+    // Merge config with live status
+    const result = dbs.map(db => {
+      const status = statuses.find(s => s.id === db.id) || {};
+      return {
+        ...db,
+        connected: status.connected || false,
+        readyState: status.readyState ?? -1
+      };
+    });
+    res.json({ success: true, databases: result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: { message: err.message } });
+  }
+});
+
+/**
+ * POST /api/admin/database/list
+ * Add a new database connection
+ */
+router.post('/database/list', requireSuperAdminRoute, async (req, res) => {
+  try {
+    const { name, uri, dbName } = req.body || {};
+    if (!name || !uri) {
+      return res.status(400).json({ success: false, error: { message: 'Name and URI are required' } });
+    }
+    const id = `db_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const entry = { id, name, uri, dbName: dbName || 'gurubit', active: true, isDefault: false };
+    mongoManager.addDbConfig(entry);
+
+    // Try to connect immediately
+    try {
+      await mongoManager.connectSingle(entry);
+    } catch (connErr) {
+      console.warn(`Database ${name} added but connection failed:`, connErr.message);
+    }
+
+    res.json({ success: true, database: { ...entry, connected: mongoManager.getConnInfo(id)?.connected || false } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: { message: err.message } });
+  }
+});
+
+/**
+ * PUT /api/admin/database/list/:id
+ * Update a database connection
+ */
+router.put('/database/list/:id', requireSuperAdminRoute, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, uri, dbName, active } = req.body || {};
+    const existing = mongoManager.getDbConfig(id);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: { message: 'Database not found' } });
+    }
+
+    const patch = {};
+    if (name !== undefined) patch.name = name;
+    if (uri !== undefined) patch.uri = uri;
+    if (dbName !== undefined) patch.dbName = dbName;
+    if (active !== undefined) patch.active = active;
+
+    mongoManager.updateDbConfig(id, patch);
+
+    // Reconnect if URI changed or active state changed
+    if (uri !== undefined || active !== undefined) {
+      const updated = mongoManager.getDbConfig(id);
+      if (updated.active) {
+        try {
+          await mongoManager.disconnectSingle(id);
+          await mongoManager.connectSingle(updated);
+        } catch (connErr) {
+          console.warn(`Database ${name || id} reconnect failed:`, connErr.message);
+        }
+      } else {
+        await mongoManager.disconnectSingle(id);
+      }
+    }
+
+    const info = mongoManager.getConnInfo(id);
+    res.json({ success: true, database: { ...existing, ...patch, connected: info?.connected || false } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: { message: err.message } });
+  }
+});
+
+/**
+ * DELETE /api/admin/database/list/:id
+ * Remove a database connection
+ */
+router.delete('/database/list/:id', requireSuperAdminRoute, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const existing = mongoManager.getDbConfig(id);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: { message: 'Database not found' } });
+    }
+    if (existing.isDefault) {
+      return res.status(400).json({ success: false, error: { message: 'Cannot delete the primary database' } });
+    }
+
+    await mongoManager.disconnectSingle(id);
+    mongoManager.removeDbConfig(id);
+
+    res.json({ success: true, message: `Database "${existing.name}" removed` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: { message: err.message } });
+  }
+});
+
+/**
+ * PUT /api/admin/database/list/:id/set-primary
+ * Set a database as the primary (default)
+ */
+router.put('/database/list/:id/set-primary', requireSuperAdminRoute, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const existing = mongoManager.getDbConfig(id);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: { message: 'Database not found' } });
+    }
+    mongoManager.setPrimaryDb(id);
+    res.json({ success: true, message: `"${existing.name}" set as primary` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: { message: err.message } });
+  }
+});
+
+/**
+ * POST /api/admin/database/list/:id/test
+ * Test a database connection
+ */
+router.post('/database/list/:id/test', requireSuperAdminRoute, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const existing = mongoManager.getDbConfig(id);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: { message: 'Database not found' } });
+    }
+    const info = mongoManager.getConnInfo(id);
+    if (info && info.connected) {
+      return res.json({ success: true, message: `Connected to "${existing.name}" ✅` });
+    }
+    // Try connecting
+    try {
+      await mongoManager.disconnectSingle(id);
+      await mongoManager.connectSingle(existing);
+      res.json({ success: true, message: `Connected to "${existing.name}" ✅` });
+    } catch (connErr) {
+      res.json({ success: false, message: `Connection failed: ${connErr.message}` });
+    }
+  } catch (err) {
+    res.status(500).json({ success: false, error: { message: err.message } });
+  }
+});
+
 router.put('/database/schedule', requireSuperAdminRoute, (req, res) => {
   const { enabled, intervalDays, time, botToken, adminChatId } = req.body || {};
   const patch = {
@@ -1594,19 +2064,21 @@ router.get('/database/download/:id', requireSuperAdminRoute, (req, res) => {
  * GET /api/admin/database/env-config
  * Return current env config (masked secrets) for display in admin panel
  */
-router.get('/database/env-config', requireSuperAdminRoute, (req, res) => {
+router.get('/database/env-config', requireSuperAdminRoute, async (req, res) => {
+  let mongoInfo = { connected: false, host: '', dbName: process.env.MONGODB_DB || 'gurubit' };
+  try {
+    const { isMongoConfigured, mongoose } = require('../config/mongo');
+    const connected = isMongoConfigured();
+    mongoInfo = {
+      connected,
+      host: process.env.MONGODB_URI
+        ? process.env.MONGODB_URI.replace(/\/\/[^@]+@/, '//***@')
+        : '',
+      dbName: (mongoose.connection && mongoose.connection.name) || process.env.MONGODB_DB || 'gurubit'
+    };
+  } catch (_) {}
   res.json({
     success: true,
-    firebase: {
-      databaseUrl: process.env.FIREBASE_DATABASE_URL || '',
-      serviceAccountSet: !!process.env.FIREBASE_SERVICE_ACCOUNT,
-      projectId: (() => {
-        try {
-          const sa = process.env.FIREBASE_SERVICE_ACCOUNT ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT) : null;
-          return sa?.project_id || '';
-        } catch { return ''; }
-      })()
-    },
     smtp: {
       host: process.env.SMTP_HOST || '',
       port: process.env.SMTP_PORT || '587',
@@ -1615,40 +2087,7 @@ router.get('/database/env-config', requireSuperAdminRoute, (req, res) => {
       from: process.env.SMTP_FROM || '',
       passSet: !!process.env.SMTP_PASS
     },
-    mongodb: {
-      connected: !!process.env.MONGODB_URI,
-      host: process.env.MONGODB_URI ? process.env.MONGODB_URI.replace(/\/\/[^@]+@/, '//***@') : '',
-      dbName: process.env.MONGODB_DB || ''
-    },
-    postgresql: {
-      connected: !!process.env.PG_HOST,
-      host: process.env.PG_HOST || '',
-      port: process.env.PG_PORT || '5432',
-      database: process.env.PG_DATABASE || '',
-      user: process.env.PG_USER || ''
-    },
-    mysql: {
-      connected: !!process.env.MYSQL_HOST,
-      host: process.env.MYSQL_HOST || '',
-      port: process.env.MYSQL_PORT || '3306',
-      database: process.env.MYSQL_DATABASE || '',
-      user: process.env.MYSQL_USER || ''
-    },
-    redis: {
-      connected: !!process.env.REDIS_URL,
-      url: process.env.REDIS_URL ? process.env.REDIS_URL.replace(/\/\/[^@]+@/, '//***@') : ''
-    },
-    supabase: {
-      connected: !!process.env.SUPABASE_URL,
-      url: process.env.SUPABASE_URL || '',
-      anonKeySet: !!process.env.SUPABASE_ANON_KEY
-    },
-    planetscale: {
-      connected: !!process.env.PLANETSCALE_HOST,
-      host: process.env.PLANETSCALE_HOST || '',
-      database: process.env.PLANETSCALE_DATABASE || '',
-      username: process.env.PLANETSCALE_USERNAME || ''
-    }
+    mongodb: mongoInfo
   });
 });
 
@@ -1669,9 +2108,9 @@ router.put('/database/env-config', requireSuperAdminRoute, async (req, res) => {
       if (data.pass && data.pass.trim()) process.env.SMTP_PASS = data.pass;
       if (data.from !== undefined) process.env.SMTP_FROM = data.from;
 
-      // Persist to Firestore so it survives server restarts
-      const { saveSmtpToFirestore } = require('../services/emailSender');
-      await saveSmtpToFirestore({
+      // Persist to MongoDB so it survives server restarts
+      const { saveSmtpToMongo } = require('../services/emailSender');
+      await saveSmtpToMongo({
         host: process.env.SMTP_HOST,
         port: process.env.SMTP_PORT,
         secure: process.env.SMTP_SECURE,
@@ -1691,147 +2130,32 @@ router.put('/database/env-config', requireSuperAdminRoute, async (req, res) => {
             auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
           });
           await transporter.verify();
-          return res.json({ success: true, message: 'SMTP settings saved to Firestore & connection verified ✅' });
+          return res.json({ success: true, message: 'SMTP settings saved & connection verified ✅' });
         } catch (err) {
-          return res.json({ success: true, message: `Settings saved to Firestore but SMTP test failed: ${err.message}` });
+          return res.json({ success: true, message: `Settings saved but SMTP test failed: ${err.message}` });
         }
       }
-      return res.json({ success: true, message: 'SMTP settings saved to Firestore ✅ (will persist after restart)' });
-    }
-
-    if (section === 'firebase') {
-      if (data.databaseUrl !== undefined) process.env.FIREBASE_DATABASE_URL = data.databaseUrl;
-      if (data.serviceAccount && data.serviceAccount.trim()) {
-        if (data.serviceAccount === 'DISCONNECT') {
-          delete process.env.FIREBASE_SERVICE_ACCOUNT;
-          delete process.env.FIREBASE_DATABASE_URL;
-          return res.json({ success: true, message: 'Firebase disconnected. App will use local storage.' });
-        }
-        try {
-          JSON.parse(data.serviceAccount); // validate JSON
-          process.env.FIREBASE_SERVICE_ACCOUNT = data.serviceAccount;
-        } catch {
-          return res.status(400).json({ success: false, error: { message: 'Invalid JSON for Service Account' } });
-        }
-      }
-      return res.json({ success: true, message: 'Firebase settings saved ✅ (runtime only — also set in Render Dashboard for persistence)' });
+      return res.json({ success: true, message: 'SMTP settings saved ✅ (will persist after restart)' });
     }
 
     if (section === 'mongodb') {
       if (data.uri) process.env.MONGODB_URI = data.uri;
       if (data.dbName) process.env.MONGODB_DB = data.dbName;
-      // Test connection
       try {
-        const { MongoClient } = require('mongodb');
-        const client = new MongoClient(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 5000 });
-        await client.connect();
-        await client.db(process.env.MONGODB_DB || 'gurubit').command({ ping: 1 });
-        await client.close();
-        return res.json({ success: true, message: 'MongoDB connected successfully ✅' });
-      } catch (err) {
-        return res.json({ success: true, message: `Settings saved but connection test failed: ${err.message}` });
-      }
-    }
-
-    if (section === 'postgresql') {
-      if (data.host) process.env.PG_HOST = data.host;
-      if (data.port) process.env.PG_PORT = String(data.port);
-      if (data.database) process.env.PG_DATABASE = data.database;
-      if (data.user) process.env.PG_USER = data.user;
-      if (data.password) process.env.PG_PASSWORD = data.password;
-      if (data.ssl !== undefined) process.env.PG_SSL = String(data.ssl);
-      // Test connection
-      try {
-        const { Client } = require('pg');
-        const client = new Client({
-          host: process.env.PG_HOST, port: parseInt(process.env.PG_PORT || '5432'),
-          database: process.env.PG_DATABASE, user: process.env.PG_USER,
-          password: process.env.PG_PASSWORD,
-          ssl: process.env.PG_SSL === 'true' ? { rejectUnauthorized: false } : false,
-          connectionTimeoutMillis: 5000
-        });
-        await client.connect();
-        await client.query('SELECT 1');
-        await client.end();
-        return res.json({ success: true, message: 'PostgreSQL connected successfully ✅' });
-      } catch (err) {
-        return res.json({ success: true, message: `Settings saved but connection test failed: ${err.message}` });
-      }
-    }
-
-    if (section === 'mysql') {
-      if (data.host) process.env.MYSQL_HOST = data.host;
-      if (data.port) process.env.MYSQL_PORT = String(data.port);
-      if (data.database) process.env.MYSQL_DATABASE = data.database;
-      if (data.user) process.env.MYSQL_USER = data.user;
-      if (data.password) process.env.MYSQL_PASSWORD = data.password;
-      try {
-        const mysql = require('mysql2/promise');
-        const conn = await mysql.createConnection({
-          host: process.env.MYSQL_HOST, port: parseInt(process.env.MYSQL_PORT || '3306'),
-          database: process.env.MYSQL_DATABASE, user: process.env.MYSQL_USER,
-          password: process.env.MYSQL_PASSWORD, connectTimeout: 5000
-        });
-        await conn.query('SELECT 1');
-        await conn.end();
-        return res.json({ success: true, message: 'MySQL connected successfully ✅' });
-      } catch (err) {
-        return res.json({ success: true, message: `Settings saved but connection test failed: ${err.message}` });
-      }
-    }
-
-    if (section === 'redis') {
-      if (data.url) process.env.REDIS_URL = data.url;
-      if (data.password) process.env.REDIS_PASSWORD = data.password;
-      try {
-        const redis = require('redis');
-        const client = redis.createClient({ url: process.env.REDIS_URL, socket: { connectTimeout: 5000 } });
-        await client.connect();
-        await client.ping();
-        await client.disconnect();
-        return res.json({ success: true, message: 'Redis connected successfully ✅' });
-      } catch (err) {
-        return res.json({ success: true, message: `Settings saved but connection test failed: ${err.message}` });
-      }
-    }
-
-    if (section === 'supabase') {
-      if (data.url) process.env.SUPABASE_URL = data.url;
-      if (data.anonKey) process.env.SUPABASE_ANON_KEY = data.anonKey;
-      if (data.serviceKey) process.env.SUPABASE_SERVICE_KEY = data.serviceKey;
-      // Test via REST API
-      try {
-        const testRes = await fetch(`${process.env.SUPABASE_URL}/rest/v1/`, {
-          headers: { 'apikey': process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_KEY },
-          signal: AbortSignal.timeout(5000)
-        });
-        if (testRes.ok || testRes.status === 200 || testRes.status === 404) {
-          return res.json({ success: true, message: 'Supabase connected successfully ✅' });
+        const { mongoose, isMongoConfigured } = require('../config/mongo');
+        const wasConnected = isMongoConfigured();
+        if (data.uri) {
+          await mongoose.disconnect().catch(() => {});
+          const { connectMongo, ensureIndexes } = require('../config/mongo');
+          await connectMongo();
+          await ensureIndexes();
         }
-        return res.json({ success: true, message: `Settings saved. Status: ${testRes.status}` });
-      } catch (err) {
-        return res.json({ success: true, message: `Settings saved but connection test failed: ${err.message}` });
-      }
-    }
-
-    if (section === 'planetscale') {
-      if (data.host) process.env.PLANETSCALE_HOST = data.host;
-      if (data.username) process.env.PLANETSCALE_USERNAME = data.username;
-      if (data.password) process.env.PLANETSCALE_PASSWORD = data.password;
-      if (data.database) process.env.PLANETSCALE_DATABASE = data.database;
-      try {
-        const mysql = require('mysql2/promise');
-        const conn = await mysql.createConnection({
-          host: process.env.PLANETSCALE_HOST,
-          database: process.env.PLANETSCALE_DATABASE,
-          user: process.env.PLANETSCALE_USERNAME,
-          password: process.env.PLANETSCALE_PASSWORD,
-          ssl: { rejectUnauthorized: true },
-          connectTimeout: 5000
+        return res.json({
+          success: true,
+          message: wasConnected
+            ? 'MongoDB already connected ✅'
+            : 'MongoDB connected successfully ✅'
         });
-        await conn.query('SELECT 1');
-        await conn.end();
-        return res.json({ success: true, message: 'PlanetScale connected successfully ✅' });
       } catch (err) {
         return res.json({ success: true, message: `Settings saved but connection test failed: ${err.message}` });
       }

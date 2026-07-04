@@ -1,5 +1,5 @@
 /**
- * Live support REST API — all async (Firestore backed)
+ * Live support REST API — all async (MongoDB backed)
  */
 
 const express = require('express');
@@ -146,6 +146,21 @@ router.delete('/admin/sessions/:id/messages/:msgId', requireAdmin, async (req, r
   try {
     const ok = await supportStore.deleteMessage(req.params.id, req.params.msgId);
     if (!ok) return res.status(404).json({ success: false, error: { message: 'Not found' } });
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ success: false, error: { message: e.message } });
+  }
+});
+
+router.delete('/admin/sessions/:id', requireAdmin, async (req, res) => {
+  try {
+    const ok = await supportStore.deleteSession(req.params.id);
+    if (!ok) return res.status(404).json({ success: false, error: { message: 'Session not found' } });
+    // Broadcast to admin sockets that session was deleted
+    const wss = req.app.get('wss');
+    if (wss?.broadcastSupport) {
+      wss.broadcastSupport({ type: 'support_session_deleted', sessionId: req.params.id });
+    }
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ success: false, error: { message: e.message } });

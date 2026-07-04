@@ -111,35 +111,37 @@ const ROUTES = {
   '/forgot-password':   () => import('./components/AuthPage.js').then(m => m.AuthPage),
   '/admin':             () => import('./components/AdminPanel.js').then(m => m.AdminPanel),
   '/dashboard':         () => import('./components/Dashboard.js').then(m => m.Dashboard),
-  '/agent':             () => import('./components/AgentDashboard.js').then(m => m.AgentDashboard),
+  '/agent':             () => import('./components/AgentDashboard.js?v=3').then(m => m.AgentDashboard),
   '/profile':           () => import('./components/ProfilePage.js').then(m => m.ProfilePage),
-  '/numbers':           () => import('./components/NumberSelection.js?v=3').then(m => m.NumberSelection),
-  '/live-feed':         () => import('./components/LiveSMSFeed.js').then(m => m.LiveSMSFeed),
-  '/post':              () => import('./components/PostFeed.js').then(m => m.PostFeed),
-  '/groups':            () => import('./components/GroupsPage.js').then(m => m.GroupsPage),
-  '/movement':          () => import('./components/PostFeed.js').then(m => m.PostFeed),
-  '/guru':              () => import('./components/PostFeed.js').then(m => m.PostFeed),
-  '/withdraw':          () => import('./components/WithdrawPage.js').then(m => m.WithdrawPage),
-  '/admin/users':       () => import('./components/AdminUsers.js').then(m => m.AdminUsers),
-  '/admin/agents':      () => import('./components/AdminUsers.js').then(m => m.AdminUsers),
-  '/admin/guru':        () => import('./components/AdminGuru.js').then(m => m.AdminGuru),
-  '/admin/withdrawals': () => import('./components/AdminWithdrawals.js').then(m => m.AdminWithdrawals),
-  '/admin/services':    () => import('./components/AdminServices.js?v=3').then(m => m.AdminServices),
-  '/admin/leaderboard': () => import('./components/AdminLeaderboard.js').then(m => m.AdminLeaderboard),
-  '/admin/api-keys':    () => import('./components/AdminApiKeys.js?v=3').then(m => m.AdminApiKeys),
-  '/admin/provider':    () => import('./components/AdminApiKeys.js?v=3').then(m => m.AdminApiKeys),
-  '/admin/sms-feed':    () => import('./components/AdminSmsFeed.js').then(m => m.AdminSmsFeed),
-  '/admin/support':     () => import('./components/AdminSupport.js').then(m => m.AdminSupport),
-  '/admin/broadcast':   () => import('./components/AdminBroadcast.js').then(m => m.AdminBroadcast),
-  '/admin/staff':       () => import('./components/AdminStaff.js').then(m => m.AdminStaff),
-  '/admin/settings':    () => import('./components/AdminSettings.js').then(m => m.AdminSettings),
-  '/admin/database':    () => import('./components/AdminDatabase.js').then(m => m.AdminDatabase),
-  '/admin/costs':       () => import('./components/AdminCost.js').then(m => m.AdminCost),
+  '/numbers':           () => import('./components/NumberSelection.js?v=4').then(m => m.NumberSelection),
+  '/live-feed':         () => import('./components/LiveSMSFeed.js?v=2').then(m => m.LiveSMSFeed),
+  '/post':              () => import('./components/PostFeed.js?v=2').then(m => m.PostFeed),
+  '/groups':            () => import('./components/GroupsPage.js?v=2').then(m => m.GroupsPage),
+  '/movement':          () => import('./components/PostFeed.js?v=2').then(m => m.PostFeed),
+  '/guru':              () => import('./components/PostFeed.js?v=2').then(m => m.PostFeed),
+  '/withdraw':          () => import('./components/WithdrawPage.js?v=2').then(m => m.WithdrawPage),
+  '/admin/users':       () => import('./components/AdminUsers.js?v=4').then(m => m.AdminUsers),
+  '/admin/pending-users': () => import('./components/AdminPendingUsers.js').then(m => m.AdminPendingUsers),
+  '/admin/agents':      () => import('./components/AdminUsers.js?v=4').then(m => m.AdminUsers),
+  '/admin/guru':        () => import('./components/AdminGuru.js?v=2').then(m => m.AdminGuru),
+  '/admin/withdrawals': () => import('./components/AdminWithdrawals.js?v=2').then(m => m.AdminWithdrawals),
+  '/admin/services':    () => import('./components/AdminServices.js?v=4').then(m => m.AdminServices),
+  '/admin/leaderboard': () => import('./components/AdminLeaderboard.js?v=2').then(m => m.AdminLeaderboard),
+  '/admin/api-keys':    () => import('./components/AdminApiKeys.js?v=4').then(m => m.AdminApiKeys),
+  '/admin/provider':    () => import('./components/AdminApiKeys.js?v=4').then(m => m.AdminApiKeys),
+  '/admin/sms-feed':    () => import('./components/AdminSmsFeed.js?v=2').then(m => m.AdminSmsFeed),
+  '/admin/support':     () => import('./components/AdminSupport.js?v=2').then(m => m.AdminSupport),
+  '/admin/broadcast':   () => import('./components/AdminBroadcast.js?v=2').then(m => m.AdminBroadcast),
+  '/admin/staff':       () => import('./components/AdminStaff.js?v=2').then(m => m.AdminStaff),
+  '/admin/settings':    () => import('./components/AdminSettings.js?v=2').then(m => m.AdminSettings),
+  '/admin/database':    () => import('./components/AdminDatabase.js?v=3').then(m => m.AdminDatabase),
+  '/admin/costs':       () => import('./components/AdminCost.js?v=2').then(m => m.AdminCost),
   '/privacy':           () => import('./components/LegalPage.js').then(m => m.LegalPage),
   '/terms':             () => import('./components/LegalPage.js').then(m => m.LegalPage),
   '/faq':               () => import('./components/LegalPage.js').then(m => m.LegalPage),
   '/verify-email':      () => import('./components/VerifyEmailPage.js').then(m => m.VerifyEmailPage),
   '/reset-password':    () => import('./components/ResetPasswordPage.js').then(m => m.ResetPasswordPage),
+  '/news':              () => import('./components/NewsFeed.js?v=1').then(m => m.NewsFeed),
 };
 
 // Simple client-side router
@@ -246,8 +248,9 @@ function hideLiveSupportWidget() {
 
 async function initLiveSupport() {
   const path = window.location.pathname;
-  // Hide on admin pages and movement/social pages
-  if (path.startsWith('/admin') || path === '/post' || path === '/movement' || path === '/guru' || path === '/groups') {
+  // Show ONLY on dashboard (/dashboard) — hide everywhere else
+  const allowedPaths = ['/dashboard'];
+  if (!allowedPaths.includes(path)) {
     hideLiveSupportWidget();
     return;
   }

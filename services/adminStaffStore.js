@@ -1,16 +1,26 @@
 /**
- * Admin staff accounts — Firestore backed
+ * Admin staff accounts — MongoDB backed, bcrypt-hashed passwords.
  */
 
 const crypto = require('crypto');
-const { db } = require('../config/firebase');
+const bcrypt = require('bcryptjs');
+const { db } = require('../config/db');
 
 const COLLECTION = 'adminStaff';
 
 function col() { return db.collection(COLLECTION); }
 
-function hashPassword(password) {
-  return crypto.createHash('sha256').update(String(password)).digest('hex');
+async function hashPassword(password) {
+  const salt = await bcrypt.genSalt(10);
+  return bcrypt.hash(String(password), salt);
+}
+
+async function compareStaffPassword(password, hashed) {
+  try {
+    return await bcrypt.compare(String(password), hashed);
+  } catch (_) {
+    return false;
+  }
 }
 
 function sanitize(entry) {
@@ -30,7 +40,7 @@ async function createStaff({ username, password, role, displayName }) {
   const entry = {
     id,
     username: String(username).trim().toLowerCase(),
-    passwordHash: hashPassword(password),
+    passwordHash: await hashPassword(password),
     role,
     displayName: displayName || username,
     createdAt: new Date().toISOString(),
@@ -45,7 +55,7 @@ async function verifyStaff(username, password) {
   const all = await _getAll();
   const entry = all.find(s => s.username === u && s.active);
   if (!entry) return null;
-  if (entry.passwordHash !== hashPassword(password)) return null;
+  if (!(await compareStaffPassword(password, entry.passwordHash))) return null;
   return sanitize(entry);
 }
 
@@ -64,7 +74,7 @@ async function updateStaff(id, patch) {
   if (!doc.exists) return null;
   const entry = doc.data();
   const update = {};
-  if (patch.password) update.passwordHash = hashPassword(patch.password);
+  if (patch.password) update.passwordHash = await hashPassword(patch.password);
   if (patch.role) update.role = patch.role;
   if (patch.displayName) update.displayName = patch.displayName;
   if (typeof patch.active === 'boolean') update.active = patch.active;

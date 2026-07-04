@@ -1,18 +1,15 @@
 /**
  * Cache Sync Scheduler
- * Syncs local cache with Firestore periodically (every 2-5 hours)
- * Reduces Firebase reads and saves quota
- * Gracefully handles RESOURCE_EXHAUSTED (quota exceeded) errors
+ * Keeps local in-memory caches in sync with MongoDB.
  */
 
 const catalogStore = require('./catalogStore');
 const providerStore = require('./providerStore');
 
-// Sync intervals in milliseconds
 const SYNC_INTERVALS = {
-  catalog:   2 * 60 * 60 * 1000,  // 2 hours
-  providers: 3 * 60 * 60 * 1000,  // 3 hours
-  fullSync:  5 * 60 * 60 * 1000   // 5 hours
+  catalog:   2 * 60 * 60 * 1000,
+  providers: 3 * 60 * 60 * 1000,
+  fullSync:  5 * 60 * 60 * 1000
 };
 
 const lastSync = { catalog: 0, providers: 0, fullSync: 0 };
@@ -22,24 +19,12 @@ const syncStats = {
   lastProviderSync: null,
   totalSyncs: 0,
   failedSyncs: 0,
-  isSyncing: false,
-  quotaExceeded: false,
-  quotaResetAt: null
+  isSyncing: false
 };
 
 let syncInterval = null;
 
-function isQuotaError(err) {
-  return err && (
-    err.code === 8 ||
-    String(err.message || '').includes('RESOURCE_EXHAUSTED') ||
-    String(err.message || '').includes('Quota exceeded')
-  );
-}
-
 async function syncCatalog() {
-  // Catalog is stored in local catalog.json — no Firestore sync needed.
-  // Just reload from disk to pick up any external changes.
   try {
     await catalogStore.loadCatalog();
     lastSync.catalog = Date.now();
@@ -47,7 +32,7 @@ async function syncCatalog() {
     return { success: true };
   } catch (err) {
     syncStats.failedSyncs++;
-    console.error('[CacheSync] ❌ Catalog reload failed:', err.message);
+    console.error('[CacheSync] Catalog reload failed:', err.message);
     return { error: err.message };
   }
 }
@@ -55,39 +40,23 @@ async function syncCatalog() {
 async function syncProviders() {
   const now = Date.now();
   if (now - lastSync.providers < SYNC_INTERVALS.providers) return { skipped: true };
-  if (syncStats.quotaExceeded) return { skipped: true, reason: 'quota_exceeded' };
   try {
     console.log('[CacheSync] Syncing providers...');
     await providerStore.load();
     lastSync.providers = now;
     syncStats.lastProviderSync = new Date().toISOString();
     syncStats.totalSyncs++;
-    syncStats.quotaExceeded = false;
-    console.log('[CacheSync] ✅ Providers synced');
+    console.log('[CacheSync] Providers synced');
     return { success: true };
   } catch (err) {
     syncStats.failedSyncs++;
-    if (isQuotaError(err)) {
-      syncStats.quotaExceeded = true;
-      console.warn('[CacheSync] ⚠️  Quota exceeded — pausing sync');
-      return { skipped: true, reason: 'quota_exceeded' };
-    }
-    console.error('[CacheSync] ❌ Provider sync failed:', err.message);
+    console.error('[CacheSync] Provider sync failed:', err.message);
     return { error: err.message };
   }
 }
 
 async function fullSync() {
   if (syncStats.isSyncing) return { skipped: true, reason: 'already_running' };
-
-  // Auto-reset quota flag after 24 hours
-  if (syncStats.quotaExceeded && syncStats.quotaResetAt && new Date() > new Date(syncStats.quotaResetAt)) {
-    syncStats.quotaExceeded = false;
-    syncStats.quotaResetAt = null;
-    console.log('[CacheSync] Quota reset — resuming sync');
-  }
-
-  if (syncStats.quotaExceeded) return { skipped: true, reason: 'quota_exceeded' };
 
   syncStats.isSyncing = true;
   const results = { catalog: null, providers: null, timestamp: new Date().toISOString() };
@@ -99,8 +68,6 @@ async function fullSync() {
 }
 
 async function forceSyncAll() {
-  syncStats.quotaExceeded = false;
-  syncStats.quotaResetAt = null;
   lastSync.catalog = 0;
   lastSync.providers = 0;
   return fullSync();
@@ -109,19 +76,15 @@ async function forceSyncAll() {
 function startScheduler() {
   if (syncInterval) clearInterval(syncInterval);
 
-  // Periodic sync every 5 hours
   syncInterval = setInterval(() => {
-    fullSync().catch(err => {
-      if (!isQuotaError(err)) console.error('[CacheSync] Scheduled sync error:', err.message);
-    });
+    fullSync().catch(err => console.error('[CacheSync] Scheduled sync error:', err.message));
   }, SYNC_INTERVALS.fullSync);
 
-  // First sync: 10 minutes after startup — avoids quota burst on restart
   setTimeout(() => {
     fullSync().catch(() => {});
   }, 10 * 60 * 1000);
 
-  console.log('[CacheSync] Scheduler started — first sync in 10 min, then every 5 hours');
+  console.log('[CacheSync] Scheduler started - first sync in 10 min, then every 5 hours');
 }
 
 function stopScheduler() {

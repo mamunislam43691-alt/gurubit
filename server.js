@@ -1,6 +1,6 @@
 /**
  * GURUBIT SMS/OTP Platform Server
- * Express server with Firebase and WebSocket support for real-time SMS/OTP functionality
+ * Express server with MongoDB and WebSocket support for real-time SMS/OTP functionality
  */
 
 require('dotenv').config();
@@ -12,8 +12,17 @@ const cookieParser = require('cookie-parser');
 const cors = require('cors');
 const compression = require('compression');
 
-// Initialize Firebase
-require('./config/firebase');
+// Initialize MongoDB connection and indexes
+(async () => {
+  try {
+    const { connectAllDatabases, ensureIndexes } = require('./config/mongo');
+    await connectAllDatabases();
+    await ensureIndexes();
+    console.log('✅ MongoDB connected and indexes synced');
+  } catch (e) {
+    console.error('❌ MongoDB connection failed:', e.message);
+  }
+})();
 
 // Import routes
 const authRoutes = require('./routes/authRoutes');
@@ -388,9 +397,7 @@ async function startServer() {
   });
 
   process.on('unhandledRejection', (reason, promise) => {
-    // Suppress Firestore quota errors — they are handled per-route
     if (reason && (reason.code === 8 || String(reason.message || '').includes('RESOURCE_EXHAUSTED') || String(reason.message || '').includes('Quota exceeded'))) {
-      // Silently ignore — routes handle this gracefully
       return;
     }
     console.error('❌ UNHANDLED REJECTION:', reason);
@@ -417,17 +424,12 @@ async function startServer() {
   }, 30000); // Check every 30 seconds
 
   try {
-    const { isFirebaseConfigured } = require('./config/firebase');
-    
-    if (isFirebaseConfigured) {
-      console.log('✅ Firebase initialized');
+    const { isMongoConfigured } = require('./config/mongo');
+
+    if (isMongoConfigured && isMongoConfigured()) {
+      console.log('✅ MongoDB ready');
     } else {
-      if (process.env.MUTE_FIREBASE_WARNINGS !== 'true') {
-        console.log('⚠️  Running without Firebase (Development mode)');
-        console.log('   Configure Firebase to enable authentication');
-      } else {
-        console.log('ℹ️  Running in Mock Firebase Mode (Warnings muted)');
-      }
+      console.log('⚠️  Waiting for MongoDB connection… (set MONGODB_URI)');
     }
 
     server.on('error', (err) => {
@@ -445,55 +447,93 @@ async function startServer() {
 
     // Start HTTP server
     server.listen(PORT, async () => {
-      // Delay all Firestore reads by 3 seconds to avoid quota burst on startup
-      setTimeout(async () => {
+      // Load all stores after MongoDB is confirmed ready
+      const loadStores = async () => {
+        const { isMongoConnected } = require('./config/mongo');
+
+        // Wait up to 15s for MongoDB to be ready
+        let waited = 0;
+        while (!isMongoConnected() && waited < 15000) {
+          await new Promise(r => setTimeout(r, 500));
+          waited += 500;
+        }
+
+        if (!isMongoConnected()) {
+          console.warn('⚠️ Stores not loaded — MongoDB not ready after 15s');
+          return;
+        }
+
+        // Load catalog
+        try {
+          await require('./services/catalogStore').loadCatalog();
+          console.log('✅ Catalog loaded from MongoDB');
+        } catch (e) {
+          console.warn('Catalog load:', e.message);
+        }
+
+        // Load providers
+        try {
+          await require('./services/providerStore').load();
+          console.log('✅ Providers loaded from MongoDB');
+        } catch (e) {
+          console.warn('Provider load:', e.message);
+        }
+
+        // Load SMTP
+        try {
+          await require('./services/emailSender').loadSmtpFromMongo();
+        } catch (e) {
+          console.warn('SMTP load:', e.message);
+        }
+
+        // Load social groups
         try {
           await require('./services/postStore').listGroups();
         } catch (e) {
-          if (!String(e.message).includes('RESOURCE_EXHAUSTED')) console.warn('Guru init:', e.message);
+          console.warn('Guru init:', e.message);
         }
 
-        // Load all Firestore-backed stores into memory cache
+        // Load admin sessions from DB
         try {
-          await require('./services/catalogStore').loadCatalog();
-          console.log('✅ Catalog loaded from Firestore');
+          const { _loadSessionsFromDB } = require('./utils/adminSession');
+          if (typeof _loadSessionsFromDB === 'function') {
+            await _loadSessionsFromDB();
+          }
         } catch (e) {
-          if (String(e.message).includes('RESOURCE_EXHAUSTED')) {
-            console.warn('⚠️  Catalog: Firestore quota exceeded — using empty cache. Will retry in 2 hours.');
-          } else { console.warn('Catalog load:', e.message); }
+          // non-critical
         }
 
+        console.log('✅ All stores ready');
+
+        // Start provider poller after stores are loaded
         try {
-          await require('./services/providerStore').load();
-          console.log('✅ Providers loaded from Firestore');
+          const { startProviderPoller } = require('./services/providerPoll');
+          const providerStore = require('./services/providerStore');
+          await providerStore.load();
+          const pollerControl = startProviderPoller(wss, 3000);
+          app.set('pollerControl', pollerControl);
+          console.log('✅ Provider poller started');
         } catch (e) {
-          if (String(e.message).includes('RESOURCE_EXHAUSTED')) {
-            console.warn('⚠️  Providers: Firestore quota exceeded — using empty cache. Will retry in 2 hours.');
-          } else { console.warn('Provider load:', e.message); }
+          console.warn('Provider poller:', e.message);
         }
+      };
 
-        // Load SMTP config from Firestore
-        try {
-          await require('./services/emailSender').loadSmtpFromFirestore();
-        } catch (e) {
-          if (!String(e.message).includes('RESOURCE_EXHAUSTED')) console.warn('SMTP load:', e.message);
-        }
-      }, 3000); // 3 second delay
+      // Run store loading in background (non-blocking)
+      loadStores().catch(e => console.warn('Store load error:', e.message));
 
-      // Start cache sync scheduler - syncs with Firestore every 2-5 hours
+      // Start cache sync scheduler
       try {
         const cacheSync = require('./services/cacheSync');
         cacheSync.startScheduler();
-        console.log('✅ Cache sync scheduler started (syncs every 2-5 hours)');
+        console.log('✅ Cache sync scheduler started');
       } catch (e) { console.warn('Cache sync:', e.message); }
 
-      // NOTE: catalog.json is the source of truth for phone numbers — no Firestore migration needed.
       console.log(`\n🚀 GURUBIT Server running at http://localhost:${PORT}/`);
       console.log(`📁 Serving files from: ${path.join(__dirname, 'public')}`);
       console.log('API server ready for connections');
       
       // Start periodic checks for expired numbers
-      const { checkExpiredNumbers } = require('./utils/smsProcessor');
+      const { checkExpiredNumbers, cleanupOldNumbers } = require('./utils/smsProcessor');
       const expiredCheckInterval = setInterval(() => {
         try {
           checkExpiredNumbers(wss);
@@ -501,6 +541,16 @@ async function startServer() {
           console.warn('Error checking expired numbers:', err.message);
         }
       }, 60000); // Every minute
+
+      // Auto-cleanup: delete failed & successful numbers older than 12 hours
+      const numberCleanupInterval = setInterval(() => {
+        cleanupOldNumbers(wss).catch(e => console.warn('[NumberCleanup] Error:', e.message));
+      }, 60 * 60 * 1000); // Every hour
+
+      // Also run once on startup (after 2 min delay) to clean up from previous sessions
+      setTimeout(() => {
+        cleanupOldNumbers(wss).catch(e => console.warn('[NumberCleanup] Startup error:', e.message));
+      }, 2 * 60 * 1000);
 
       // 7-day social content cleanup — runs every 24 hours
       const { cleanupOldContent } = require('./services/postStore');
@@ -514,25 +564,12 @@ async function startServer() {
 
       try {
         const backupStore = require('./services/backupStore');
-        const { collections } = require('./config/firebase');
+        const { collections } = require('./config/db');
         backupStore.startScheduler(collections);
       } catch (e) {
         console.warn('Backup scheduler:', e.message);
       }
 
-      try {
-        const { startProviderPoller } = require('./services/providerPoll');
-        const providerStore = require('./services/providerStore');
-        providerStore.load(); // ensure fresh load before starting poller
-        const pollerControl = startProviderPoller(wss, 3000);
-        app.set('pollerControl', pollerControl);
-      } catch (e) {
-        console.warn('Provider poller:', e.message);
-      }
-
-      if (isFirebaseConfigured) {
-        console.log(`🔥 Firebase Firestore connected`);
-      }
       const adminPw = getAdminPassword();
       if (adminPw) {
         console.log(`🔐 Admin panel: http://localhost:${PORT}/admin`);
@@ -631,18 +668,12 @@ process.on('SIGINT', () => {
 
 // Catch uncaught exceptions
 process.on('uncaughtException', (error) => {
-  if (error && (error.code === 8 || String(error.message || '').includes('RESOURCE_EXHAUSTED') || String(error.message || '').includes('Quota exceeded'))) {
-    return; // Suppress Firestore quota errors silently
-  }
   console.error('\n❌ Uncaught Exception:', error.message);
   console.error('Server will continue running...');
 });
 
 // Catch unhandled promise rejections
 process.on('unhandledRejection', (reason) => {
-  if (reason && (reason.code === 8 || String(reason.message || '').includes('RESOURCE_EXHAUSTED') || String(reason.message || '').includes('Quota exceeded'))) {
-    return; // Suppress Firestore quota errors silently
-  }
   console.error('\n❌ Unhandled Rejection:', reason?.message || reason);
   console.error('Server will continue running...');
 });

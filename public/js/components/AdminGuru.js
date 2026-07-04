@@ -194,11 +194,15 @@ export class AdminGuru {
   }
 
   async createAnnouncement() {
-    const title = document.getElementById('annTitle')?.value?.trim();
-    const body = document.getElementById('annBody')?.value?.trim();
-    const linkLabel = document.getElementById('annLinkLabel')?.value?.trim();
-    const linkUrl = document.getElementById('annLinkUrl')?.value?.trim();
-    const file = document.getElementById('annImage')?.files?.[0];
+    const title       = document.getElementById('annTitle')?.value?.trim();
+    const body        = document.getElementById('annBody')?.value?.trim();
+    const linkLabel   = document.getElementById('annLinkLabel')?.value?.trim();
+    const linkUrl     = document.getElementById('annLinkUrl')?.value?.trim();
+    const videoUrl    = document.getElementById('annVideoUrl')?.value?.trim();
+    const pinned      = document.getElementById('annPinned')?.checked || false;
+    const typeRadio   = document.querySelector('.ann-type-radio:checked');
+    const type        = typeRadio?.value || 'announcement';
+    const file        = document.getElementById('annImage')?.files?.[0];
     if (!title) return alert('Title required');
 
     let imageData = null;
@@ -209,23 +213,34 @@ export class AdminGuru {
 
     const res = await fetch('/api/social/announcements', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, body, imageData, linkUrl: linkUrl || null, linkLabel: linkLabel || null })
+      body: JSON.stringify({ title, body, imageData, videoUrl: videoUrl || null, linkUrl: linkUrl || null, linkLabel: linkLabel || null, type, pinned })
     });
     const data = await res.json();
-    if (btn) { btn.disabled = false; btn.textContent = 'Publish Announcement'; }
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane"></i> Publish'; }
     if (data.success) {
       if (window.apiCache) window.apiCache.clear();
-      document.getElementById('annTitle').value = '';
-      document.getElementById('annBody').value = '';
-      document.getElementById('annLinkLabel').value = '';
-      document.getElementById('annLinkUrl').value = '';
-      document.getElementById('annImagePreview').innerHTML = '';
+      ['annTitle','annBody','annVideoUrl','annLinkLabel','annLinkUrl'].forEach(id => {
+        const el = document.getElementById(id); if (el) el.value = '';
+      });
+      const pin = document.getElementById('annPinned'); if (pin) pin.checked = false;
+      const prev = document.getElementById('annImagePreview'); if (prev) prev.innerHTML = '';
+      const fi = document.getElementById('annImage'); if (fi) fi.value = '';
       await this.load();
     } else alert(data.error?.message || 'Failed');
   }
 
   async deleteAnnouncement(id) {
+    if (!confirm('Delete this post?')) return;
     await fetch(`/api/social/announcements/${id}`, { method: 'DELETE' });
+    if (window.apiCache) window.apiCache.clear();
+    await this.load();
+  }
+
+  async togglePinAnn(id, currentlyPinned) {
+    await fetch(`/api/social/announcements/${id}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pinned: !currentlyPinned })
+    });
     if (window.apiCache) window.apiCache.clear();
     await this.load();
   }
@@ -375,62 +390,127 @@ export class AdminGuru {
   }
 
   renderAnnouncements() {
-    return `
-      <!-- Create announcement -->
-      <div class="glass-card p-5 mb-5">
-        <h4 class="font-black text-white text-sm uppercase mb-3"><i class="fas fa-bullhorn text-primary mr-2"></i> New Announcement</h4>
-        <input type="text" id="annTitle" class="input-field w-full mb-2" placeholder="Title (required)">
-        <textarea id="annBody" class="input-field w-full mb-2 min-h-[80px]" placeholder="Description (optional)..."></textarea>
+    const typeMeta = {
+      announcement: { label: '📢 Announcement', color: 'primary' },
+      news:         { label: '📰 News',         color: 'cyan' },
+      update:       { label: '🔧 Update',       color: 'yellow' },
+      alert:        { label: '🚨 Alert',        color: 'red' }
+    };
 
-        <!-- Image upload -->
-        <div class="mb-2">
-          <label class="text-xs text-primary font-bold uppercase cursor-pointer flex items-center gap-1 mb-1">
-            <i class="fas fa-image"></i> Add Image (optional)
-            <input type="file" id="annImage" accept="image/jpeg,image/jpg,image/png,image/gif,image/webp" class="hidden">
-          </label>
-          <div id="annImagePreview"></div>
+    return `
+      <!-- Create / Edit Form -->
+      <div class="glass-card p-6 mb-6 border border-primary/20">
+        <h4 class="font-black text-white text-sm uppercase mb-4 flex items-center gap-2">
+          <i class="fas fa-bullhorn text-primary"></i> New News / Announcement
+        </h4>
+
+        <!-- Type selector -->
+        <div class="flex gap-2 mb-3 flex-wrap">
+          ${Object.entries(typeMeta).map(([k, v]) => `
+            <label class="cursor-pointer">
+              <input type="radio" name="annType" value="${k}" class="hidden ann-type-radio" ${k === 'announcement' ? 'checked' : ''}>
+              <span class="ann-type-pill px-3 py-1.5 rounded-lg text-xs font-bold border transition-all border-white/10 text-gray-400 hover:border-primary/40">${v.label}</span>
+            </label>`).join('')}
         </div>
 
-        <!-- Link button -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
-          <input type="text" id="annLinkLabel" class="input-field text-sm" placeholder="Button label (e.g. Learn More)">
+        <input type="text" id="annTitle" class="input-field w-full mb-2" placeholder="Title (required) *">
+        <textarea id="annBody" class="input-field w-full mb-3 min-h-[80px]" placeholder="Body text (optional)..."></textarea>
+
+        <!-- Media row -->
+        <div class="grid sm:grid-cols-2 gap-2 mb-3">
+          <div>
+            <label class="text-xs text-primary font-bold uppercase mb-1 flex items-center gap-1 cursor-pointer">
+              <i class="fas fa-image"></i> Image
+              <input type="file" id="annImage" accept="image/*" class="hidden">
+            </label>
+            <div id="annImagePreview" class="text-xs text-gray-500"></div>
+          </div>
+          <div>
+            <label class="text-xs text-yellow-400 font-bold uppercase mb-1 block">
+              <i class="fab fa-youtube"></i> Video URL (YouTube / direct)
+            </label>
+            <input type="url" id="annVideoUrl" class="input-field w-full text-sm" placeholder="https://youtube.com/watch?v=...">
+          </div>
+        </div>
+
+        <!-- CTA Button row -->
+        <div class="grid sm:grid-cols-2 gap-2 mb-2">
+          <input type="text" id="annLinkLabel" class="input-field text-sm" placeholder="Button text (e.g. Learn More)">
           <input type="url" id="annLinkUrl" class="input-field text-sm" placeholder="Button URL (https://...)">
         </div>
-        <p class="text-[10px] text-gray-500 mb-3">Fill both fields to add a clickable button to the announcement.</p>
+        <p class="text-[10px] text-gray-600 mb-3">Fill both button fields to add a CTA button.</p>
 
-        <button type="button" id="createAnnBtn" class="neon-btn px-5 py-2 text-xs uppercase">Publish Announcement</button>
+        <!-- Options row -->
+        <div class="flex items-center gap-4 mb-4">
+          <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+            <input type="checkbox" id="annPinned" class="accent-cyan-500">
+            <span class="text-xs font-bold uppercase text-primary">📌 Pin to top</span>
+          </label>
+        </div>
+
+        <div class="flex gap-2">
+          <button type="button" id="createAnnBtn" class="neon-btn px-6 py-2.5 text-xs uppercase flex items-center gap-2">
+            <i class="fas fa-paper-plane"></i> Publish
+          </button>
+          <button type="button" id="clearAnnFormBtn" class="px-4 py-2.5 text-xs uppercase border border-white/10 rounded-lg text-gray-400 hover:bg-white/5">
+            Clear
+          </button>
+        </div>
       </div>
 
-      <!-- Announcements list -->
-      <div class="space-y-3 w-full">
-        ${this.announcements.map((a) => `
-          <div class="glass-card p-5">
-            <div class="flex items-start gap-3 mb-3">
-              <div class="w-8 h-8 rounded-xl bg-primary/20 flex items-center justify-center shrink-0">
-                <i class="fas fa-bullhorn text-primary text-sm"></i>
-              </div>
-              <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2 flex-wrap">
-                  <span class="text-[10px] font-black text-primary bg-primary/10 px-2 py-0.5 rounded uppercase">📢 Announcement</span>
-                  <span class="text-[10px] text-gray-500 ml-auto">${this.timeAgo(a.createdAt)}</span>
+      <!-- List -->
+      <div class="space-y-4">
+        ${this.announcements.length === 0
+          ? '<div class="glass-card p-10 text-center text-gray-500"><i class="fas fa-newspaper text-3xl block mb-3 opacity-30"></i>No posts yet — create your first above.</div>'
+          : this.announcements.map((a) => {
+              const tm = typeMeta[a.type] || typeMeta.announcement;
+              const isYt = a.videoUrl && a.videoUrl.includes('youtube.com/embed/');
+              return `
+              <div class="glass-card p-5 border ${a.pinned ? 'border-primary/30' : 'border-white/5'}">
+                <div class="flex items-start justify-between gap-3 mb-3">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="px-2 py-0.5 rounded text-[10px] font-black bg-${tm.color}-500/15 text-${tm.color}-400 uppercase">${tm.label}</span>
+                    ${a.pinned ? '<span class="text-[10px] text-primary font-bold">📌 Pinned</span>' : ''}
+                    <span class="text-[10px] text-gray-500">${this.timeAgo(a.createdAt)}</span>
+                  </div>
+                  <div class="flex gap-2 shrink-0">
+                    <button type="button" data-pin-ann="${a.id}" data-pinned="${!!a.pinned}"
+                      class="text-xs ${a.pinned ? 'text-primary' : 'text-gray-500'} hover:text-primary font-bold">
+                      <i class="fas fa-thumbtack"></i>
+                    </button>
+                    <button type="button" data-del-ann="${a.id}" class="text-xs text-red-400 font-bold hover:underline">
+                      <i class="fas fa-trash"></i>
+                    </button>
+                  </div>
                 </div>
-                <p class="font-black text-white text-base mt-1">${this.esc(a.title)}</p>
-              </div>
-              <button type="button" data-del-ann="${a.id}" class="text-xs text-red-400 font-bold uppercase hover:underline shrink-0">Delete</button>
-            </div>
-            ${a.body ? `<p class="text-sm text-gray-300 leading-relaxed mb-3 ml-11">${this.esc(a.body)}</p>` : ''}
-            ${a.imageUrl ? `<img src="${a.imageUrl}" class="rounded-xl w-full max-h-64 object-cover border border-white/5 mb-3 ml-11" style="max-width:calc(100% - 2.75rem);" loading="lazy">` : ''}
-            ${a.linkUrl ? `
-              <div class="ml-11">
-                <a href="${this.esc(a.linkUrl)}" target="_blank" rel="noopener"
-                  class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-dark font-black text-sm hover:opacity-90 transition-all">
-                  ${a.linkLabel ? this.esc(a.linkLabel) : 'Learn More'}
-                  <i class="fas fa-arrow-right text-xs"></i>
-                </a>
-              </div>` : ''}
-          </div>
-        `).join('') || '<p class="text-gray-500 text-sm text-center py-8">No announcements yet</p>'}
+                <h3 class="font-black text-white text-base mb-1">${this.esc(a.title)}</h3>
+                ${a.body ? `<p class="text-sm text-gray-300 leading-relaxed mb-3">${this.esc(a.body).replace(/\n/g, '<br>')}</p>` : ''}
+                ${a.imageUrl && !a.videoUrl ? `<img src="${a.imageUrl}" class="rounded-xl w-full max-h-72 object-cover border border-white/5 mb-3" loading="lazy">` : ''}
+                ${a.videoUrl ? `
+                  <div class="mb-3 rounded-xl overflow-hidden border border-white/5 bg-black aspect-video">
+                    ${isYt
+                      ? `<iframe src="${a.videoUrl}" class="w-full h-full" frameborder="0" allowfullscreen loading="lazy"></iframe>`
+                      : `<video src="${a.videoUrl}" controls class="w-full h-full" preload="none"></video>`}
+                  </div>` : ''}
+                ${a.linkUrl ? `
+                  <a href="${this.esc(a.linkUrl)}" target="_blank" rel="noopener"
+                    class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary/20 text-primary border border-primary/30 font-black text-sm hover:bg-primary/30 transition-all">
+                    ${a.linkLabel ? this.esc(a.linkLabel) : 'Learn More'}
+                    <i class="fas fa-external-link-alt text-xs"></i>
+                  </a>` : ''}
+              </div>`;
+            }).join('')}
       </div>`;
+  }
+
+  async togglePinAnn(id, currentlyPinned) {
+    await fetch(`/api/social/announcements/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pinned: !currentlyPinned })
+    });
+    if (window.apiCache) window.apiCache.clear();
+    await this.load();
   }
 
 
@@ -521,17 +601,45 @@ export class AdminGuru {
 
     // Announcements
     document.getElementById('createAnnBtn')?.addEventListener('click', () => this.createAnnouncement());
+
+    document.getElementById('clearAnnFormBtn')?.addEventListener('click', () => {
+      ['annTitle','annBody','annVideoUrl','annLinkLabel','annLinkUrl'].forEach(id => {
+        const el = document.getElementById(id); if (el) el.value = '';
+      });
+      const pin = document.getElementById('annPinned'); if (pin) pin.checked = false;
+      const prev = document.getElementById('annImagePreview'); if (prev) prev.innerHTML = '';
+      const fi = document.getElementById('annImage'); if (fi) fi.value = '';
+    });
+
+    // Type pill active state
+    document.querySelectorAll('.ann-type-radio').forEach(r => {
+      r.addEventListener('change', () => {
+        document.querySelectorAll('.ann-type-pill').forEach(p => {
+          p.classList.remove('border-primary','text-primary','bg-primary/10');
+          p.classList.add('border-white/10','text-gray-400');
+        });
+        const pill = r.nextElementSibling;
+        if (pill) { pill.classList.add('border-primary','text-primary','bg-primary/10'); pill.classList.remove('border-white/10','text-gray-400'); }
+      });
+      if (r.checked) {
+        const pill = r.nextElementSibling;
+        if (pill) { pill.classList.add('border-primary','text-primary','bg-primary/10'); pill.classList.remove('border-white/10','text-gray-400'); }
+      }
+    });
+
     document.getElementById('annImage')?.addEventListener('change', async (e) => {
       const f = e.target.files?.[0];
       if (!f) return;
       const preview = document.getElementById('annImagePreview');
       if (preview) {
         const url = await this.fileToDataUrl(f);
-        preview.innerHTML = `<div class="relative inline-block"><img src="${url}" class="rounded-xl max-h-24 border border-white/10"><button type="button" id="removeAnnImg" class="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-500 text-white text-xs flex items-center justify-center">&times;</button></div>`;
+        preview.innerHTML = `<div class="relative inline-block mt-1"><img src="${url}" class="rounded-xl max-h-24 border border-white/10"><button type="button" id="removeAnnImg" class="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-500 text-white text-xs flex items-center justify-center">&times;</button></div>`;
         document.getElementById('removeAnnImg')?.addEventListener('click', () => { preview.innerHTML = ''; e.target.value = ''; });
       }
     });
+
     document.querySelectorAll('[data-del-ann]').forEach((btn) => btn.addEventListener('click', () => this.deleteAnnouncement(btn.dataset.delAnn)));
+    document.querySelectorAll('[data-pin-ann]').forEach((btn) => btn.addEventListener('click', () => this.togglePinAnn(btn.dataset.pinAnn, btn.dataset.pinned === 'true')));
 
   }
 

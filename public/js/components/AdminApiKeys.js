@@ -13,6 +13,9 @@ export class AdminApiKeys {
     this.formData = {
       serviceName: '',
       baseUrl: '',
+      getNumberUrl: '',
+      getSmsUrl: '',
+      controlUrl: '',
       additionalUrls: [],
       apiKey: '',
       providerType: 'sms_only',
@@ -56,14 +59,22 @@ export class AdminApiKeys {
     e.preventDefault();
 
     // Read directly from DOM at submit time — avoids stale formData issues
+    const providerType = document.getElementById('providerTypeSelect')?.value || this.formData.providerType || 'sms_only';
+    const isIntegrated = providerType === 'integrated';
+
     const baseUrl = (document.getElementById('baseUrlInput')?.value || '').trim();
+    const getNumberUrl = (document.getElementById('getNumberUrlInput')?.value || '').trim();
+    const getSmsUrl = (document.getElementById('getSmsUrlInput')?.value || '').trim();
+    const controlUrl = (document.getElementById('controlUrlInput')?.value || '').trim();
     const apiKey = (document.getElementById('apiKeyInput')?.value || '').trim();
     const serviceName = (document.getElementById('serviceName')?.value || '').trim();
-    const providerType = document.getElementById('providerTypeSelect')?.value || this.formData.providerType || 'sms_only';
     const countryId = document.getElementById('providerCountryId')?.value || this.formData.countryId || '';
     const serverId = document.getElementById('providerServerId')?.value || this.formData.serverId || '';
     const apiCountryCode = (document.getElementById('apiCountryCodeInput')?.value || '').trim();
     const cliRange = (document.getElementById('cliRangeInput')?.value || '').trim();
+
+    // For integrated: use getNumberUrl as primary
+    const effectiveBaseUrl = isIntegrated ? (getNumberUrl || baseUrl) : baseUrl;
 
     // Collect additional URLs for sms_only
     const additionalUrls = [];
@@ -72,17 +83,20 @@ export class AdminApiKeys {
       if (v) additionalUrls.push(v);
     });
 
-    if (!baseUrl || !apiKey) {
-      alert('Base URL and API key are required');
+    if (!effectiveBaseUrl || !apiKey) {
+      alert(isIntegrated ? 'Number Add URL and API key are required' : 'Base URL and API key are required');
       return;
     }
 
     const payload = {
       serviceName: serviceName || 'Provider',
-      baseUrl,
+      baseUrl: effectiveBaseUrl,
+      getNumberUrl: isIntegrated ? getNumberUrl : '',
+      getSmsUrl: isIntegrated ? getSmsUrl : '',
+      controlUrl: isIntegrated ? controlUrl : '',
       apiKey,
       providerType,
-      additionalUrls: providerType === 'integrated' ? [] : additionalUrls,
+      additionalUrls: isIntegrated ? [] : additionalUrls,
       countryId: countryId || null,
       serverId: serverId || null,
       apiCountryCode,
@@ -100,7 +114,11 @@ export class AdminApiKeys {
     if (response.ok && data.success !== false) {
       this.showAddForm = false;
       this.editingProviderId = null;
-      this.formData = { serviceName: '', baseUrl: '', additionalUrls: [], apiKey: '', providerType: 'sms_only', countryId: '', serverId: '', apiCountryCode: '', cliRange: '' };
+      this.formData = {
+        serviceName: '', baseUrl: '', getNumberUrl: '', getSmsUrl: '', controlUrl: '',
+        additionalUrls: [], apiKey: '', providerType: 'sms_only',
+        countryId: '', serverId: '', apiCountryCode: '', cliRange: ''
+      };
       await this.loadData();
     } else {
       alert(data.error?.message || `Failed to ${isEdit ? 'update' : 'save'} provider`);
@@ -112,6 +130,9 @@ export class AdminApiKeys {
     this.formData = {
       serviceName: k.serviceName || '',
       baseUrl: k.baseUrl || '',
+      getNumberUrl: k.getNumberUrl || k.baseUrl || '',
+      getSmsUrl: k.getSmsUrl || k.baseUrl || '',
+      controlUrl: k.controlUrl || '',
       additionalUrls: Array.isArray(k.additionalUrls) ? [...k.additionalUrls] : [],
       apiKey: k.apiKey || '',
       providerType: k.providerType || 'sms_only',
@@ -172,9 +193,23 @@ export class AdminApiKeys {
                 <span class="px-2 py-0.5 rounded text-[9px] uppercase font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">Integrated</span>
               </div>
               <div class="grid grid-cols-2 gap-x-4 gap-y-1 mb-2 text-xs">
-                <div>
-                  <span class="text-gray-500 font-bold uppercase text-[10px]">Base URL</span>
-                  <p class="font-mono text-gray-300 break-all">${k.baseUrl || '—'}</p>
+                <div class="col-span-2">
+                  <span class="text-gray-500 font-bold uppercase text-[10px]">
+                    <i class="fas fa-phone-square text-cyan-400 mr-1"></i>Number Add URL
+                  </span>
+                  <p class="font-mono text-gray-300 break-all text-[11px]">${k.getNumberUrl || k.baseUrl || '—'}</p>
+                </div>
+                <div class="col-span-2">
+                  <span class="text-gray-500 font-bold uppercase text-[10px]">
+                    <i class="fas fa-sms text-green-400 mr-1"></i>OTP Receive URL
+                  </span>
+                  <p class="font-mono text-gray-300 break-all text-[11px]">${k.getSmsUrl || k.baseUrl || '—'}</p>
+                </div>
+                <div class="col-span-2">
+                  <span class="text-gray-500 font-bold uppercase text-[10px]">
+                    <i class="fas fa-sliders-h text-yellow-400 mr-1"></i>Control URL
+                  </span>
+                  <p class="font-mono text-gray-300 break-all text-[11px]">${k.controlUrl || '<span class="text-gray-600">Same as Number URL</span>'}</p>
                 </div>
                 <div>
                   <span class="text-gray-500 font-bold uppercase text-[10px]">Country</span>
@@ -275,10 +310,43 @@ export class AdminApiKeys {
         </div>
 
         ${isIntegrated ? `
-        <div>
-          <label class="stat-label block mb-1">Base URL</label>
-          <input type="text" id="baseUrlInput" class="input-field font-mono text-sm w-full" placeholder="e.g. http://203.161.58.20:3001/api/functions/agent-api" value="${this.formData.baseUrl}" required>
-          <p class="text-[10px] text-gray-500 mt-1">The system will append <code>/numbers</code> and <code>/otp</code> automatically.</p>
+        <!-- ── 3 URL Fields for Integrated Provider ── -->
+        <div class="space-y-3 p-4 rounded-xl border border-primary/20 bg-primary/5">
+          <p class="text-[10px] text-primary uppercase font-black tracking-widest mb-2">API Endpoints</p>
+
+          <div>
+            <label class="stat-label block mb-1">
+              <i class="fas fa-phone-square text-cyan-400 mr-1"></i>
+              Number Add URL <span class="text-red-400">*</span>
+            </label>
+            <input type="text" id="getNumberUrlInput" class="input-field font-mono text-sm w-full"
+              placeholder="e.g. http://203.161.58.20:3001/api/functions/agent-api"
+              value="${this.formData.getNumberUrl || this.formData.baseUrl || ''}" required>
+            <p class="text-[10px] text-gray-500 mt-1">System will append <code>/numbers?status=assigned&limit=500</code></p>
+          </div>
+
+          <div>
+            <label class="stat-label block mb-1">
+              <i class="fas fa-sms text-green-400 mr-1"></i>
+              OTP Receive URL <span class="text-red-400">*</span>
+            </label>
+            <input type="text" id="getSmsUrlInput" class="input-field font-mono text-sm w-full"
+              placeholder="e.g. http://203.161.58.20:3001/api/functions/agent-api"
+              value="${this.formData.getSmsUrl || this.formData.baseUrl || ''}" required>
+            <p class="text-[10px] text-gray-500 mt-1">System will append <code>/otp?number=...&since=...&limit=10</code></p>
+          </div>
+
+          <div>
+            <label class="stat-label block mb-1">
+              <i class="fas fa-sliders-h text-yellow-400 mr-1"></i>
+              Control / Console URL
+              <span class="text-gray-500 font-normal">(optional)</span>
+            </label>
+            <input type="text" id="controlUrlInput" class="input-field font-mono text-sm w-full"
+              placeholder="e.g. http://203.161.58.20:3001/api/functions/agent-api"
+              value="${this.formData.controlUrl || this.formData.baseUrl || ''}">
+            <p class="text-[10px] text-gray-500 mt-1">Used for <code>/cli-ranges</code> auto best-range selection. Leave blank to use same as Number URL.</p>
+          </div>
         </div>
 
         <div>
@@ -306,8 +374,7 @@ export class AdminApiKeys {
           <label class="stat-label block mb-1">CLI Range Filter <span class="text-gray-500">(optional — leave blank for auto-select)</span></label>
           <input type="text" id="cliRangeInput" class="input-field w-full font-mono" placeholder="e.g. AFGHANISTAN_POXY_24002026" value="${this.formData.cliRange || ''}">
           <p class="text-[10px] text-gray-500 mt-1">
-            If set, numbers will only be taken from this range. Leave blank to auto-select the best range every 2 hours.
-            <span id="activeRangeDisplay" class="text-primary ml-1"></span>
+            Leave blank — system auto-picks the best range from Control URL every 2 hours.
           </p>
         </div>
         ` : `

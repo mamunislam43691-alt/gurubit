@@ -5,7 +5,8 @@
 
 const express = require('express');
 const router = express.Router();
-const { auth, collections } = require('../config/firebase');
+const { collections } = require('../config/db');
+const { verifyToken } = require('../services/authService');
 const { maskPhoneNumber } = require('../utils/smsProcessor');
 
 /**
@@ -22,21 +23,23 @@ async function verifyAuth(req, res, next) {
             });
         }
 
-        // Handle guest tokens — check local guestStore
         if (String(token).startsWith('guest.')) {
             const guestUid = String(token).replace('guest.', '');
             const guestStore = require('../services/guestStore');
-            if (!guestStore.exists(guestUid)) {
+            if (!(await guestStore.exists(guestUid))) {
                 return res.status(401).json({ success: false, error: { message: 'Guest session expired' } });
             }
             req.userId = guestUid;
             return next();
         }
 
-        const decodedToken = await auth.verifyIdToken(token);
+        const decodedToken = verifyToken(token);
+        if (!decodedToken || !decodedToken.uid) {
+            return res.status(401).json({ success: false, error: { message: 'Invalid token' } });
+        }
         req.userId = decodedToken.uid;
         next();
-    } catch (error) {
+    } catch (_) {
         return res.status(401).json({
             success: false,
             error: { message: 'Invalid token' }
@@ -209,69 +212,125 @@ router.post('/numbers/generate', verifyAuth, async (req, res) => {
                 }
 
                 if (provider.providerType === 'integrated') {
-                    // Propyter-style integrated API: GET /numbers?status=assigned&limit=500
-                    const baseUrl = provider.baseUrl.replace(/\/$/, '');
-                    const apiCountryCode = provider.apiCountryCode || '';
+                    // Detect provider type by URL pattern
+                    const rawNumberUrl = (provider.getNumberUrl || provider.baseUrl || '').replace(/\/$/, '');
+                    const isStex = rawNumberUrl.includes('public/api/getnum') || rawNumberUrl.includes('@public/api/');
 
-                    // Use active best range if available (auto-selected every 2 hours)
-                    let cliFilter = '';
-                    try {
-                        const { getActiveRangeName } = require('../services/providerPoll');
-                        const rangeName = getActiveRangeName(provider.id);
-                        if (rangeName) cliFilter = `&cli=${encodeURIComponent(rangeName)}`;
-                    } catch (_) {}
+                    if (isStex) {
+                        // ── STEX SMS API ──────────────────────────────────────────
+                        // POST /public/api/getnum  { "rid": "<range_digits>" }
+                        // Header: mauthapi: <api_key>
+                        try {
+                            // Determine range ID from CLI range filter or auto-selected range
+                            let rid = provider.cliRange || '';
+                            try {
+                                const { getActiveRangeName } = require('../services/providerPoll');
+                                const rangeName = getActiveRangeName(provider.id);
+                                if (rangeName) rid = rangeName;
+                            } catch (_) {}
 
-                    const numbersUrl = `${baseUrl}/numbers?status=assigned&limit=500${cliFilter}`;
+                            if (!rid) {
+                                return res.status(400).json({ success: false, error: { message: 'STEX: No range selected. Set CLI Range Filter or wait for auto-select.' } });
+                            }
 
-                    try {
-                        console.log(`🔔 [Integrated] Fetching numbers from: ${numbersUrl}`);
-                        const apiRes = await fetch(numbersUrl, {
-                            headers: { 'x-api-key': provider.apiKey, 'Accept': 'application/json' },
-                            signal: AbortSignal.timeout(10000)
-                        });
-                        if (!apiRes.ok) {
-                            return res.status(400).json({ success: false, error: { message: `Provider API returned HTTP ${apiRes.status}` } });
+                            // Strip trailing XXX from range name → just digits (e.g. "22501XXX" → "22501")
+                            const ridClean = rid.replace(/X+$/i, '').trim();
+
+                            console.log(`🔔 [STEX] POST getnum rid="${ridClean}" url=${rawNumberUrl}`);
+                            const apiRes = await fetch(rawNumberUrl, {
+                                method: 'POST',
+                                headers: {
+                                    'mauthapi': provider.apiKey,
+                                    'Content-Type': 'application/json',
+                                    'Accept': 'application/json'
+                                },
+                                body: JSON.stringify({ rid: ridClean }),
+                                signal: AbortSignal.timeout(15000)
+                            });
+
+                            const body = await apiRes.json().catch(() => ({}));
+                            console.log(`[STEX] getnum response status=${apiRes.status}`, JSON.stringify(body).substring(0, 200));
+
+                            if (!apiRes.ok) {
+                                const errMsg = body?.message || body?.error || `HTTP ${apiRes.status}`;
+                                return res.status(400).json({ success: false, error: { message: `STEX API error: ${errMsg}` } });
+                            }
+
+                            // STEX response: { meta: { code: 200 }, data: { full_number: "+447404333228", national_number: "7404333228", ... } }
+                            const data = body.data || body;
+                            const fullNumber = data.full_number || data.number || data.national_number || '';
+                            if (!fullNumber) {
+                                return res.status(400).json({ success: false, error: { message: 'STEX: No number in response. Out of stock?' } });
+                            }
+
+                            rawPhone = String(fullNumber).replace(/\D/g, '');
+                            providerId = provider.id;
+                            console.log(`✅ [STEX] Allocated number: ${rawPhone}`);
+                        } catch (err) {
+                            console.error('[STEX] getnum failed:', err.message);
+                            return res.status(500).json({ success: false, error: { message: 'STEX number request failed: ' + err.message } });
                         }
-                        const body = await apiRes.json();
-                        const available = body.data || [];
+                    } else {
+                        // ── Generic Integrated API (Propyter-style) ───────────────
+                        // GET /numbers?status=assigned&limit=500
+                        const apiCountryCode = provider.apiCountryCode || '';
 
-                        // Get numbers already in use
-                        const activeSnap = await collections.phoneNumbers.where('status', '==', 'pending').get();
-                        const inUse = new Set(activeSnap.docs.map(d => String(d.data().phoneNumber).replace(/\D/g, '')));
+                        let cliFilter = '';
+                        try {
+                            const { getActiveRangeName } = require('../services/providerPoll');
+                            const rangeName = getActiveRangeName(provider.id);
+                            if (rangeName) cliFilter = `&cli=${encodeURIComponent(rangeName)}`;
+                        } catch (_) {}
 
-                        // Filter by country code prefix if set (e.g. "93" for Afghanistan)
-                        const ccDigits = String(apiCountryCode).replace(/\D/g, '');
+                        const numbersUrl = `${rawNumberUrl}/numbers?status=assigned&limit=500${cliFilter}`;
 
-                        // Pick first available number not in use, filtered by country code prefix
-                        const picked = available.find(n => {
-                            const digits = String(n.number || n.phone || '').replace(/\D/g, '');
-                            if (!digits) return false;
-                            if (inUse.has(digits)) return false;
-                            if (ccDigits && !digits.startsWith(ccDigits)) return false;
-                            return true;
-                        }) || available.find(n => {
-                            // Fallback: any unused number
-                            const digits = String(n.number || n.phone || '').replace(/\D/g, '');
-                            return digits && !inUse.has(digits);
-                        });
+                        try {
+                            console.log(`🔔 [Integrated] Fetching numbers from: ${numbersUrl}`);
+                            const apiRes = await fetch(numbersUrl, {
+                                headers: {
+                                    'x-api-key': provider.apiKey,
+                                    'Authorization': `Bearer ${provider.apiKey}`,
+                                    'Accept': 'application/json'
+                                },
+                                signal: AbortSignal.timeout(10000)
+                            });
+                            if (!apiRes.ok) {
+                                return res.status(400).json({ success: false, error: { message: `Provider API returned HTTP ${apiRes.status}` } });
+                            }
+                            const body = await apiRes.json();
+                            const available = body.data || body.numbers || [];
 
-                        if (!picked) {
-                            return res.status(400).json({ success: false, error: { message: 'No numbers available from provider.' } });
+                            const activeSnap = await collections.phoneNumbers.where('status', '==', 'pending').get();
+                            const inUse = new Set(activeSnap.docs.map(d => String(d.data().phoneNumber).replace(/\D/g, '')));
+                            const ccDigits = String(apiCountryCode).replace(/\D/g, '');
+
+                            const picked = available.find(n => {
+                                const digits = String(n.number || n.phone || n.full_number || '').replace(/\D/g, '');
+                                if (!digits) return false;
+                                if (inUse.has(digits)) return false;
+                                if (ccDigits && !digits.startsWith(ccDigits)) return false;
+                                return true;
+                            }) || available.find(n => {
+                                const digits = String(n.number || n.phone || n.full_number || '').replace(/\D/g, '');
+                                return digits && !inUse.has(digits);
+                            });
+
+                            if (!picked) {
+                                return res.status(400).json({ success: false, error: { message: 'No numbers available from provider.' } });
+                            }
+
+                            const rawPickedPhone = picked.number || picked.phone || picked.full_number || picked.msisdn || picked.phoneNumber || picked.cli || '';
+                            const pickedDigits = String(rawPickedPhone).replace(/\D/g, '');
+                            if (!pickedDigits || pickedDigits.length < 6) {
+                                return res.status(400).json({ success: false, error: { message: 'Provider returned an invalid phone number.' } });
+                            }
+                            rawPhone = pickedDigits;
+                            providerId = provider.id;
+                            console.log(`✅ [Integrated] Allocated number ${rawPhone}`);
+                        } catch (err) {
+                            console.error('[Integrated] Number fetch failed:', err.message);
+                            return res.status(500).json({ success: false, error: { message: 'Failed to retrieve number from integrated provider.' } });
                         }
-
-                        // Extract the actual phone number — try all common field names, ensure it's digits only
-                        const rawPickedPhone = picked.number || picked.phone || picked.msisdn || picked.phoneNumber || picked.cli || '';
-                        const pickedDigits = String(rawPickedPhone).replace(/\D/g, '');
-                        if (!pickedDigits || pickedDigits.length < 6) {
-                            console.error(`[Integrated] Invalid phone from provider: "${rawPickedPhone}" (fields: ${Object.keys(picked).join(', ')})`);
-                            return res.status(400).json({ success: false, error: { message: 'Provider returned an invalid phone number.' } });
-                        }
-                        rawPhone = pickedDigits;
-                        providerId = provider.id;
-                        console.log(`🔔 [Integrated] Allocated number ${rawPhone} from ${provider.id}`);
-                    } catch (err) {
-                        console.error('[Integrated] Number fetch failed:', err.message);
-                        return res.status(500).json({ success: false, error: { message: 'Failed to retrieve number from integrated provider.' } });
                     }
                 } else {
                     // Legacy SMS-Activate style provider
@@ -409,16 +468,13 @@ router.post('/numbers/generate', verifyAuth, async (req, res) => {
             });
         }
 
-        // Fetch user data for logging (non-critical) — use cache to save quota
+        // Fetch user data for logging (non-critical)
         let userData = { name: 'Unknown User', email: 'unknown@email.com' };
         try {
-            const { isQuotaError } = require('../utils/firestoreCache');
             const userDoc = await collections.users.doc(userId).get();
             if (userDoc.exists) userData = userDoc.data();
         } catch (dbErr) {
-            if (!require('../utils/firestoreCache').isQuotaError(dbErr)) {
-                console.warn('Logging user fetch failed:', dbErr.message);
-            }
+            console.warn('Logging user fetch failed:', dbErr.message);
         }
 
         if (process.env.DEBUG_NUMBER === 'true') {
@@ -850,47 +906,85 @@ router.get('/open/generate', verifyApiKey, async (req, res) => {
             }
 
             if (provider.providerType === 'integrated') {
-                // Propyter-style integrated API
-                const baseUrl = provider.baseUrl.replace(/\/$/, '');
-                const apiCountryCode = provider.apiCountryCode || srv.apiCountryCode || '';
-                const numbersUrl = `${baseUrl}/numbers?status=assigned&limit=500${apiCountryCode ? '&cli=' + encodeURIComponent(apiCountryCode) : ''}`;
+                // Integrated API — detect STEX vs generic
+                const rawNumberUrl = (provider.getNumberUrl || provider.baseUrl || '').replace(/\/$/, '');
+                const isStex = rawNumberUrl.includes('public/api/getnum') || rawNumberUrl.includes('@public/api/');
 
-                try {
-                    const apiRes = await fetch(numbersUrl, {
-                        headers: { 'x-api-key': provider.apiKey, 'Accept': 'application/json' },
-                        signal: AbortSignal.timeout(10000)
-                    });
-                    if (!apiRes.ok) {
-                        return res.status(400).json({ success: false, error: { message: `Provider API returned HTTP ${apiRes.status}` } });
+                if (isStex) {
+                    try {
+                        let rid = provider.cliRange || '';
+                        try {
+                            const { getActiveRangeName } = require('../services/providerPoll');
+                            const rangeName = getActiveRangeName(provider.id);
+                            if (rangeName) rid = rangeName;
+                        } catch (_) {}
+
+                        if (!rid) {
+                            return res.status(400).json({ success: false, error: { message: 'STEX: No range selected. Set CLI Range Filter or wait for auto-select.' } });
+                        }
+                        const ridClean = rid.replace(/X+$/i, '').trim();
+                        const apiRes = await fetch(rawNumberUrl, {
+                            method: 'POST',
+                            headers: { 'mauthapi': provider.apiKey, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                            body: JSON.stringify({ rid: ridClean }),
+                            signal: AbortSignal.timeout(15000)
+                        });
+                        const body = await apiRes.json().catch(() => ({}));
+                        if (!apiRes.ok) {
+                            return res.status(400).json({ success: false, error: { message: `STEX API error: ${body?.message || 'HTTP ' + apiRes.status}` } });
+                        }
+                        const data = body.data || body;
+                        const fullNumber = data.full_number || data.number || data.national_number || '';
+                        if (!fullNumber) {
+                            return res.status(400).json({ success: false, error: { message: 'STEX: No number in response.' } });
+                        }
+                        rawPhone = String(fullNumber).replace(/\D/g, '');
+                        providerId = provider.id;
+                    } catch (err) {
+                        return res.status(500).json({ success: false, error: { message: 'STEX number request failed: ' + err.message } });
                     }
-                    const body = await apiRes.json();
-                    const available = body.data || [];
+                } else {
+                    const apiCountryCode = provider.apiCountryCode || srv.apiCountryCode || '';
+                    const numbersUrl = `${rawNumberUrl}/numbers?status=assigned&limit=500${apiCountryCode ? '&cli=' + encodeURIComponent(apiCountryCode) : ''}`;
 
-                    const activeSnap = await collections.phoneNumbers.where('status', '==', 'pending').get();
-                    const inUse = new Set(activeSnap.docs.map(d => String(d.data().phoneNumber).replace(/\D/g, '')));
+                    try {
+                        const apiRes = await fetch(numbersUrl, {
+                            headers: { 'x-api-key': provider.apiKey, 'Authorization': `Bearer ${provider.apiKey}`, 'Accept': 'application/json' },
+                            signal: AbortSignal.timeout(10000)
+                        });
+                        if (!apiRes.ok) {
+                            return res.status(400).json({ success: false, error: { message: `Provider API returned HTTP ${apiRes.status}` } });
+                        }
+                        const body = await apiRes.json();
+                        const available = body.data || body.numbers || [];
 
-                    const ccDigits = String(apiCountryCode).replace(/\D/g, '');
-                    const picked = available.find(n => {
-                        const digits = String(n.number || n.phone || '').replace(/\D/g, '');
-                        if (!digits) return false;
-                        if (inUse.has(digits)) return false;
-                        if (ccDigits && !digits.startsWith(ccDigits)) return false;
-                        return true;
-                    }) || available.find(n => {
-                        const digits = String(n.number || n.phone || '').replace(/\D/g, '');
-                        return digits && !inUse.has(digits);
-                    });
+                        const activeSnap = await collections.phoneNumbers.where('status', '==', 'pending').get();
+                        const inUse = new Set(activeSnap.docs.map(d => String(d.data().phoneNumber).replace(/\D/g, '')));
 
-                    if (!picked) {
-                        return res.status(400).json({ success: false, error: { message: 'No numbers available from provider.' } });
+                        const ccDigits = String(apiCountryCode).replace(/\D/g, '');
+                        const picked = available.find(n => {
+                            const digits = String(n.number || n.phone || n.full_number || '').replace(/\D/g, '');
+                            if (!digits) return false;
+                            if (inUse.has(digits)) return false;
+                            if (ccDigits && !digits.startsWith(ccDigits)) return false;
+                            return true;
+                        }) || available.find(n => {
+                            const digits = String(n.number || n.phone || n.full_number || '').replace(/\D/g, '');
+                            return digits && !inUse.has(digits);
+                        });
+
+                        if (!picked) {
+                            return res.status(400).json({ success: false, error: { message: 'No numbers available from provider.' } });
+                        }
+
+                        const rawPickedPhone = picked.number || picked.phone || picked.full_number || picked.msisdn || '';
+                        rawPhone = String(rawPickedPhone).replace(/\D/g, '');
+                        providerId = provider.id;
+                    } catch (err) {
+                        console.error('[Integrated] Number fetch failed:', err.message);
+                        return res.status(500).json({ success: false, error: { message: 'Failed to retrieve number from integrated provider.' } });
                     }
-
-                    rawPhone = String(picked.number || picked.phone);
-                    providerId = provider.id;
-                } catch (err) {
-                    console.error('[Integrated] Number fetch failed:', err.message);
-                    return res.status(500).json({ success: false, error: { message: 'Failed to retrieve number from integrated provider.' } });
-                }
+                } // end else (generic integrated)
             } else {
                 // Legacy SMS-Activate style
                 const apiServiceCode = srv.apiServiceCode || 'tg';

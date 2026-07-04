@@ -1,8 +1,8 @@
 /**
- * Guru social — Firestore-backed posts, groups, follows, reports
+ * Guru social — MongoDB-backed posts, groups, follows, reports
  */
 
-const { collections } = require('../config/firebase');
+const { collections } = require('../config/db');
 
 const SETTINGS_DOC = 'config';
 const LINK_RE = /https?:\/\/|www\.|\.com\/|\.net\/|\.org\/|t\.me\/|bit\.ly/i;
@@ -123,7 +123,7 @@ async function createPost({ user, text, imageUrl, videoUrl, link, isAdminPost, i
   }
 
   const id = `post_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  // Sanitize all fields — no undefined values allowed in Firestore
+  // Sanitize all fields — no undefined values allowed in MongoDB
   const post = {
     id,
     userId: user.id || '',
@@ -355,7 +355,7 @@ async function cleanupOldContent() {
 
   try {
     // Delete old group messages
-    const { db } = require('../config/firebase');
+    const { db } = require('../config/db');
     const msgsSnap = await db.collection('guruGroupMessages').get();
     for (const doc of msgsSnap.docs) {
       const d = doc.data();
@@ -368,7 +368,7 @@ async function cleanupOldContent() {
 
   try {
     // Delete old announcements
-    const { db } = require('../config/firebase');
+    const { db } = require('../config/db');
     const annSnap = await db.collection('announcements').get();
     for (const doc of annSnap.docs) {
       const d = doc.data();
@@ -381,7 +381,7 @@ async function cleanupOldContent() {
 
   try {
     // Delete old view records
-    const { db } = require('../config/firebase');
+    const { db } = require('../config/db');
     const viewsSnap = await db.collection('guruViews').get();
     for (const doc of viewsSnap.docs) {
       const d = doc.data();
@@ -394,7 +394,7 @@ async function cleanupOldContent() {
 
   try {
     // Delete old comments
-    const { db } = require('../config/firebase');
+    const { db } = require('../config/db');
     const cmtSnap = await db.collection('guruComments').get();
     for (const doc of cmtSnap.docs) {
       const d = doc.data();

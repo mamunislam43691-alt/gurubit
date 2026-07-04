@@ -9,6 +9,7 @@ export class AgentDashboard {
     this.data = null;
     this.user = null;
     this.apiKeys = [];
+    this._searchQuery = '';
   }
 
   async load() {
@@ -491,97 +492,353 @@ curl "${host}/api/open/sms?apiKey=${exampleKey}&numberId=YOUR_NUMBER_ID"</pre>
   }
 
   renderBody() {
-    if (!this.data?.success) return '<p class="text-gray-500 font-bold">Loading...</p>';
-    const hash = window.location.hash.replace('#', '');
-    
-    if (hash === 'api') {
-      return this.renderApiSection();
-    }
+    if (!this.data?.success) return `
+      <div class="flex items-center justify-center py-20 text-gray-500">
+        <i class="fas fa-spinner fa-spin mr-3"></i> Loading...
+      </div>`;
 
+    const hash = window.location.hash.replace('#', '');
+
+    if (hash === 'api')     return this.renderApiSection();
+    if (hash === 'pending') return this.renderPendingSection();
+    if (hash === 'users')   return this.renderUsersSection();
+    return this.renderDashboard();
+  }
+
+  renderDashboard() {
     const { stats, members } = this.data;
-    const activeMembers = members.filter((m) => m.agentApproved && !m.isBanned);
+
+    // Revenue trend (last 7 days earnings estimate)
+    const totalRevenue = members.reduce((s, m) => s + (m.revenue || 0), 0);
+    const avgPerMember = members.length ? (totalRevenue / members.length).toFixed(2) : '0.00';
+
+    // Top earners (top 3)
+    const topEarners = [...members]
+      .sort((a, b) => (b.revenue || 0) - (a.revenue || 0))
+      .slice(0, 5);
+
+    // Recent activity
+    const recentActive = [...members]
+      .filter(m => m.agentApproved && !m.isBanned)
+      .slice(0, 5);
 
     return `
-      <section id="overview" class="agent-page-section scroll-mt-24 mb-10">
-        <div class="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center mb-5">
+      <section class="agent-page-section scroll-mt-24 mb-8">
+        <div class="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-6">
           <div>
-            <p class="stat-label mb-3">Overview</p>
-            <p class="text-gray-400 text-sm">Agent dashboard with your member stats, approvals and team number activity.</p>
+            <p class="stat-label mb-1">Overview</p>
+            <p class="text-gray-400 text-xs">Agent analytics — members, revenue, and team activity.</p>
           </div>
-          <a href="/numbers" class="neon-btn px-5 py-2 text-xs uppercase font-bold">Get Number</a>
+          <a href="/numbers" class="neon-btn px-5 py-2.5 text-xs uppercase font-bold flex items-center gap-2">
+            <i class="fas fa-sim-card"></i> Get Number
+          </a>
         </div>
-        <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-          <div class="glass-card p-5"><p class="stat-label">Members</p><p class="text-2xl font-black text-white">${stats.totalMembers}</p></div>
-          <div class="glass-card p-5"><p class="stat-label">Active</p><p class="text-2xl font-black text-green-400">${stats.activeMembers}</p></div>
-          <div class="glass-card p-5"><p class="stat-label">Banned</p><p class="text-2xl font-black text-red-500">${stats.bannedMembers ?? 0}</p></div>
-          <div class="glass-card p-5"><p class="stat-label">Pending</p><p class="text-2xl font-black text-orange-400">${stats.pendingApprovals}</p></div>
-          <div class="glass-card p-5"><p class="stat-label">Numbers</p><p class="text-2xl font-black text-cyan-300">${stats.totalNumbers ?? 0}</p></div>
-          <div class="glass-card p-5"><p class="stat-label">Team SMS</p><p class="text-2xl font-black text-primary">${stats.totalSms}</p></div>
-        </div>
-      </section>
 
-      <section id="users" class="agent-page-section scroll-mt-24 mb-10">
+        <!-- Stats Grid -->
+        <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-8">
+          <div class="glass-card p-5">
+            <p class="stat-label">Members</p>
+            <p class="text-2xl font-black text-white">${stats.totalMembers}</p>
+          </div>
+          <div class="glass-card p-5">
+            <p class="stat-label">Active</p>
+            <p class="text-2xl font-black text-green-400">${stats.activeMembers}</p>
+          </div>
+          <div class="glass-card p-5">
+            <p class="stat-label">Banned</p>
+            <p class="text-2xl font-black text-red-500">${stats.bannedMembers ?? 0}</p>
+          </div>
+          <div class="glass-card p-5">
+            <p class="stat-label">Pending</p>
+            <p class="text-2xl font-black text-orange-400">
+              ${stats.pendingApprovals}
+              ${stats.pendingApprovals > 0 ? `<a href="/agent#pending" class="text-[10px] text-orange-400 font-bold ml-1 hover:underline">View →</a>` : ''}
+            </p>
+          </div>
+          <div class="glass-card p-5">
+            <p class="stat-label">Numbers</p>
+            <p class="text-2xl font-black text-cyan-300">${stats.totalNumbers ?? 0}</p>
+          </div>
+          <div class="glass-card p-5">
+            <p class="stat-label">Team SMS</p>
+            <p class="text-2xl font-black text-primary">${stats.totalSms}</p>
+          </div>
+          <div class="glass-card p-5 border border-red-500/20">
+            <p class="stat-label flex items-center gap-1">
+              <i class="fas fa-times-circle text-red-400 text-xs"></i> Failed Numbers
+            </p>
+            <p class="text-2xl font-black text-red-400">${stats.failedNumbers ?? 0}</p>
+          </div>
+        </div>
+
+        <!-- Analytics Row -->
+        <div class="grid md:grid-cols-2 gap-4 mb-8">
+
+          <!-- Revenue Summary -->
+          <div class="glass-card p-5">
+            <h3 class="stat-label mb-4 flex items-center gap-2">
+              <i class="fas fa-chart-line text-primary"></i> Revenue Summary
+            </h3>
+            <div class="space-y-3">
+              <div class="flex justify-between items-center py-2 border-b border-white/5">
+                <span class="text-xs text-gray-400">Total Team Revenue</span>
+                <span class="text-primary font-black text-sm">$${totalRevenue.toFixed(2)}</span>
+              </div>
+              <div class="flex justify-between items-center py-2 border-b border-white/5">
+                <span class="text-xs text-gray-400">Avg Revenue / Member</span>
+                <span class="text-white font-bold text-sm">$${avgPerMember}</span>
+              </div>
+              <div class="flex justify-between items-center py-2 border-b border-white/5">
+                <span class="text-xs text-gray-400">Total Team SMS</span>
+                <span class="text-cyan-300 font-bold text-sm">${stats.totalSms}</span>
+              </div>
+              <div class="flex justify-between items-center py-2">
+                <span class="text-xs text-gray-400">Numbers Used</span>
+                <span class="text-yellow-400 font-bold text-sm">${stats.totalNumbers ?? 0}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Member Status Breakdown -->
+          <div class="glass-card p-5">
+            <h3 class="stat-label mb-4 flex items-center gap-2">
+              <i class="fas fa-users text-primary"></i> Member Status
+            </h3>
+            <div class="space-y-3">
+              <!-- Active bar -->
+              <div>
+                <div class="flex justify-between text-xs mb-1">
+                  <span class="text-gray-400">Active</span>
+                  <span class="text-green-400 font-bold">${stats.activeMembers} / ${stats.totalMembers}</span>
+                </div>
+                <div class="h-2 bg-white/5 rounded-full overflow-hidden">
+                  <div class="h-full bg-green-400 rounded-full transition-all" style="width:${stats.totalMembers ? Math.round((stats.activeMembers/stats.totalMembers)*100) : 0}%"></div>
+                </div>
+              </div>
+              <!-- Pending bar -->
+              <div>
+                <div class="flex justify-between text-xs mb-1">
+                  <span class="text-gray-400">Pending Approval</span>
+                  <span class="text-orange-400 font-bold">${stats.pendingApprovals}</span>
+                </div>
+                <div class="h-2 bg-white/5 rounded-full overflow-hidden">
+                  <div class="h-full bg-orange-400 rounded-full transition-all" style="width:${stats.totalMembers ? Math.round((stats.pendingApprovals/Math.max(stats.totalMembers,1))*100) : 0}%"></div>
+                </div>
+              </div>
+              <!-- Banned bar -->
+              <div>
+                <div class="flex justify-between text-xs mb-1">
+                  <span class="text-gray-400">Banned</span>
+                  <span class="text-red-400 font-bold">${stats.bannedMembers ?? 0}</span>
+                </div>
+                <div class="h-2 bg-white/5 rounded-full overflow-hidden">
+                  <div class="h-full bg-red-500 rounded-full transition-all" style="width:${stats.totalMembers ? Math.round(((stats.bannedMembers??0)/stats.totalMembers)*100) : 0}%"></div>
+                </div>
+              </div>
+            </div>
+            <div class="mt-4 pt-3 border-t border-white/5 text-center">
+              <a href="/agent#users" class="text-xs text-primary font-bold hover:underline">
+                <i class="fas fa-arrow-right mr-1"></i>Manage Members
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Top Earners -->
+        ${topEarners.length > 0 ? `
+          <div class="glass-card p-5 mb-4">
+            <h3 class="stat-label mb-4 flex items-center gap-2">
+              <i class="fas fa-trophy text-yellow-400"></i> Top Earners
+            </h3>
+            <div class="space-y-2">
+              ${topEarners.map((m, i) => `
+                <div class="flex items-center gap-3 py-2 border-b border-white/5 last:border-0">
+                  <span class="text-${i===0?'yellow':i===1?'gray':i===2?'orange':'gray'}-400 font-black text-sm w-6">#${i+1}</span>
+                  <div class="flex-1 min-w-0">
+                    <p class="text-white font-bold text-xs truncate">${this.esc(m.name)}</p>
+                    <p class="text-gray-500 text-[10px] truncate">${this.esc(m.email)}</p>
+                  </div>
+                  <span class="text-primary font-black text-sm">$${(m.revenue || 0).toFixed(2)}</span>
+                  <span class="text-gray-500 text-xs">${m.totalSms} SMS</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
+
+        <!-- News Feed -->
+        <div id="agentNewsFeed"></div>
+      </section>`;
+  }
+
+  renderUsersSection() {
+    const { members } = this.data;
+    const activeMembers = members.filter(m => m.agentApproved && !m.isBanned);
+    const q = this._searchQuery || '';
+
+    const filteredMembers = q
+      ? members.filter(m =>
+          m.name?.toLowerCase().includes(q) ||
+          m.email?.toLowerCase().includes(q) ||
+          (m.agentApproved ? 'active' : m.isBanned ? 'banned' : 'pending').includes(q))
+      : members;
+
+    return `
+      <section class="agent-page-section scroll-mt-24">
         <div class="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-4">
           <div>
-            <h3 class="stat-label">Users</h3>
-            <p class="text-xs text-gray-400">Manage your agent users, approve new registrations, ban/unban or delete them.</p>
+            <h3 class="stat-label">Members</h3>
+            <p class="text-xs text-gray-400">Manage your members — approve, ban, or delete.</p>
           </div>
-          <span class="text-xs text-primary font-bold">Active Members: ${activeMembers.length}</span>
+          <span class="text-xs text-primary font-bold">Active: ${activeMembers.length} / ${members.length}</span>
         </div>
 
-        <!-- Search Bar -->
-        <div class="mb-5">
-          <input type="text" id="userSearchInput" class="input-field w-full md:max-w-md bg-black/60 border border-white/10 rounded-lg px-4 py-2 text-white text-sm" placeholder="Search users by name, email, status...">
+        <div class="mb-4">
+          <input type="text" id="userSearchInput" class="input-field w-full md:max-w-sm"
+            placeholder="Search by name, email, status…" value="${this.esc(q)}">
         </div>
 
-        <div class="glass-card agent-table-scroll overflow-x-auto">
-          <table class="number-history-table w-full text-sm text-left">
+        <div class="glass-card overflow-x-auto">
+          <table class="number-history-table w-full text-sm text-left min-w-[700px]">
             <thead><tr>
               <th>Name</th><th>Email</th><th>SMS</th><th>Revenue</th><th>Status</th><th>Actions</th>
             </tr></thead>
             <tbody id="usersTableBody">
-              ${members.map((m) => `
+              ${filteredMembers.map((m) => `
                 <tr>
                   <td class="text-white font-bold">${this.esc(m.name)}</td>
                   <td class="text-gray-400 text-xs">${this.esc(m.email)}</td>
-                  <td>${m.totalSms}</td>
+                  <td class="font-bold text-cyan-300">${m.totalSms}</td>
                   <td class="text-primary font-bold">$${(m.revenue || 0).toFixed(2)}</td>
                   <td>
-                    ${m.isBanned 
-                      ? '<span class="text-red-500 font-bold">Banned</span>' 
-                      : m.agentApproved 
-                        ? '<span class="text-green-400 font-bold">Active</span>' 
-                        : '<span class="text-orange-400 font-bold">Pending</span>'}
+                    ${m.isBanned
+                      ? '<span class="px-2 py-0.5 rounded text-[10px] font-black bg-red-500/20 text-red-400">Banned</span>'
+                      : m.agentApproved
+                        ? '<span class="px-2 py-0.5 rounded text-[10px] font-black bg-green-500/20 text-green-400">Active</span>'
+                        : '<span class="px-2 py-0.5 rounded text-[10px] font-black bg-orange-500/20 text-orange-400">Pending</span>'}
                   </td>
-                  <td class="py-3 flex items-center gap-2">
-                    ${(!m.agentApproved && !m.isBanned) ? `<button type="button" data-user-approve="${m.id}" class="neon-btn px-4 py-2 text-xs">Approve</button>` : ''}
-                    <button type="button" data-toggle-ban="${m.id}" class="px-3 py-1.5 rounded text-[10px] font-black uppercase transition-all duration-200 ${m.isBanned ? 'bg-green-500 hover:bg-green-600 text-dark' : 'bg-red-500 hover:bg-red-600 text-white'}">
-                      ${m.isBanned ? 'Unban' : 'Ban'}
-                    </button>
-                    <button type="button" data-user-delete="${m.id}" class="px-3 py-1.5 rounded text-[10px] font-black uppercase transition-all duration-200 bg-rose-600 hover:bg-rose-700 text-white">
-                      Delete
-                    </button>
+                  <td class="py-3">
+                    <div class="flex items-center gap-2 flex-wrap">
+                      ${(!m.agentApproved && !m.isBanned)
+                        ? `<button type="button" data-user-approve="${m.id}" class="neon-btn px-3 py-1.5 text-[10px] uppercase">Approve</button>`
+                        : ''}
+                      <button type="button" data-toggle-ban="${m.id}"
+                        class="px-3 py-1.5 rounded text-[10px] font-black uppercase
+                        ${m.isBanned ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'}">
+                        ${m.isBanned ? 'Unban' : 'Ban'}
+                      </button>
+                      <button type="button" data-user-delete="${m.id}"
+                        class="px-3 py-1.5 rounded text-[10px] font-black uppercase bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                        Delete
+                      </button>
+                    </div>
                   </td>
                 </tr>
               `).join('')}
-              <tr id="noMatchingUsersRow" style="display: none;" data-no-users="true">
-                <td colspan="6" class="p-8 text-gray-500 text-center">No matching users found</td>
-              </tr>
-              ${members.length === 0 ? '<tr><td colspan="6" class="p-8 text-gray-500 text-center">No users found</td></tr>' : ''}
+              ${filteredMembers.length === 0 ? `
+                <tr><td colspan="6" class="p-8 text-gray-500 text-center">
+                  ${q ? 'No matching users found' : 'No members yet'}
+                </td></tr>` : ''}
             </tbody>
           </table>
         </div>
       </section>`;
   }
 
+  renderPendingSection() {
+    const { pending = [], stats } = this.data;
+
+    return `
+      <section class="agent-page-section scroll-mt-24">
+        <div class="flex items-center justify-between mb-6">
+          <div>
+            <h3 class="stat-label flex items-center gap-2">
+              <i class="fas fa-user-clock text-orange-400"></i> Pending Users
+              ${pending.length > 0
+                ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-orange-500/20 text-orange-400">${pending.length}</span>`
+                : ''}
+            </h3>
+            <p class="text-xs text-gray-400 mt-1">Users who sent a join request — approve or reject them.</p>
+          </div>
+        </div>
+
+        ${pending.length === 0 ? `
+          <div class="glass-card p-12 text-center">
+            <i class="fas fa-check-circle text-3xl text-green-400/40 mb-3 block"></i>
+            <p class="text-gray-500 text-sm font-bold">No pending requests</p>
+            <p class="text-gray-600 text-xs mt-1">All caught up!</p>
+          </div>
+        ` : `
+          <div class="space-y-3">
+            ${pending.map(p => `
+              <div class="glass-card p-5 flex flex-col sm:flex-row sm:items-center gap-4 border border-orange-500/10 hover:border-orange-500/25 transition-all">
+                <div class="w-10 h-10 rounded-xl bg-orange-500/15 flex items-center justify-center shrink-0">
+                  <i class="fas fa-user text-orange-400"></i>
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2 flex-wrap mb-1">
+                    <p class="text-white font-bold">${this.esc(p.name || p.email)}</p>
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-orange-500/20 text-orange-400">Pending</span>
+                  </div>
+                  <p class="text-gray-400 text-xs mb-2">${this.esc(p.email)}</p>
+                  <div class="flex gap-4 text-[11px] text-gray-500 flex-wrap">
+                    ${p.phone && p.phone !== '—' ? `<span><i class="fas fa-phone mr-1 text-gray-600"></i>${this.esc(p.phone)}</span>` : ''}
+                    ${p.telegram && p.telegram !== '—' ? `<span><i class="fab fa-telegram mr-1 text-gray-600"></i>${this.esc(p.telegram)}</span>` : ''}
+                    ${p.cryptoAddress && p.cryptoAddress !== '—' ? `<span><i class="fas fa-wallet mr-1 text-gray-600"></i>${this.esc(p.cryptoAddress.substring(0,14))}…</span>` : ''}
+                    <span class="text-gray-600"><i class="fas fa-clock mr-1"></i>${p.createdAt ? new Date(p.createdAt).toLocaleDateString() : '—'}</span>
+                  </div>
+                </div>
+                <div class="flex gap-2 shrink-0">
+                  <button type="button"
+                    data-approve-pending="${p.id || p.userId}"
+                    data-is-approval="${p.id ? 'true' : 'false'}"
+                    class="neon-btn px-5 py-2 text-xs uppercase">
+                    <i class="fas fa-check mr-1"></i>Approve
+                  </button>
+                  <button type="button"
+                    data-reject-pending="${p.id}"
+                    class="px-5 py-2 text-xs uppercase rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-all">
+                    <i class="fas fa-times mr-1"></i>Reject
+                  </button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        `}
+      </section>`;
+  }
+
   render() {
     const hash = window.location.hash.replace('#', '');
-    const activeId = hash === 'users' ? 'users' : hash === 'api' ? 'api' : 'overview';
+    const activeId = hash === 'users'   ? 'users'
+                   : hash === 'pending' ? 'pending'
+                   : hash === 'api'     ? 'api'
+                   : 'overview';
+    const titleMap = { users: 'Users', pending: 'Pending Users', api: 'GURUBIT API', overview: 'Agent Panel' };
     AgentLayout.renderShell({
       activeId,
-      title: activeId === 'api' ? 'GURUBIT API' : 'Agent Panel',
+      title: titleMap[activeId] || 'Agent Panel',
       bodyHtml: this.renderBody(),
       user: this.user
+    });
+
+    // Init news feed on dashboard tab
+    if (activeId === 'overview') {
+      import('./NewsFeed.js?v=1').then(({ NewsFeed }) => {
+        NewsFeed.renderSection('agentNewsFeed', 'News & Announcements');
+      }).catch(() => {});
+    }
+
+    this._bindUserEvents();
+
+    // Search filter (users tab only)
+    document.getElementById('userSearchInput')?.addEventListener('input', (e) => {
+      this._searchQuery = e.target.value.toLowerCase().trim();
+      const content = document.querySelector('.user-content');
+      if (content) {
+        content.innerHTML = this.renderUsersSection();
+        this._bindUserEvents();
+      }
     });
 
     if (activeId === 'api') {
@@ -589,20 +846,17 @@ curl "${host}/api/open/sms?apiKey=${exampleKey}&numberId=YOUR_NUMBER_ID"</pre>
       document.querySelectorAll('[data-revoke-key]').forEach((btn) => {
         btn.addEventListener('click', () => this.revokeApiKey(btn.dataset.revokeKey));
       });
-      document.querySelectorAll('[data-copy-key]').forEach((btn) => {
-        btn.addEventListener('click', () => {
-          this.copyToClipboard(btn.dataset.copyKey, btn);
-        });
+      document.querySelectorAll('[data-copy-key], .btn-copy').forEach((btn) => {
+        btn.addEventListener('click', () => this.copyToClipboard(btn.dataset.copyKey || btn.dataset.copyText, btn));
       });
       document.querySelectorAll('.btn-copy-doc').forEach((btn) => {
-        btn.addEventListener('click', () => {
-          this.copyToClipboard(btn.dataset.copyText, btn);
-        });
+        btn.addEventListener('click', () => this.copyToClipboard(btn.dataset.copyText, btn));
       });
-      
-      return;
+      this.initApiUrlBuilder();
     }
+  }
 
+  _bindUserEvents() {
     document.querySelectorAll('[data-user-approve]').forEach((btn) => {
       btn.addEventListener('click', () => this.approveUser(btn.dataset.userApprove));
     });
@@ -612,14 +866,33 @@ curl "${host}/api/open/sms?apiKey=${exampleKey}&numberId=YOUR_NUMBER_ID"</pre>
     document.querySelectorAll('[data-user-delete]').forEach((btn) => {
       btn.addEventListener('click', () => this.deleteUser(btn.dataset.userDelete));
     });
-
-    const searchInput = document.getElementById('userSearchInput');
-    searchInput?.addEventListener('input', () => this.filterUsersTable());
-
-    const id = window.location.hash.replace('#', '');
-    if (id && id !== 'api') {
-      setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' }), 100);
-    }
+    // Approve pending (by approvalId or userId)
+    document.querySelectorAll('[data-approve-pending]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const isApproval = btn.dataset.isApproval === 'true';
+        const id = btn.dataset.approvePending;
+        try {
+          if (isApproval) {
+            const res = await fetch(`/api/agent/approve/${id}`, { method: 'POST' }).then(r => r.json());
+            if (!res.success) { alert(res.error?.message || 'Failed'); return; }
+          } else {
+            await this.approveUser(id);
+            return;
+          }
+          if (window.apiCache) window.apiCache.clear();
+          await this.load();
+        } catch (e) { alert('Network error'); }
+      });
+    });
+    // Reject pending
+    document.querySelectorAll('[data-reject-pending]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Reject this user request?')) return;
+        const res = await fetch(`/api/agent/reject/${btn.dataset.rejectPending}`, { method: 'POST' }).then(r => r.json());
+        if (res.success) { if (window.apiCache) window.apiCache.clear(); await this.load(); }
+        else alert(res.error?.message || 'Failed');
+      });
+    });
   }
 
   async init() {

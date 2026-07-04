@@ -379,7 +379,6 @@ export class NumberSelection {
               <th>Phone Number</th>
               <th>Status</th>
               <th>OTP</th>
-              <th>SMS</th>
               <th>DateTime</th>
             </tr>
           </thead>
@@ -399,10 +398,9 @@ export class NumberSelection {
                 </td>
                 <td>${this.renderStatusCell(n)}</td>
                 <td>${this.renderOtpCell(n)}</td>
-                <td style="max-width:280px;word-break:break-word;white-space:normal">${this.renderSmsCell(n)}</td>
                 <td class="text-gray-500 text-xs">${this.formatRelative(n.createdAt)}</td>
               </tr>`;
-            }).join('') : '<tr><td colspan="7" class="p-8 text-center text-gray-500">No numbers yet — click Get SMS Number</td></tr>'}
+            }).join('') : '<tr><td colspan="6" class="p-8 text-center text-gray-500">No numbers yet — click Get SMS Number</td></tr>'}
           </tbody>
         </table>
       </div>`;
@@ -418,7 +416,6 @@ export class NumberSelection {
           );
           const st = numberStatus(n);
           const otp = this.renderOtpCell(n);
-          const sms = this.renderSmsCell(n);
           return `<div class="px-3 py-3 ${hl}">
             <div class="flex items-center justify-between gap-2 mb-1.5">
               <div class="flex items-center gap-1.5 min-w-0">
@@ -432,8 +429,7 @@ export class NumberSelection {
             ${st === 'successful' ? `
             <div class="flex items-center gap-3 flex-wrap">
               ${otp !== '<span class="text-gray-500 text-xs">—</span>' ? `<div class="flex items-center gap-1.5">${otp}</div>` : ''}
-              <div class="text-xs">${sms}</div>
-            </div>` : st === 'pending' ? `<div>${sms}</div>` : ''}
+            </div>` : ''}
             <p class="text-[10px] text-gray-600 mt-1">${this.formatRelative(n.createdAt)}</p>
           </div>`;
         }).join('') : '<div class="p-8 text-center text-gray-500 text-sm">No numbers yet</div>'}
@@ -555,14 +551,111 @@ export class NumberSelection {
     this._wsUnsubs.forEach(fn => fn());
     this._wsUnsubs = [];
     if (this.tickTimer) clearInterval(this.tickTimer);
+    this.closeWelcomeModal();
+  }
+
+  showWelcomeModal() {
+    const today = new Date().toISOString().slice(0, 10);
+    const dismissed = localStorage.getItem('welcomeDismissed');
+    if (dismissed === today) return;
+
+    const existing = document.getElementById('welcomeModal');
+    if (existing) existing.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'welcomeModal';
+    modal.innerHTML = `
+      <div class="fixed inset-0 z-[9999] flex items-center justify-center p-4" style="background:rgba(0,0,0,0.7);backdrop-filter:blur(8px);">
+        <div class="glass-card border-primary/20 w-full max-w-md relative overflow-hidden" style="animation:fadeIn 0.3s ease;">
+          <button id="welcomeClose" class="absolute top-3 right-3 w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-gray-400 hover:text-white transition-all z-10">
+            <i class="fas fa-times text-xs"></i>
+          </button>
+
+          <div class="p-6 pb-3 text-center">
+            <div class="w-16 h-16 mx-auto rounded-2xl bg-primary/15 flex items-center justify-center text-primary text-3xl mb-4">
+              <i class="fas fa-rocket"></i>
+            </div>
+            <h2 class="text-xl font-black text-white uppercase tracking-wide mb-2">Welcome to GURUBIT!</h2>
+            <p class="text-gray-400 text-sm leading-relaxed">
+              Get your <strong class="text-primary">free virtual number</strong> now and start receiving SMS instantly. 
+              Join our community for <strong class="text-primary">updates</strong>, 
+              <strong class="text-primary">tips</strong>, and <strong class="text-primary">24/7 support</strong>.
+            </p>
+          </div>
+
+          <div class="px-6 pb-4 space-y-3">
+            <a href="https://youtube.com/@riadalmamun4363?si=FxK0uXgy-tLoO7By" target="_blank" rel="noopener noreferrer" 
+               class="flex items-center gap-3 p-3 rounded-xl bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 transition-all group">
+              <div class="w-10 h-10 rounded-xl bg-red-500/20 flex items-center justify-center text-red-400 group-hover:scale-110 transition-transform">
+                <i class="fab fa-youtube text-lg"></i>
+              </div>
+              <div class="flex-1 min-w-0">
+                <p class="text-white font-bold text-sm">YouTube Channel</p>
+                <p class="text-gray-500 text-[10px]">Tutorials, tips & updates</p>
+              </div>
+              <span class="px-3 py-1.5 rounded-lg bg-red-500 text-white text-[10px] font-black uppercase tracking-wider">Subscribe</span>
+            </a>
+
+            <a href="https://t.me/Riad_Al_MamunEn" target="_blank" rel="noopener noreferrer"
+               class="flex items-center gap-3 p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 hover:bg-blue-500/20 transition-all group">
+              <div class="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center text-blue-400 group-hover:scale-110 transition-transform">
+                <i class="fab fa-telegram-plane text-lg"></i>
+              </div>
+              <div class="flex-1 min-w-0">
+                <p class="text-white font-bold text-sm">Telegram Group</p>
+                <p class="text-gray-500 text-[10px]">Live support & community</p>
+              </div>
+              <span class="px-3 py-1.5 rounded-lg bg-blue-500 text-white text-[10px] font-black uppercase tracking-wider">Join</span>
+            </a>
+          </div>
+
+          <div class="px-6 pb-5 flex items-center justify-between">
+            <label class="flex items-center gap-2 cursor-pointer select-none">
+              <input type="checkbox" id="welcomeDontToday" class="w-4 h-4 rounded border-gray-600 bg-black/30 text-primary focus:ring-primary/50">
+              <span class="text-gray-400 text-xs">Don't show today</span>
+            </label>
+            <div class="flex items-center gap-2">
+              <span id="welcomeCountdown" class="text-gray-500 text-[10px] font-mono">10s</span>
+              <button id="welcomeAccept" class="neon-btn px-4 py-2 text-xs uppercase tracking-widest">Got it!</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+
+    let remaining = 10;
+    const countdownEl = document.getElementById('welcomeCountdown');
+    this._welcomeCountdown = setInterval(() => {
+      remaining--;
+      if (countdownEl) countdownEl.textContent = `${remaining}s`;
+      if (remaining <= 0) this.closeWelcomeModal();
+    }, 1000);
+
+    const close = () => this.closeWelcomeModal();
+    document.getElementById('welcomeClose')?.addEventListener('click', () => {
+      if (document.getElementById('welcomeDontToday')?.checked) localStorage.setItem('welcomeDismissed', today);
+      close();
+    });
+    document.getElementById('welcomeAccept')?.addEventListener('click', () => {
+      if (document.getElementById('welcomeDontToday')?.checked) localStorage.setItem('welcomeDismissed', today);
+      close();
+    });
+    modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+  }
+
+  closeWelcomeModal() {
+    clearInterval(this._welcomeCountdown);
+    const modal = document.getElementById('welcomeModal');
+    if (modal) {
+      modal.style.opacity = '0';
+      modal.style.transition = 'opacity 0.3s ease';
+      setTimeout(() => modal.remove(), 300);
+    }
   }
 
   async init() {
     this.user = await UserLayout.ensureAuth();
     if (!this.user) return;
-
-    // Render shell immediately with cached user
-    this.render();
 
     await this.loadCountries();
     await this.loadNumbers();
@@ -585,5 +678,7 @@ export class NumberSelection {
 
     this.setupWs();
     this.render();
+    // Show welcome modal once per day
+    this.showWelcomeModal();
   }
 }

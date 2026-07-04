@@ -151,7 +151,7 @@ export class AdminSettings {
         <div class="glass-card p-6 border-white/5">
           <p class="stat-label">Environment</p>
           <p class="text-white font-bold uppercase mt-2">${s.environment}</p>
-          <p class="text-gray-500 text-xs mt-4">Firebase, SMTP, and API keys are configured via .env and Provider section.</p>
+          <p class="text-gray-500 text-xs mt-4">MongoDB, SMTP, and API keys are configured via .env and Provider section.</p>
         </div>
 
         <div class="glass-card p-6 border-white/5 md:col-span-3">

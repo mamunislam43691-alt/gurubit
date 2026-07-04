@@ -451,9 +451,40 @@ export class PostFeed {
   }
 
   renderBody() {
-    const filtered = this.tab === 'following'
-      ? this.posts.filter((p) => p.following)
-      : this.posts;
+    return `
+      <div class="flex flex-col items-center justify-center min-h-[70vh] text-center px-4">
+        <!-- Icon -->
+        <div class="relative mb-8">
+          <div class="w-28 h-28 rounded-3xl bg-primary/10 border border-primary/20 flex items-center justify-center mx-auto">
+            <i class="fas fa-bolt text-5xl text-primary" style="filter: drop-shadow(0 0 20px rgba(0,212,255,0.5))"></i>
+          </div>
+          <span class="absolute -top-2 -right-2 px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
+            Soon
+          </span>
+        </div>
+
+        <!-- Title -->
+        <h1 class="text-3xl font-black text-white uppercase tracking-widest mb-3">
+          MOVEMENT
+        </h1>
+        <div class="w-16 h-0.5 bg-primary mx-auto mb-5 rounded-full"></div>
+
+        <!-- Description -->
+        <p class="text-gray-400 text-sm max-w-sm leading-relaxed mb-2">
+          The social feed is coming very soon.
+        </p>
+        <p class="text-gray-600 text-xs max-w-xs leading-relaxed mb-8">
+          Posts, following, announcements, groups — everything is being built. Stay tuned.
+        </p>
+
+        <!-- Animated dots -->
+        <div class="flex gap-2 justify-center">
+          <span class="w-2 h-2 rounded-full bg-primary animate-bounce" style="animation-delay:0s"></span>
+          <span class="w-2 h-2 rounded-full bg-primary animate-bounce" style="animation-delay:0.15s"></span>
+          <span class="w-2 h-2 rounded-full bg-primary animate-bounce" style="animation-delay:0.3s"></span>
+        </div>
+      </div>`;
+  }
 
     const feedContent = this.tab === 'announcements'
       ? this.renderAnnouncements()
@@ -903,9 +934,7 @@ export class PostFeed {
   async init() {
     this.user = await UserLayout.ensureAuth();
     if (!this.user) return;
-    // Render shell immediately — feed loads in background
-    this.render();
-    await Promise.all([this.loadFeed(), this.loadAnnouncements(), this.loadAds()]);
+    // Coming Soon — render immediately, no data loading needed
     this.render();
   }
 }

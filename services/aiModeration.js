@@ -3,7 +3,7 @@
  * Scam: 4-day suspend; 3 strikes = ban
  */
 
-const { collections } = require('../config/firebase');
+const { collections } = require('../config/db');
 const https = require('https');
 const http = require('http');
 

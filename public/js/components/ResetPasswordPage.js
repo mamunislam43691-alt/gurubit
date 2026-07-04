@@ -2,6 +2,8 @@
  * Password reset landing — set new password from email link
  */
 
+import { confirmPasswordReset } from '../auth-config.js';
+
 export class ResetPasswordPage {
     constructor() {
         this.password = '';
@@ -18,8 +20,6 @@ export class ResetPasswordPage {
         if (Object.keys(this.errors).length) { this.render(); return; }
 
         const params = new URLSearchParams(window.location.search);
-        const oobCode = params.get('oobCode');
-        const mode = params.get('mode');
 
         if (params.get('done') === '1') {
             this.done = true;
@@ -27,23 +27,23 @@ export class ResetPasswordPage {
             return;
         }
 
-        if (!oobCode || mode !== 'resetPassword') {
+        const token = params.get('token');
+        if (!token) {
             this.errors.submit = 'Invalid or expired reset link. Request a new one from the login page.';
             this.render();
             return;
         }
 
         try {
-            const { auth, firebaseReady } = await import('../firebase-config.js');
-            await firebaseReady;
-            const { confirmPasswordReset } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js');
-            if (!auth) throw new Error('Auth not ready');
-            await confirmPasswordReset(auth, oobCode, this.password);
+            const r = await confirmPasswordReset(token, this.password);
+            if (!r.ok) {
+                throw new Error(r.data?.error?.message || 'Could not reset password.');
+            }
             this.done = true;
             window.history.replaceState({}, '', '/reset-password?done=1');
         } catch (err) {
             console.error(err);
-            this.errors.submit = 'Could not reset password. The link may have expired.';
+            this.errors.submit = err.message || 'Could not reset password. The link may have expired.';
         }
         this.render();
     }

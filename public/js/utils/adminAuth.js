@@ -5,6 +5,7 @@
 const PATH_PERMISSION = {
   '/admin': 'dashboard',
   '/admin/users': 'users',
+  '/admin/pending-users': 'users',
   '/admin/agents': 'agents',
   '/admin/costs': 'costs',
   '/admin/services': 'services',
@@ -42,10 +43,10 @@ export async function fetchAdminMe() {
   // Return cached admin immediately — no network call
   if (cachedAdmin) return cachedAdmin;
 
-  // Deduplicate concurrent calls — with 2s timeout for faster response
+  // Deduplicate concurrent calls — with 3s timeout
   if (!_adminFetchPromise) {
     _adminFetchPromise = Promise.race([
-      fetch('/api/admin/me').then(res => {
+      fetch('/api/admin/me', { credentials: 'include' }).then(res => {
         if (!res.ok) return null;
         return res.json();
       }).then(data => {
@@ -56,7 +57,7 @@ export async function fetchAdminMe() {
         }
         return null;
       }).catch(() => null),
-      new Promise(resolve => setTimeout(() => resolve(null), 2000))
+      new Promise(resolve => setTimeout(() => resolve(null), 3000))
     ]).finally(() => { _adminFetchPromise = null; });
   }
 
@@ -85,4 +86,27 @@ export function adminCanAccess(path, admin = cachedAdmin) {
 export function getAdminHomePath(admin = cachedAdmin) {
   if (!admin) return '/admin';
   return admin.defaultPath || '/admin';
+}
+
+/**
+ * Authenticated fetch — always includes cookies, auto-redirects on 401
+ */
+export async function adminFetch(url, options = {}) {
+  const res = await fetch(url, {
+    ...options,
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers || {})
+    }
+  });
+
+  // If 401, session expired — clear cache and redirect to login
+  if (res.status === 401) {
+    clearAdminCache();
+    window.location.href = '/admin';
+    throw new Error('Session expired. Please log in again.');
+  }
+
+  return res;
 }

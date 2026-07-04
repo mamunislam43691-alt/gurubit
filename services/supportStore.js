@@ -1,10 +1,10 @@
 /**
- * Live support conversations — Firestore backed
+ * Live support conversations — MongoDB backed
  * WebSocket socket references remain in-memory (they can't be stored in DB)
  */
 
 const { randomBytes } = require('crypto');
-const { db } = require('../config/firebase');
+const { db } = require('../config/db');
 
 const SESSIONS_COL = 'supportSessions';
 const MESSAGES_COL = 'supportMessages';
@@ -138,6 +138,22 @@ async function deleteMessage(sessionId, messageId) {
   return true;
 }
 
+async function deleteSession(sessionId) {
+  const doc = await sessionsCol().doc(sessionId).get();
+  if (!doc.exists) return false;
+  // Delete all messages for this session
+  const msgSnap = await messagesCol().get();
+  msgSnap.forEach(async (d) => {
+    const m = d.data();
+    if (m.sessionId === sessionId) {
+      await messagesCol().doc(m.id || d.id).delete();
+    }
+  });
+  // Delete the session itself
+  await sessionsCol().doc(sessionId).delete();
+  return true;
+}
+
 // Socket helpers (in-memory only — sockets can't be stored in DB)
 function registerVisitorSocket(sessionId, ws) { visitorSockets.set(sessionId, ws); }
 function removeVisitorSocket(sessionId) { visitorSockets.delete(sessionId); }
@@ -162,5 +178,6 @@ module.exports = {
   removeAdminSocket,
   getVisitorSocket,
   getAdminSockets,
-  deleteMessage
+  deleteMessage,
+  deleteSession
 };

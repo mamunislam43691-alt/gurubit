@@ -1,8 +1,8 @@
 /**
- * Agent user approvals — Firestore backed
+ * Agent user approvals — MongoDB backed
  */
 
-const { db } = require('../config/firebase');
+const { db } = require('../config/db');
 
 const COLLECTION = 'agentApprovals';
 

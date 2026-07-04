@@ -1,14 +1,13 @@
 /**
  * SMTP email sender — reads config from env vars (set via Render Dashboard or admin panel)
- * Config is also persisted in Firestore so it survives restarts
+ * Config is also persisted in MongoDB so it survives restarts.
  */
 
-const { db } = require('../config/firebase');
+const { db } = require('../config/db');
 
 const SMTP_DOC = 'smtpConfig';
 
-// Load SMTP config from Firestore into process.env on startup
-async function loadSmtpFromFirestore() {
+async function loadSmtpFromMongo() {
   try {
     const doc = await db.collection('appConfig').doc(SMTP_DOC).get();
     if (!doc.exists) return;
@@ -19,14 +18,13 @@ async function loadSmtpFromFirestore() {
     if (cfg.user && !process.env.SMTP_USER) process.env.SMTP_USER = cfg.user;
     if (cfg.pass && !process.env.SMTP_PASS) process.env.SMTP_PASS = cfg.pass;
     if (cfg.from && !process.env.SMTP_FROM) process.env.SMTP_FROM = cfg.from;
-    if (cfg.host) console.log(`✅ SMTP config loaded from Firestore (${cfg.user})`);
-  } catch (e) {
-    // Firestore not available yet — will use env vars
+    if (cfg.host) console.log(`✅ SMTP config loaded from MongoDB (${cfg.user})`);
+  } catch (_) {
+    // Mongo not available yet — will fall back to env vars
   }
 }
 
-// Save SMTP config to Firestore for persistence across restarts
-async function saveSmtpToFirestore(cfg) {
+async function saveSmtpToMongo(cfg) {
   try {
     await db.collection('appConfig').doc(SMTP_DOC).set({
       host: cfg.host || '',
@@ -38,7 +36,7 @@ async function saveSmtpToFirestore(cfg) {
       updatedAt: new Date().toISOString()
     });
   } catch (e) {
-    console.warn('Could not save SMTP to Firestore:', e.message);
+    console.warn('Could not save SMTP to MongoDB:', e.message);
   }
 }
 
@@ -98,7 +96,7 @@ async function sendPasswordResetEmail({ to, name, resetUrl }) {
 module.exports = {
   sendVerificationEmail,
   sendPasswordResetEmail,
-  loadSmtpFromFirestore,
-  saveSmtpToFirestore,
+  loadSmtpFromMongo,
+  saveSmtpToMongo,
   getTransporter
 };

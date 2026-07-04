@@ -1,5 +1,5 @@
 /**
- * Aggregate dashboard stats from Firestore collections
+ * Aggregate dashboard stats from MongoDB collections
  */
 
 function dayKey(iso) {

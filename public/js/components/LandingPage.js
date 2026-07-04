@@ -57,11 +57,7 @@ export class LandingPage {
         const container = document.getElementById('app');
         document.getElementById('app-skeleton')?.remove();
         container.innerHTML = `
-<<<<<<< HEAD
             <motion.div data-page="landing" class="min-h-screen text-white" style="background: radial-gradient(ellipse at top right, #0a1e3b 0%, #020b18 60%); overflow-x: hidden; max-width: 100vw; width: 100%;">
-=======
-            <motion.div data-page="landing" class="min-h-screen text-white overflow-x-hidden" style="background: radial-gradient(ellipse at top right, #0a1e3b 0%, #020b18 60%);">
->>>>>>> 5aff1b55d9621d4ca31543c248ef88a69004b192
                 <!-- Particles + 3D orbs -->
                 <div class="particles-bg" id="particlesBg"></div>
                 <div class="orb w-[700px] h-[700px] top-[-200px] right-[-200px]" style="background:radial-gradient(circle,#00d2ff,transparent)"></div>
@@ -69,26 +65,16 @@ export class LandingPage {
                 <div class="grid-bg fixed inset-0 pointer-events-none z-0 opacity-60"></div>
 
                 <nav class="fixed top-0 w-full z-40 bg-black/50 backdrop-blur-lg border-b border-white/5">
-<<<<<<< HEAD
                     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 sm:h-20 flex justify-between items-center">
                         <a href="/" class="flex items-center gap-2 sm:gap-3 shrink-0">
                             <img src="/assets/logo.svg" alt="GURUBIT" class="w-8 h-8 sm:w-10 sm:h-10 logo-glow">
                             <span class="text-sm sm:text-lg font-black tracking-widest gradient-text uppercase">GURUBIT</span>
                         </a>
                         <div class="hidden lg:flex gap-8 text-xs font-bold text-gray-300 uppercase tracking-widest">
-=======
-                    <motion.div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex justify-between items-center">
-                        <a href="/" class="flex items-center gap-3">
-                            <img src="/assets/logo.svg" alt="GURUBIT" class="w-10 h-10 logo-glow">
-                            <span class="text-lg font-black tracking-widest gradient-text uppercase">GURUBIT</span>
-                        </a>
-                        <motion.div class="hidden lg:flex gap-8 text-xs font-bold text-gray-300 uppercase tracking-widest">
->>>>>>> 5aff1b55d9621d4ca31543c248ef88a69004b192
                             <a href="#features" class="hover:text-primary">Home</a>
                             <a href="#why" class="hover:text-primary">About</a>
                             <a href="/live-feed" class="hover:text-primary">Live Feed</a>
                             <a href="/faq" class="hover:text-primary">Help</a>
-<<<<<<< HEAD
                         </div>
                         <div class="flex items-center gap-2 sm:gap-3 shrink-0">
                             <button id="navLoginBtn" class="px-3 sm:px-5 py-2 sm:py-2.5 text-xs font-black uppercase tracking-widest border border-white/15 rounded-lg text-gray-200 hover:border-primary/50 hover:text-white transition-all whitespace-nowrap">Login</button>
@@ -125,44 +111,6 @@ export class LandingPage {
                                 <div class="text-center"><p class="text-xl sm:text-2xl font-black text-primary neon-text">&lt;2s</p><p class="text-[10px] text-gray-500 uppercase tracking-widest">SMS Speed</p></div>
                                 <div class="w-px h-8 bg-white/10"></div>
                                 <div class="text-center"><p class="text-xl sm:text-2xl font-black text-primary neon-text">$0</p><p class="text-[10px] text-gray-500 uppercase tracking-widest">Always Free</p></div>
-=======
-                        </motion.div>
-                        <div class="flex items-center gap-3">
-                            <button id="navLoginBtn" class="px-5 py-2.5 text-xs font-black uppercase tracking-widest border border-white/15 rounded-lg text-gray-200 hover:border-primary/50 hover:text-white transition-all">Login</button>
-                            <button id="navSignupBtn" class="neon-btn px-5 py-2.5 text-xs uppercase tracking-widest">Sign up</button>
-                        </div>
-                    </motion.div>
-                </nav>
-
-                <!-- Hero -->
-                <section class="relative z-10 pt-32 pb-20 lg:pt-40 lg:pb-28 px-4 landing-3d-scene">
-                    <div class="max-w-7xl mx-auto grid lg:grid-cols-2 gap-16 items-center">
-                        <div class="text-center lg:text-left">
-                            <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-primary/30 bg-primary/5 mb-6 badge-3d reveal-up">
-                                <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
-                                <span class="text-xs font-black text-primary uppercase tracking-widest">100% Free · No Credit Card</span>
-                            </div>
-                            <h1 class="text-4xl sm:text-5xl lg:text-6xl font-black leading-[1.1] mb-6 uppercase tracking-tight reveal-up delay-1">
-                                Online Phone Numbers For<br><span class="shimmer-text">SMS Verification</span>
-                            </h1>
-                            <p class="text-gray-400 text-base sm:text-lg leading-relaxed mb-10 max-w-xl mx-auto lg:mx-0 reveal-up delay-2">
-                                Receive SMS codes instantly with disposable numbers. Protect your privacy, verify any platform, and <strong class="text-white">earn rewards</strong> on every successful verification.
-                            </p>
-                            <div class="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start reveal-up delay-3">
-                                <button id="heroGetStartedBtn" class="neon-btn px-10 py-4 text-sm uppercase tracking-[0.15em] inline-flex items-center gap-2 badge-3d">
-                                    Get Started Free <i class="fas fa-arrow-right text-xs"></i>
-                                </button>
-                                <a href="/live-feed" class="px-8 py-4 text-sm font-bold uppercase tracking-widest border border-white/15 rounded-xl text-gray-300 hover:border-primary/50 hover:text-primary transition-all inline-flex items-center gap-2">
-                                    <i class="fas fa-satellite-dish text-xs"></i> Live Feed
-                                </a>
-                            </div>
-                            <div class="flex items-center gap-8 mt-10 justify-center lg:justify-start reveal-up delay-4">
-                                <div class="text-center"><p class="text-2xl font-black text-primary neon-text">50+</p><p class="text-[10px] text-gray-500 uppercase tracking-widest">Countries</p></div>
-                                <div class="w-px h-8 bg-white/10"></div>
-                                <div class="text-center"><p class="text-2xl font-black text-primary neon-text">&lt;2s</p><p class="text-[10px] text-gray-500 uppercase tracking-widest">SMS Speed</p></div>
-                                <div class="w-px h-8 bg-white/10"></div>
-                                <div class="text-center"><p class="text-2xl font-black text-primary neon-text">$0</p><p class="text-[10px] text-gray-500 uppercase tracking-widest">Always Free</p></div>
->>>>>>> 5aff1b55d9621d4ca31543c248ef88a69004b192
                             </div>
                         </div>
                         <div class="relative hidden lg:block reveal-up delay-2">

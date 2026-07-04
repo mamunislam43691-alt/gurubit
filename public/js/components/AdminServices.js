@@ -36,7 +36,7 @@ export class AdminServices {
     const data = await res.json();
     if (data.success) {
       this.servers = data.servers || [];
-      // Refresh pool counts from Firestore (accurate real-time count)
+      // Refresh pool counts from MongoDB (accurate real-time count)
       try {
         const poolRes = await fetch('/api/admin/catalog/pool-status');
         const poolData = await poolRes.json();
