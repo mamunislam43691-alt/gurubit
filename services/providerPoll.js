@@ -669,17 +669,20 @@ async function pollIntegratedAPI(wss) {
           let otpUrl, fetchHeaders;
 
           if (isStex) {
-            // ── STEX SMS: GET /public/api/success-otp
+            // ── STEX SMS: GET /@public/api/success-otp or /public/api/success-otp
             // Returns last 50 successful OTPs for numbers assigned to this API key
             // We filter by number client-side
             let stexBase;
-            if (smsBase.includes('public/api/success-otp')) {
-              stexBase = smsBase.replace(/\/public\/api\/success-otp.*$/, '');
+            if (smsBase.includes('success-otp')) {
+              // getSmsUrl already points to success-otp — derive base from it
+              stexBase = smsBase.replace(/\/@?public\/api\/success-otp.*$/, '');
             } else {
               // getSmsUrl is empty or doesn't contain success-otp — derive from getNumberUrl
-              stexBase = rawNumBase.replace(/\/public\/api\/getnum.*$/, '');
+              stexBase = rawNumBase.replace(/\/@?public\/api\/getnum.*$/, '');
             }
-            otpUrl = `${stexBase}/public/api/success-otp`;
+            // Preserve the @public prefix if the original URL uses it
+            const hasAt = (rawNumBase + smsBase).includes('@public/api/');
+            otpUrl = `${stexBase}/${hasAt ? '@' : ''}public/api/success-otp`;
             fetchHeaders = {
               'mauthapi': provider.apiKey,
               'Accept': 'application/json'

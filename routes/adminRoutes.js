@@ -1033,8 +1033,9 @@ router.post('/api-keys/:id/test', verifyAdmin, async (req, res) => {
         } catch (e) {
           results.numbers = { url: rawNumUrl, ok: false, error: e.message };
         }
-        // STEX OTP: GET /public/api/success-otp
-        const stexOtp = rawSmsUrl.includes('public/api/success-otp') ? rawSmsUrl : `${rawSmsUrl.replace(/\/public\/api\/getnum.*$/, '')}/public/api/success-otp`;
+        // STEX OTP: GET /@public/api/success-otp or /public/api/success-otp
+        const hasAtOtp = (rawNumUrl + rawSmsUrl).includes('@public/api/');
+        const stexOtp = rawSmsUrl.includes('success-otp') ? rawSmsUrl : `${rawSmsUrl.replace(/\/@?public\/api\/getnum.*$/, '')}/${hasAtOtp ? '@' : ''}public/api/success-otp`;
         try {
           const ctrl2 = new AbortController();
           const tid2 = setTimeout(() => ctrl2.abort(), 15000);
