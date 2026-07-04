@@ -234,10 +234,14 @@ export class AdminApiKeys {
               <a href="/admin/sms-feed" class="sms-hit-btn px-3 py-1.5 text-[10px] font-black uppercase rounded border border-yellow-500/40 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 transition flex items-center gap-1.5">
                 <i class="fas fa-signal text-[9px]"></i> SMS HIT
               </a>
+              <button type="button" class="test-key-btn px-3 py-1.5 text-[10px] font-black uppercase rounded border border-green-500/40 bg-green-500/10 text-green-400 hover:bg-green-500/20 transition" data-id="${k.id}">
+                <i class="fas fa-plug text-[9px]"></i> Test
+              </button>
               <button type="button" class="edit-key-btn text-cyan-400 text-xs font-bold uppercase" data-id="${k.id}">Edit</button>
               <button type="button" class="delete-key-btn text-red-400 text-xs font-bold uppercase" data-id="${k.id}">Delete</button>
             </div>
           </div>
+          <div id="test-result-${k.id}" class="hidden mt-3 p-3 rounded-lg bg-black/40 border border-white/5 text-xs font-mono text-gray-300 overflow-x-auto whitespace-pre-wrap"></div>
         </div>`;
     }
 
@@ -528,6 +532,31 @@ export class AdminApiKeys {
     });
     document.querySelectorAll('.delete-key-btn').forEach(btn => {
       btn.addEventListener('click', () => this.handleDelete(btn.dataset.id));
+    });
+
+    // Test provider connection
+    document.querySelectorAll('.test-key-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        const resultBox = document.getElementById(`test-result-${id}`);
+        if (!resultBox) return;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-circle-notch fa-spin text-[9px]"></i> Testing…';
+        resultBox.className = 'mt-3 p-3 rounded-lg bg-black/40 border border-white/5 text-xs font-mono text-gray-300 overflow-x-auto whitespace-pre-wrap';
+        resultBox.textContent = 'Connecting…';
+        try {
+          const r = await fetch(`/api/admin/api-keys/${id}/test`, { method: 'POST', credentials: 'include' });
+          const data = await r.json().catch(() => ({}));
+          const ok = data.connected;
+          resultBox.className = `mt-3 p-3 rounded-lg border text-xs font-mono overflow-x-auto whitespace-pre-wrap ${ok ? 'bg-green-500/5 border-green-500/20 text-green-300' : 'bg-red-500/5 border-red-500/20 text-red-300'}`;
+          resultBox.textContent = JSON.stringify(data.results || data, null, 2);
+        } catch (e) {
+          resultBox.className = 'mt-3 p-3 rounded-lg bg-red-500/5 border border-red-500/20 text-xs font-mono text-red-300';
+          resultBox.textContent = `Error: ${e.message}`;
+        }
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-plug text-[9px]"></i> Test';
+      });
     });
   }
 

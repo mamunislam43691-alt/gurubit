@@ -47,7 +47,8 @@ function findByApiKey(apiKey) {
 }
 
 async function add({ serviceName, baseUrl, getNumberUrl, getSmsUrl, controlUrl, apiKey, providerType, additionalUrls, countryId, serverId, apiCountryCode, cliRange }) {
-  const type = providerType || 'sms_only';
+  const validTypes = ['sms_only', 'integrated'];
+  const type = validTypes.includes(providerType) ? providerType : 'sms_only';
   const entry = {
     id: `prov_${Date.now()}`,
     serviceName: serviceName || 'Provider',

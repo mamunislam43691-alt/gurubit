@@ -79,13 +79,9 @@ router.get('/test-poll', async (req, res) => {
       const finalUrl = `${url}${urlSeparator}limit=100`;
 
       const headers = { Accept: 'application/json' };
-      if (url.includes('203.161.58.20') || provider.apiKey.startsWith('sk_')) {
-        headers['x-api-key'] = provider.apiKey;
-      } else {
-        headers['Authorization'] = `Bearer ${provider.apiKey}`;
-        headers['X-API-Key'] = provider.apiKey;
-        headers['x-api-key'] = provider.apiKey;
-      }
+      headers['Authorization'] = `Bearer ${provider.apiKey}`;
+      headers['x-api-key'] = provider.apiKey;
+      headers['X-API-Key'] = provider.apiKey;
 
       const pollResult = { provider: provider.serviceName, url: finalUrl, status: null, httpStatus: null, rawBody: null, messages: [], error: null };
 

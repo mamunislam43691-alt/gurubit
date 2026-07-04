@@ -25,10 +25,6 @@ const THROTTLE_MS = 5 * 60 * 1000; // 5 minutes
 const connectionStatuses = {}; // providerId -> { status: 'connected' | 'disconnected', lastPollTime: string, lastError: string | null }
 
 // Resource monitoring
-// Integrated Number API polling disabled.
-// This deployment only accepts SMS via provider webhook / polling endpoints.
-// The integrated "number acquisition" flow (getNumber/getSms URLs) has been removed
-// to ensure the server does not request or allocate phone numbers from providers.
 const pollStats = {
   lastPollTime: null,
   totalPolls: 0,
@@ -40,7 +36,7 @@ const pollStats = {
 /**
  * Fetch with timeout helper
  */
-async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
+async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
   const controller = new AbortController();
   const tid = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -50,7 +46,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
   } catch (err) {
     clearTimeout(tid);
     if (err.name === 'AbortError') {
-      const e = new Error(`Request timeout after ${timeoutMs}ms`);
+      const e = new Error(`The operation was aborted due to timeout`);
       e.name = 'TimeoutError';
       throw e;
     }
@@ -298,13 +294,10 @@ async function pollProviderUrl(provider, rawUrl, wss) {
   const finalUrl = `${url}${urlSeparator}limit=100&since=${encodeURIComponent(since)}`;
 
   const headers = { Accept: 'application/json' };
-  if (url.includes('203.161.58.20') || provider.apiKey.startsWith('sk_')) {
-    headers['x-api-key'] = provider.apiKey;
-  } else {
-    headers['Authorization'] = `Bearer ${provider.apiKey}`;
-    headers['X-API-Key'] = provider.apiKey;
-    headers['x-api-key'] = provider.apiKey;
-  }
+  // Send all common auth header variants — providers pick the one they understand
+  headers['Authorization'] = `Bearer ${provider.apiKey}`;
+  headers['x-api-key'] = provider.apiKey;
+  headers['X-API-Key'] = provider.apiKey;
 
   const providerKey = `${provider.id}:${rawUrl}`;
   if (!connectionStatuses[providerKey]) {
@@ -386,7 +379,14 @@ async function pollProviderUrl(provider, rawUrl, wss) {
 
       // Skip already-processed messages (by ID)
       if (seen.has(parsed.id)) continue;
-      
+
+      // Skip messages older than SMS_MAX_AGE_MS to avoid processing stale SMS on restart
+      const msgAge = parsed.receivedAt ? Date.now() - new Date(parsed.receivedAt).getTime() : 0;
+      if (msgAge > SMS_MAX_AGE_MS) {
+        remember(parsed.id, parsed.receivedAt); // mark as seen so we don't log again
+        continue;
+      }
+
       remember(parsed.id, parsed.receivedAt);
       newMessages.push(parsed);
     } catch (rowErr) {
@@ -538,7 +538,9 @@ async function pollOnce(wss) {
                 const since = numData.lastPollAt || numData.allocatedAt || numData.createdAt;
 
                 try {
-                  const otpUrl = `${baseUrl}/otp${urlSep}number=${encodeURIComponent(phone)}&since=${encodeURIComponent(since)}&limit=10`;
+                  // Avoid double /otp — if baseUrl already ends with /otp, don't append it again
+                  const otpBase = /\/otp$/i.test(baseUrl) ? baseUrl : `${baseUrl}/otp`;
+                  const otpUrl = `${otpBase}${urlSep}number=${encodeURIComponent(phone)}&since=${encodeURIComponent(since)}&limit=10`;
                   const res = await fetchWithTimeout(otpUrl, { method: 'GET', headers }, 8000);
                   if (!res.ok) return;
 
@@ -640,7 +642,14 @@ async function pollIntegratedAPI(wss) {
     // Poll all numbers linked to a provider (both API-allocated and manual-linked)
     await Promise.allSettled(providers.map(async (provider) => {
       // Use getSmsUrl if set, fallback to baseUrl for OTP polling
-      const smsBase = (provider.getSmsUrl || provider.baseUrl || '').replace(/\/$/, '');
+      // Strip trailing path segments like /numbers or /numbers/numbers to get base
+      const rawSmsBase = (provider.getSmsUrl || provider.baseUrl || '').replace(/\/$/, '');
+      // Normalize: remove known path suffixes so we always build from the API root
+      const smsBase = rawSmsBase
+        .replace(/\/numbers\/numbers$/, '')
+        .replace(/\/numbers$/, '')
+        .replace(/\/otp$/, '')
+        .replace(/\/$/, '');
       const isStex = smsBase.includes('public/api/success-otp') || smsBase.includes('@public/api/');
 
       // Process numbers assigned to this provider
@@ -665,16 +674,32 @@ async function pollIntegratedAPI(wss) {
               'Accept': 'application/json'
             };
           } else {
-            // Generic integrated API
-            otpUrl = `${smsBase}/otp?number=${encodeURIComponent(phone)}&since=${encodeURIComponent(since)}&limit=10`;
-            fetchHeaders = { 'x-api-key': provider.apiKey, 'Accept': 'application/json' };
+            // Generic integrated API — build clean OTP URL
+            const otpBaseGeneric = /\/otp$/i.test(smsBase) ? smsBase : `${smsBase}/otp`;
+            otpUrl = `${otpBaseGeneric}?number=${encodeURIComponent(phone)}&since=${encodeURIComponent(since)}&limit=10`;
+            fetchHeaders = {
+              'x-api-key': provider.apiKey,
+              'Authorization': `Bearer ${provider.apiKey}`,
+              'Accept': 'application/json'
+            };
           }
 
           if (process.env.DEBUG_POLLING === 'true') {
             console.log(`[Poll ${isStex ? 'STEX' : 'Integrated'}] → ${provider.serviceName}: ${phone}`);
           }
 
-          const res = await fetchWithTimeout(otpUrl, { headers: fetchHeaders }, 10000);
+          // Fetch with retry (up to 2 attempts, 20s each)
+          let res = null;
+          for (let attempt = 1; attempt <= 2; attempt++) {
+            try {
+              res = await fetchWithTimeout(otpUrl, { headers: fetchHeaders }, 20000);
+              break;
+            } catch (e) {
+              if (attempt === 2) throw e;
+              await new Promise(r => setTimeout(r, 2000));
+            }
+          }
+          if (!res) return;
           if (!res.ok) {
             if (process.env.DEBUG_POLLING === 'true') {
               console.warn(`[Poll] HTTP ${res.status} for ${phone}`);
@@ -700,13 +725,20 @@ async function pollIntegratedAPI(wss) {
                 created_at: o.time ? new Date(o.time).toISOString() : new Date().toISOString()
               }));
           } else {
-            messages = body.data || body.otps || [];
+            // Generic: { data: [ ... ] } or { messages: [...] } or [ ... ] or { otp, message, number }
+            messages = body.data || body.messages || body.otps || body.sms || [];
+            // Some APIs return a single object instead of array
+            if (!Array.isArray(messages) && (body.number || body.phone || body.message)) {
+              messages = [body];
+            }
           }
 
           for (const msg of messages) {
-            const content = msg.message || msg.content || msg.text || '';
-            const msgPhone = String(msg.number || msg.phone || phone).replace(/\D/g, '');
-            if (!content) continue;
+            const content = msg.message || msg.content || msg.text || msg.sms || msg.body || '';
+            const msgPhone = String(
+              msg.number || msg.phone || msg.msisdn || msg.phoneNumber || phone
+            ).replace(/\D/g, '');
+            if (!content || !msgPhone) continue;
 
             const msgId = msg.id || `${msgPhone}:${content}`;
             if (seen.has(String(msgId))) continue;
@@ -773,9 +805,9 @@ function startProviderPoller(wss, intervalMs) {
   const providers = providerStore.list().filter(p => p.providerType !== 'integrated');
   const integrated = providerStore.list().filter(p => p.providerType === 'integrated');
 
-  // Configure intervals via env vars for flexibility under quota pressure
-  const defaultWebhookMs = Number(process.env.POLL_INTERVAL_MS) || 15000; // 15s
-  const defaultIntegratedMs = Number(process.env.INTEGRATED_POLL_INTERVAL_MS) || 5000; // 5s
+  // Configure intervals via env vars
+  const defaultWebhookMs    = Number(process.env.POLL_INTERVAL_MS)            || 15000; // 15s
+  const defaultIntegratedMs = Number(process.env.INTEGRATED_POLL_INTERVAL_MS) || 8000;  // 8s
   intervalMs = Number(intervalMs) || defaultWebhookMs;
 
   console.log(`\n⏱️  Provider Polling Started`);
@@ -783,7 +815,6 @@ function startProviderPoller(wss, intervalMs) {
   console.log(`   Integrated providers  : ${integrated.length}`);
   console.log(`   Poll interval         : ${intervalMs}ms (webhook) / ${defaultIntegratedMs}ms (integrated)`);
   if (providers.length > 0) {
-    // Deduplicate URLs for display
     const printedUrls = new Set();
     providers.forEach(p => {
       const urls = [p.baseUrl, ...(p.additionalUrls || [])].filter(Boolean);
@@ -793,36 +824,48 @@ function startProviderPoller(wss, intervalMs) {
     });
   }
   console.log(`   💡 Set DEBUG_POLLING=true in .env to see every poll request/response\n`);
-  
-  // Webhook SMS poller - with error protection
-  // Poll every 3 seconds (was 8) for faster SMS delivery
-  const webhookPollInterval = setInterval(() => {
-    try {
-      pollOnce(wss).catch((err) => {
-        console.error('Uncaught error in pollOnce:', err.message);
-      });
-    } catch (err) {
-      console.error('Error in webhook poll interval:', err.message);
-    }
-  }, intervalMs);
 
-  // Integrated number API status poller - with error protection
-  // Poll every 5 seconds (was 10) for faster status checks
-  const integratedPollInterval = setInterval(() => {
-    try {
-      pollIntegratedAPI(wss).catch((err) => {
-        console.error('Uncaught error in pollIntegratedAPI:', err.message);
-      });
-    } catch (err) {
-      console.error('Error in integrated poll interval:', err.message);
-    }
-  }, defaultIntegratedMs);
+  let webhookTimer = null;
+  let integratedTimer = null;
+  let stopped = false;
 
-  // Clean up function for graceful shutdown
+  // ── Webhook SMS poller — recursive setTimeout to prevent overlapping cycles ──
+  async function runWebhook() {
+    if (stopped) return;
+    try {
+      await pollOnce(wss);
+    } catch (err) {
+      console.error('Uncaught error in pollOnce:', err.message);
+    }
+    if (!stopped) {
+      webhookTimer = setTimeout(runWebhook, intervalMs);
+      if (webhookTimer.unref) webhookTimer.unref();
+    }
+  }
+
+  // ── Integrated API poller — recursive setTimeout, no overlap ──
+  async function runIntegrated() {
+    if (stopped) return;
+    try {
+      await pollIntegratedAPI(wss);
+    } catch (err) {
+      console.error('Uncaught error in pollIntegratedAPI:', err.message);
+    }
+    if (!stopped) {
+      integratedTimer = setTimeout(runIntegrated, defaultIntegratedMs);
+      if (integratedTimer.unref) integratedTimer.unref();
+    }
+  }
+
+  // Start both pollers
+  webhookTimer    = setTimeout(runWebhook,    0);
+  integratedTimer = setTimeout(runIntegrated, 500); // slight offset to avoid both firing at once
+
   return {
     stop: () => {
-      clearInterval(webhookPollInterval);
-      clearInterval(integratedPollInterval);
+      stopped = true;
+      if (webhookTimer)    clearTimeout(webhookTimer);
+      if (integratedTimer) clearTimeout(integratedTimer);
       console.log('✅ Provider polling stopped');
     }
   };

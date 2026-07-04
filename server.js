@@ -29,11 +29,9 @@ const compression = require('compression');
 })();
 
 // Listen for late/admin-panel MongoDB connections and reload stores if needed
-let _storesLoaded = false;
 let _loadAllStores = async () => {}; // will be replaced once server starts
 const { dbEvents } = require('./config/mongo');
 dbEvents.on('primaryConnected', async () => {
-  if (_storesLoaded) return; // already loaded, skip
   console.log('🔄 MongoDB became ready — loading stores...');
   try {
     const { ensureIndexes } = require('./config/mongo');
@@ -480,12 +478,6 @@ async function startServer() {
           console.warn('⚠️ Stores not loaded — MongoDB not ready after 15s');
           return;
         }
-
-        if (_storesLoaded) {
-          console.log('ℹ️  Stores already loaded, skipping reload');
-          return;
-        }
-        _storesLoaded = true;
 
         // Load catalog
         try {

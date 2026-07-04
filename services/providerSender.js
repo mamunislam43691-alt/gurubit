@@ -18,12 +18,10 @@ async function triggerProviderSend(options = {}) {
   const triggerUrl = paramPairs.length ? `${prov.getSmsUrl || prov.baseUrl}?${paramPairs.join('&')}` : (prov.getSmsUrl || prov.baseUrl);
 
   const headers = {};
-  if ((prov.apiKey || '').startsWith('sk_') || (prov.baseUrl || '').includes('203.161.58.20')) {
-    headers['x-api-key'] = prov.apiKey;
-  } else if (prov.apiKey) {
+  if (prov.apiKey) {
     headers['Authorization'] = `Bearer ${prov.apiKey}`;
-    headers['X-API-Key'] = prov.apiKey;
     headers['x-api-key'] = prov.apiKey;
+    headers['X-API-Key'] = prov.apiKey;
   }
 
   // Broadcast attempt

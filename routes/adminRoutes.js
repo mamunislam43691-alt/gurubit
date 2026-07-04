@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Admin Routes
  * Handles admin authentication and dashboard operations
  */
@@ -432,13 +432,9 @@ router.post('/trigger-provider-send', async (req, res) => {
     if (email) params.push(`client_email=${encodeURIComponent(email)}`);
     const triggerUrl = params.length ? `${sendUrlBase}?${params.join('&')}` : sendUrlBase;
     const headers = {};
-    if (sendUrlBase.includes('203.161.58.20') || (prov.apiKey || '').startsWith('sk_')) {
-      headers['x-api-key'] = prov.apiKey;
-    } else {
-      headers['Authorization'] = `Bearer ${prov.apiKey}`;
-      headers['X-API-Key'] = prov.apiKey;
-      headers['x-api-key'] = prov.apiKey;
-    }
+    headers['Authorization'] = `Bearer ${prov.apiKey}`;
+    headers['x-api-key'] = prov.apiKey;
+    headers['X-API-Key'] = prov.apiKey;
 
     console.log(`[DEV] Triggering provider send: ${triggerUrl} (headers: ${Object.keys(headers).join(',')})`);
 
@@ -925,7 +921,8 @@ router.post('/api-keys', verifyAdmin, async (req, res) => {
     // For integrated providers, at least getNumberUrl or baseUrl is required
     const effectiveUrl = (getNumberUrl || baseUrl || '').trim();
     if (!effectiveUrl || !apiKey?.trim()) {
-      return res.status(400).json({ success: false, error: { message: 'Number URL and API key are required' } });
+      const urlLabel = (providerType === 'integrated') ? 'Number URL' : 'Base URL';
+      return res.status(400).json({ success: false, error: { message: `${urlLabel} and API key are required` } });
     }
     const key = await providerStore.add({
       serviceName: serviceName || 'SMS Provider',
@@ -953,7 +950,8 @@ router.put('/api-keys/:id', verifyAdmin, async (req, res) => {
     
     const effectiveUrl = (getNumberUrl || baseUrl || '').trim();
     if (!effectiveUrl || !apiKey?.trim()) {
-      return res.status(400).json({ success: false, error: { message: 'Number URL and API key are required' } });
+      const urlLabel = (providerType === 'integrated') ? 'Number URL' : 'Base URL';
+      return res.status(400).json({ success: false, error: { message: `${urlLabel} and API key are required` } });
     }
     const key = await providerStore.update(req.params.id, {
       serviceName: serviceName || 'SMS Provider',
@@ -979,6 +977,98 @@ router.put('/api-keys/:id', verifyAdmin, async (req, res) => {
 router.delete('/api-keys/:id', verifyAdmin, async (req, res) => {
   await providerStore.remove(req.params.id);
   res.json({ success: true });
+});
+
+/**
+ * POST /api/admin/api-keys/:id/test
+ * Test a provider's number fetch URL and OTP URL
+ */
+router.post('/api-keys/:id/test', verifyAdmin, async (req, res) => {
+  try {
+    const provider = providerStore.list().find(p => p.id === req.params.id);
+    if (!provider) return res.status(404).json({ success: false, error: { message: 'Provider not found' } });
+
+    const results = {};
+
+    if (provider.providerType === 'integrated') {
+      const rawBase = (provider.getNumberUrl || provider.baseUrl || '').replace(/\/$/, '')
+        .replace(/\/numbers\/numbers$/, '').replace(/\/numbers$/, '').replace(/\/otp$/, '').replace(/\/$/, '');
+      const manualRange = provider.cliRange ? String(provider.cliRange).trim() : null;
+      const cliFilter = manualRange ? `&cli=${encodeURIComponent(manualRange)}` : '';
+      const numbersUrl = `${rawBase}/numbers?status=assigned&limit=5${cliFilter}`;
+
+      const headers = {
+        'x-api-key': provider.apiKey,
+        'Authorization': `Bearer ${provider.apiKey}`,
+        'Accept': 'application/json'
+      };
+
+      // Test numbers endpoint
+      try {
+        const ctrl = new AbortController();
+        const tid = setTimeout(() => ctrl.abort(), 20000);
+        const r = await fetch(numbersUrl, { headers, signal: ctrl.signal });
+        clearTimeout(tid);
+        const text = await r.text();
+        let parsed = null;
+        try { parsed = JSON.parse(text); } catch (_) {}
+        const numbers = parsed ? (parsed.data || parsed.numbers || parsed.list || []) : [];
+        results.numbers = {
+          url: numbersUrl,
+          status: r.status,
+          ok: r.ok,
+          count: numbers.length,
+          sample: numbers.slice(0, 3),
+          raw: text.slice(0, 500)
+        };
+      } catch (e) {
+        results.numbers = { url: numbersUrl, ok: false, error: e.message };
+      }
+
+      // Test OTP endpoint (with a dummy number)
+      const smsRaw = (provider.getSmsUrl || provider.baseUrl || '').replace(/\/$/, '')
+        .replace(/\/numbers\/numbers$/, '').replace(/\/numbers$/, '').replace(/\/otp$/, '').replace(/\/$/, '');
+      const otpBase = /\/otp$/i.test(smsRaw) ? smsRaw : `${smsRaw}/otp`;
+      const otpUrl = `${otpBase}?number=0000000000&since=${encodeURIComponent(new Date(Date.now() - 60000).toISOString())}&limit=1`;
+      try {
+        const ctrl2 = new AbortController();
+        const tid2 = setTimeout(() => ctrl2.abort(), 15000);
+        const r2 = await fetch(otpUrl, { headers, signal: ctrl2.signal });
+        clearTimeout(tid2);
+        const text2 = await r2.text();
+        results.otp = { url: otpUrl, status: r2.status, ok: r2.ok, raw: text2.slice(0, 300) };
+      } catch (e) {
+        results.otp = { url: otpUrl, ok: false, error: e.message };
+      }
+
+    } else {
+      // SMS-only: test the base URL
+      const urls = [provider.baseUrl, ...(provider.additionalUrls || [])].filter(Boolean);
+      results.urls = [];
+      for (const u of urls) {
+        const testUrl = `${u.replace(/\/$/, '')}?limit=1`;
+        const headers = { 'x-api-key': provider.apiKey, 'Authorization': `Bearer ${provider.apiKey}`, 'Accept': 'application/json' };
+        try {
+          const ctrl = new AbortController();
+          const tid = setTimeout(() => ctrl.abort(), 15000);
+          const r = await fetch(testUrl, { headers, signal: ctrl.signal });
+          clearTimeout(tid);
+          const text = await r.text();
+          results.urls.push({ url: testUrl, status: r.status, ok: r.ok, raw: text.slice(0, 300) });
+        } catch (e) {
+          results.urls.push({ url: testUrl, ok: false, error: e.message });
+        }
+      }
+    }
+
+    const allOk = provider.providerType === 'integrated'
+      ? (results.numbers?.ok || results.otp?.ok)
+      : results.urls?.some(u => u.ok);
+
+    res.json({ success: true, connected: !!allOk, provider: provider.serviceName, results });
+  } catch (err) {
+    res.status(500).json({ success: false, error: { message: err.message } });
+  }
 });
 
 router.post('/catalog/reset-demo', verifyAdmin, async (req, res) => {
