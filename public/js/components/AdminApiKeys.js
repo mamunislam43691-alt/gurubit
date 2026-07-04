@@ -74,7 +74,6 @@ export class AdminApiKeys {
     const apiCountryCode = (document.getElementById('apiCountryCodeInput')?.value || '').trim();
     const cliRange = (document.getElementById('cliRangeInput')?.value || '').trim();
     const fbId     = (document.getElementById('fbIdInput')?.value || '').trim();
-    const fbId = (document.getElementById('fbIdInput')?.value || '').trim();
 
     // For integrated: use getNumberUrl as primary
     const effectiveBaseUrl = isIntegrated ? (getNumberUrl || baseUrl) : baseUrl;
