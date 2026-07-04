@@ -171,4 +171,40 @@ router.delete('/session/:id/messages/:msgId', (req, res) => {
   res.status(403).json({ success: false, error: { message: 'Visitors cannot delete messages' } });
 });
 
+/**
+ * DELETE /session/:id/close
+ * Visitor closes their own support ticket — deletes all messages + session
+ */
+router.delete('/session/:id/close', async (req, res) => {
+  try {
+    const session = await supportStore.getSession(req.params.id);
+    if (!session) return res.status(404).json({ success: false, error: { message: 'Session not found' } });
+    await supportStore.deleteSession(req.params.id);
+    const wss = req.app.get('wss');
+    if (wss?.broadcastSupport) {
+      wss.broadcastSupport({ type: 'support_session_deleted', sessionId: req.params.id });
+    }
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ success: false, error: { message: e.message } });
+  }
+});
+
+router.delete('/session/:id/close', async (req, res) => {
+  try {
+    const sessionId = req.params.id;
+    const session = await supportStore.getSession(sessionId);
+    if (!session) return res.status(404).json({ success: false, error: { message: 'Session not found' } });
+    await supportStore.deleteAllMessages(sessionId);
+    await supportStore.deleteSession(sessionId);
+    const wss = req.app.get('wss');
+    if (wss?.broadcastSupport) {
+      wss.broadcastSupport({ type: 'support_session_deleted', sessionId });
+    }
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ success: false, error: { message: e.message } });
+  }
+});
+
 module.exports = router;

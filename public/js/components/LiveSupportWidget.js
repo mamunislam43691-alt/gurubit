@@ -19,6 +19,7 @@ export class LiveSupportWidget {
     this.ws = null;
 
     this.visitor = { name: '', email: '' };
+    this.loggedInUser = null;
     this.hasUnread = false;
     this.reconnectAttempts = 0;
     this.maxReconnectAttempts = 60;
@@ -150,13 +151,16 @@ export class LiveSupportWidget {
 
   async startChat() {
 
-    const name = document.getElementById('supportName')?.value?.trim();
+    let name, email;
 
-    const email = document.getElementById('supportEmail')?.value?.trim();
-
-    if (!name || !email) return;
-
-
+    if (this.loggedInUser) {
+      name = this.loggedInUser.name || this.loggedInUser.displayName || '';
+      email = this.loggedInUser.email || '';
+    } else {
+      name = document.getElementById('supportName')?.value?.trim();
+      email = document.getElementById('supportEmail')?.value?.trim();
+      if (!name || !email) return;
+    }
 
     this.visitor = { name, email };
 
@@ -398,6 +402,7 @@ export class LiveSupportWidget {
       if (f) this.sendImage(f);
       e.target.value = '';
     });
+    document.getElementById('supportCloseChatBtn')?.addEventListener('click', () => this.closeChat());
     if (this.view === 'chat') {
 
       const box = document.getElementById('supportMessages');
@@ -411,6 +416,16 @@ export class LiveSupportWidget {
 
 
   renderStart() {
+
+    if (this.loggedInUser) {
+      const displayName = this.loggedInUser.name || this.loggedInUser.displayName || 'there';
+      return `
+        <div class="support-start">
+          <h3 class="text-xl font-black text-gray-900 mb-1">Hi ${displayName} 👋</h3>
+          <p class="text-gray-600 text-sm mb-6">How can we help you today?</p>
+          <button type="button" id="supportStartBtn" class="neon-btn w-full py-3 text-xs uppercase tracking-widest mt-2">Start Chat →</button>
+        </div>`;
+    }
 
     return `
 
@@ -467,6 +482,10 @@ export class LiveSupportWidget {
 
         <div class="support-date">Today</div>
 
+        <div class="support-chat-actions" style="display:flex;justify-content:flex-end;padding:4px 8px;">
+          <button type="button" id="supportCloseChatBtn" style="font-size:11px;padding:3px 10px;border-radius:6px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3);color:#f87171;cursor:pointer;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;" title="End this chat session">Close ✕</button>
+        </div>
+
         <div id="supportMessages" class="support-messages">${msgs}</div>
 
         <div class="support-compose">
@@ -480,9 +499,37 @@ export class LiveSupportWidget {
 
   }
 
+  async closeChat() {
+    if (!this.sessionId) return;
+    try {
+      await fetch(`/api/support/session/${this.sessionId}/close`, { method: 'DELETE' });
+    } catch {}
+    localStorage.removeItem('gurubit_support_session');
+    this.sessionId = null;
+    this.messages = [];
+    this.view = 'start';
+    this.open = false;
+    if (this.ws) {
+      try { this.ws.close(); } catch {}
+      this.ws = null;
+    }
+    this.render();
+  }
 
 
-  init() {
+
+  async init() {
+
+    // Fetch current user session for auto-fill
+    try {
+      const res = await fetch('/api/auth/session');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.authenticated && data.user) {
+          this.loggedInUser = data.user;
+        }
+      }
+    } catch {}
 
     if (this.sessionId) {
       localStorage.setItem('gurubit_support_has_chatted', '1');
@@ -519,7 +566,6 @@ export class LiveSupportWidget {
     }
 
   }
-
 }
 
 

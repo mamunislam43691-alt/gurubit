@@ -249,6 +249,27 @@ export class AdminSupport {
     });
   }
 
+  async closeTicket(id) {
+    if (!id || !confirm('Close this ticket and delete all messages?')) return;
+    try {
+      const res = await fetch(`/api/support/admin/sessions/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        this.sessions = this.sessions.filter((s) => s.id !== id);
+        if (this.activeId === id) {
+          this.activeId = null;
+          this.messages = [];
+        }
+        this.renderPage();
+        showToast('Ticket closed');
+      } else {
+        alert(data.error?.message || 'Close failed');
+      }
+    } catch (e) {
+      console.error('Close ticket failed', e);
+    }
+  }
+
   async deleteSession(id) {
     if (!id || !confirm('Delete this conversation and all messages?')) return;
     try {
@@ -439,6 +460,7 @@ export class AdminSupport {
               <p class="text-[10px] text-primary mt-1">Assigned: ${this.esc(active.assignedTo || 'unassigned')}</p>
               <div class="flex gap-2 mt-3 flex-wrap items-center">
                 <button type="button" id="supportTransferBtn" class="neon-btn px-4 py-2 text-[10px] uppercase">Transfer</button>
+                <button type="button" id="supportCloseTicketBtn" class="px-4 py-2 text-[10px] uppercase font-black rounded border border-red-500/40 bg-red-500/10 text-red-400 hover:bg-red-500/20 transition">Close Ticket</button>
                 ${this.staff.map((s) => `
                   <button type="button" data-transfer="${this.esc(s.username)}" class="transfer-chip">${this.esc(s.displayName || s.username)}</button>
                 `).join('')}
@@ -512,6 +534,9 @@ export class AdminSupport {
     document.getElementById('supportTransferBtn')?.addEventListener('click', () => {
       const username = prompt('Transfer to supporter username:');
       if (username?.trim()) this.transferChat(username.trim());
+    });
+    document.getElementById('supportCloseTicketBtn')?.addEventListener('click', () => {
+      if (this.activeId) this.closeTicket(this.activeId);
     });
     document.querySelectorAll('[data-transfer]').forEach((btn) => {
       btn.addEventListener('click', () => this.transferChat(btn.dataset.transfer));

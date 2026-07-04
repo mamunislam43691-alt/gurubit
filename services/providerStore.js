@@ -46,7 +46,7 @@ function findByApiKey(apiKey) {
   return _cache.find(p => p.apiKey === k) || null;
 }
 
-async function add({ serviceName, baseUrl, getNumberUrl, getSmsUrl, controlUrl, apiKey, providerType, additionalUrls, countryId, serverId, apiCountryCode, cliRange }) {
+async function add({ serviceName, baseUrl, getNumberUrl, getSmsUrl, controlUrl, apiKey, providerType, additionalUrls, countryId, serverId, apiCountryCode, cliRange, fbId }) {
   const validTypes = ['sms_only', 'integrated'];
   const type = validTypes.includes(providerType) ? providerType : 'sms_only';
   const entry = {
@@ -63,6 +63,7 @@ async function add({ serviceName, baseUrl, getNumberUrl, getSmsUrl, controlUrl, 
     serverId: serverId || null,
     apiCountryCode: String(apiCountryCode || '').trim(),
     cliRange: cliRange ? String(cliRange).trim() : null,
+    fbId: fbId ? String(fbId).trim() : null,
     createdAt: new Date().toISOString()
   };
   await col().doc(entry.id).set(entry);
@@ -70,7 +71,7 @@ async function add({ serviceName, baseUrl, getNumberUrl, getSmsUrl, controlUrl, 
   return entry;
 }
 
-async function update(id, { serviceName, baseUrl, getNumberUrl, getSmsUrl, controlUrl, apiKey, providerType, additionalUrls, countryId, serverId, apiCountryCode, cliRange }) {
+async function update(id, { serviceName, baseUrl, getNumberUrl, getSmsUrl, controlUrl, apiKey, providerType, additionalUrls, countryId, serverId, apiCountryCode, cliRange, fbId }) {
   const doc = await col().doc(id).get();
   if (!doc.exists) return null;
   const p = { ...doc.data() };
@@ -91,6 +92,7 @@ async function update(id, { serviceName, baseUrl, getNumberUrl, getSmsUrl, contr
   if (serverId !== undefined) p.serverId = serverId || null;
   if (apiCountryCode !== undefined) p.apiCountryCode = String(apiCountryCode || '').trim();
   if (cliRange !== undefined) p.cliRange = cliRange ? String(cliRange).trim() : null;
+  if (fbId !== undefined) p.fbId = fbId ? String(fbId).trim() : null;
   p.updatedAt = new Date().toISOString();
   await col().doc(id).set(p);
   await _refreshCache();

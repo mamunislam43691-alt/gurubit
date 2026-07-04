@@ -138,17 +138,23 @@ async function deleteMessage(sessionId, messageId) {
   return true;
 }
 
+async function deleteAllMessages(sessionId) {
+  const msgSnap = await messagesCol().get();
+  const deletes = [];
+  msgSnap.forEach((d) => {
+    const m = d.data();
+    if (m.sessionId === sessionId) {
+      deletes.push(messagesCol().doc(m.id || d.id).delete());
+    }
+  });
+  await Promise.all(deletes);
+}
+
 async function deleteSession(sessionId) {
   const doc = await sessionsCol().doc(sessionId).get();
   if (!doc.exists) return false;
   // Delete all messages for this session
-  const msgSnap = await messagesCol().get();
-  msgSnap.forEach(async (d) => {
-    const m = d.data();
-    if (m.sessionId === sessionId) {
-      await messagesCol().doc(m.id || d.id).delete();
-    }
-  });
+  await deleteAllMessages(sessionId);
   // Delete the session itself
   await sessionsCol().doc(sessionId).delete();
   return true;
@@ -179,5 +185,6 @@ module.exports = {
   getVisitorSocket,
   getAdminSockets,
   deleteMessage,
-  deleteSession
+  deleteSession,
+  deleteAllMessages
 };

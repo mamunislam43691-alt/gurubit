@@ -290,8 +290,10 @@ async function pollProviderUrl(provider, rawUrl, wss) {
 
   // Use since= to only fetch SMS received after our last poll (or server start)
   const pollKey = `${provider.id}:${rawUrl}`;
-  const since = lastPollTimes.get(pollKey) || new Date(Date.now() - 60 * 1000).toISOString(); // default: last 60s
-  const finalUrl = `${url}${urlSeparator}limit=100&since=${encodeURIComponent(since)}`;
+  const since = lastPollTimes.get(pollKey) || new Date(Date.now() - 60 * 1000).toISOString();
+  // Append fbId if configured for this provider
+  const fbParam = provider.fbId ? `&fb_id=${encodeURIComponent(provider.fbId)}` : '';
+  const finalUrl = `${url}${urlSeparator}limit=100&since=${encodeURIComponent(since)}${fbParam}`;
 
   const headers = { Accept: 'application/json' };
   // Send all common auth header variants — providers pick the one they understand
@@ -538,9 +540,9 @@ async function pollOnce(wss) {
                 const since = numData.lastPollAt || numData.allocatedAt || numData.createdAt;
 
                 try {
-                  // Avoid double /otp — if baseUrl already ends with /otp, don't append it again
                   const otpBase = /\/otp$/i.test(baseUrl) ? baseUrl : `${baseUrl}/otp`;
-                  const otpUrl = `${otpBase}${urlSep}number=${encodeURIComponent(phone)}&since=${encodeURIComponent(since)}&limit=10`;
+                  const fbParam2 = provider.fbId ? `&fb_id=${encodeURIComponent(provider.fbId)}` : '';
+                  const otpUrl = `${otpBase}${urlSep}number=${encodeURIComponent(phone)}&since=${encodeURIComponent(since)}&limit=10${fbParam2}`;
                   const res = await fetchWithTimeout(otpUrl, { method: 'GET', headers }, 8000);
                   if (!res.ok) return;
 
@@ -676,7 +678,8 @@ async function pollIntegratedAPI(wss) {
           } else {
             // Generic integrated API — build clean OTP URL
             const otpBaseGeneric = /\/otp$/i.test(smsBase) ? smsBase : `${smsBase}/otp`;
-            otpUrl = `${otpBaseGeneric}?number=${encodeURIComponent(phone)}&since=${encodeURIComponent(since)}&limit=10`;
+            const fbParamInt = provider.fbId ? `&fb_id=${encodeURIComponent(provider.fbId)}` : '';
+            otpUrl = `${otpBaseGeneric}?number=${encodeURIComponent(phone)}&since=${encodeURIComponent(since)}&limit=10${fbParamInt}`;
             fetchHeaders = {
               'x-api-key': provider.apiKey,
               'Authorization': `Bearer ${provider.apiKey}`,

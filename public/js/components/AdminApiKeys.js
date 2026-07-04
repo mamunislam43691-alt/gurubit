@@ -22,7 +22,8 @@ export class AdminApiKeys {
       countryId: '',
       serverId: '',
       apiCountryCode: '',
-      cliRange: ''
+      cliRange: '',
+      fbId: ''
     };
     this.countries = [];
     this.servers = [];
@@ -72,6 +73,8 @@ export class AdminApiKeys {
     const serverId = document.getElementById('providerServerId')?.value || this.formData.serverId || '';
     const apiCountryCode = (document.getElementById('apiCountryCodeInput')?.value || '').trim();
     const cliRange = (document.getElementById('cliRangeInput')?.value || '').trim();
+    const fbId     = (document.getElementById('fbIdInput')?.value || '').trim();
+    const fbId = (document.getElementById('fbIdInput')?.value || '').trim();
 
     // For integrated: use getNumberUrl as primary
     const effectiveBaseUrl = isIntegrated ? (getNumberUrl || baseUrl) : baseUrl;
@@ -100,7 +103,8 @@ export class AdminApiKeys {
       countryId: countryId || null,
       serverId: serverId || null,
       apiCountryCode,
-      cliRange: cliRange || null
+      cliRange: cliRange || null,
+      fbId: fbId || null
     };
 
     const isEdit = !!this.editingProviderId;
@@ -139,7 +143,8 @@ export class AdminApiKeys {
       countryId: k.countryId || '',
       serverId: k.serverId || '',
       apiCountryCode: k.apiCountryCode || '',
-      cliRange: k.cliRange || ''
+      cliRange: k.cliRange || '',
+      fbId: k.fbId || ''
     };
     this.showAddForm = true;
     if (this.formData.countryId) await this.loadServers(this.formData.countryId);
@@ -269,6 +274,7 @@ export class AdminApiKeys {
               ${urlRows || '<p class="text-xs text-gray-600">No URL configured</p>'}
             </div>
             <p class="text-xs font-mono text-gray-500">API Key: ${this.maskKey(k.apiKey)}</p>
+            ${k.fbId ? `<p class="text-xs text-gray-500 mt-1"><i class="fab fa-facebook text-blue-400 mr-1"></i>FB ID: <span class="font-mono text-gray-300">${k.fbId}</span></p>` : ''}
           </div>
           <div class="flex items-center gap-3 shrink-0">
             <a href="/admin/sms-feed" class="sms-hit-btn px-3 py-1.5 text-[10px] font-black uppercase rounded border border-yellow-500/40 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 transition flex items-center gap-1.5">
@@ -400,6 +406,12 @@ export class AdminApiKeys {
               </div>`).join('')}
           </div>
         </div>
+
+        <div>
+          <label class="stat-label block mb-1">FB ID / Panel ID <span class="text-gray-500 font-normal">(optional)</span></label>
+          <input type="text" id="fbIdInput" class="input-field w-full font-mono" placeholder="e.g. 123456789" value="${this.formData.fbId || ''}">
+          <p class="text-[10px] text-gray-500 mt-1">Used to filter SMS from a specific Facebook/panel account on this provider.</p>
+        </div>
         `}
 
         <div>
@@ -475,7 +487,7 @@ export class AdminApiKeys {
       this.showAddForm = !this.showAddForm;
       if (!this.showAddForm) {
         this.editingProviderId = null;
-        this.formData = { serviceName: '', baseUrl: '', additionalUrls: [], apiKey: '', providerType: 'sms_only', countryId: '', serverId: '', apiCountryCode: '', cliRange: '' };
+        this.formData = { serviceName: '', baseUrl: '', additionalUrls: [], apiKey: '', providerType: 'sms_only', countryId: '', serverId: '', apiCountryCode: '', cliRange: '', fbId: '' };
       }
       this.render();
     });
@@ -503,6 +515,7 @@ export class AdminApiKeys {
     document.getElementById('providerServerId')?.addEventListener('change', e => { this.formData.serverId = e.target.value; });
     document.getElementById('apiCountryCodeInput')?.addEventListener('input', e => { this.formData.apiCountryCode = e.target.value; });
     document.getElementById('cliRangeInput')?.addEventListener('input', e => { this.formData.cliRange = e.target.value; });
+    document.getElementById('fbIdInput')?.addEventListener('input', e => { this.formData.fbId = e.target.value; });
 
     // SMS-only: Add extra URL
     document.getElementById('addUrlBtn')?.addEventListener('click', () => {
