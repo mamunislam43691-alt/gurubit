@@ -406,11 +406,11 @@ export class AdminSupport {
     box.innerHTML = this.messages.map((m) => {
       const isAdmin = m.from === 'admin';
       const time = new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const img = m.imageUrl ? `<img src="${m.imageUrl}" class="rounded-lg max-w-full mb-2 max-h-48 object-cover">` : '';
+      const img = m.imageUrl ? `<img src="${m.imageUrl}" class="rounded-lg max-w-full mb-2 max-h-64 object-cover">` : '';
       const txt = m.text ? `<p class="text-sm" style="word-break:break-word;overflow-wrap:anywhere">${this.esc(m.text)}</p>` : '';
       return `
-        <div class="flex ${isAdmin ? 'justify-end' : 'justify-start'} mb-3 group">
-          <div class="max-w-[80%] rounded-2xl px-4 py-2 relative ${isAdmin ? 'bg-primary text-dark' : 'bg-black/30 border border-gray-800'}" style="word-break:break-word;overflow-wrap:anywhere;min-width:0">
+        <div class="flex ${isAdmin ? 'justify-end' : 'justify-start'} mb-3 group" style="padding:0 1rem">
+          <div class="max-w-[70%] rounded-2xl px-5 py-3 relative ${isAdmin ? 'bg-primary text-dark' : 'bg-black/30 border border-gray-800'}" style="word-break:break-word;overflow-wrap:anywhere;min-width:0">
             ${img}${txt}
             <p class="text-[10px] opacity-60 mt-1 text-right">${time}</p>
             <button type="button" data-admin-del="${m.id}" class="support-admin-del opacity-0 group-hover:opacity-100" title="Delete">×</button>
@@ -432,57 +432,47 @@ export class AdminSupport {
 
     const active = this.sessions.find((s) => s.id === this.activeId);
 
-    return `
-
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4" style="overflow:hidden">
-
-        <div class="lg:col-span-1 bg-[#0a1e3b] rounded-2xl border border-gray-800 flex flex-col max-h-[65vh]" style="min-width:0;overflow:hidden">
-
-          <div class="px-4 py-3 border-b border-gray-800">
-
-            <p class="stat-label">Inbox</p>
-
-            <p class="text-white font-bold text-sm">${this.sessions.length} chat(s)</p>
-
-          </div>
-
-          <div class="flex-1 overflow-y-auto" id="adminSupportList">${this.renderSessionList()}</div>
-
-        </div>
-
-        <div class="lg:col-span-2 bg-[#0a1e3b] rounded-2xl border border-gray-800 flex flex-col max-h-[65vh]" style="min-width:0;overflow:hidden">
-
+    if (!active) {
+      return `
+        <div class="bg-[#0a1e3b] rounded-2xl border border-gray-800 flex flex-col" style="height:calc(100vh - 10rem)">
           <div class="px-5 py-4 border-b border-gray-800">
-
-            ${active ? `
-              <p class="font-bold text-white">${this.esc(active.visitorName)}</p>
-              <p class="text-xs text-gray-500">${this.esc(active.visitorEmail)}</p>
-              <p class="text-[10px] text-primary mt-1">Assigned: ${this.esc(active.assignedTo || 'unassigned')}</p>
-              <div class="flex gap-2 mt-3 flex-wrap items-center">
-                <button type="button" id="supportTransferBtn" class="neon-btn px-4 py-2 text-[10px] uppercase">Transfer</button>
-                <button type="button" id="supportCloseTicketBtn" class="px-4 py-2 text-[10px] uppercase font-black rounded border border-red-500/40 bg-red-500/10 text-red-400 hover:bg-red-500/20 transition">Close Ticket</button>
-                ${this.staff.map((s) => `
-                  <button type="button" data-transfer="${this.esc(s.username)}" class="transfer-chip">${this.esc(s.displayName || s.username)}</button>
-                `).join('')}
-              </div>
-            ` : '<p class="text-gray-500 text-sm">Select a chat</p>'}
-
+            <p class="stat-label">Inbox</p>
+            <p class="text-white font-bold text-sm">${this.sessions.length} chat(s)</p>
           </div>
+          <div class="flex-1 overflow-y-auto" id="adminSupportList">${this.renderSessionList()}</div>
+        </div>`;
+    }
 
-          <div id="adminSupportMessages" class="flex-1 overflow-y-auto overflow-x-hidden p-4" style="min-width:0;word-break:break-word"></div>
+    return `
+      <div class="flex flex-col" style="height:calc(100vh - 10rem)">
 
-          <div class="p-4 border-t border-gray-800 flex gap-2 items-center">
-            <button type="button" id="adminSupportImageBtn" class="support-attach-btn" ${!this.activeId ? 'disabled' : ''} title="Attach image"><i class="fas fa-image"></i></button>
-            <input type="file" id="adminSupportImageInput" accept="image/*" class="hidden">
-            <input type="text" id="adminSupportInput" class="input-field flex-1" placeholder="Type your reply..." ${!this.activeId ? 'disabled' : ''}>
-            <button type="button" id="adminSupportSend" class="neon-btn px-6 py-3 text-xs uppercase" ${!this.activeId ? 'disabled' : ''}>Send</button>
+        <div class="px-5 py-4 border-b border-gray-800 bg-[#0a1e3b] rounded-t-2xl border border-gray-800 border-b-0 flex flex-wrap items-center gap-4">
+          <button type="button" id="supportBackBtn" class="neon-btn px-4 py-2 text-[10px] uppercase shrink-0">
+            <i class="fas fa-arrow-left mr-1"></i> Inbox
+          </button>
+          <div class="flex-1 min-w-0">
+            <p class="font-bold text-white text-sm truncate">${this.esc(active.visitorName)}</p>
+            <p class="text-[10px] text-gray-500 truncate">${this.esc(active.visitorEmail)} · Assigned: ${this.esc(active.assignedTo || 'unassigned')}</p>
           </div>
-
+          <div class="flex gap-2 flex-wrap items-center shrink-0">
+            <button type="button" id="supportTransferBtn" class="neon-btn px-4 py-2 text-[10px] uppercase">Transfer</button>
+            <button type="button" id="supportCloseTicketBtn" class="px-4 py-2 text-[10px] uppercase font-black rounded border border-red-500/40 bg-red-500/10 text-red-400 hover:bg-red-500/20 transition">Close Ticket</button>
+            ${this.staff.map((s) => `
+              <button type="button" data-transfer="${this.esc(s.username)}" class="transfer-chip">${this.esc(s.displayName || s.username)}</button>
+            `).join('')}
+          </div>
         </div>
 
-      </div>
+        <div id="adminSupportMessages" class="flex-1 overflow-y-auto overflow-x-hidden p-5 bg-[#0a1e3b] border-x border-gray-800" style="min-width:0;word-break:break-word"></div>
 
-    `;
+        <div class="p-4 border border-gray-800 border-t-0 bg-[#0a1e3b] rounded-b-2xl flex gap-3 items-center">
+          <button type="button" id="adminSupportImageBtn" class="support-attach-btn" title="Attach image"><i class="fas fa-image"></i></button>
+          <input type="file" id="adminSupportImageInput" accept="image/*" class="hidden">
+          <input type="text" id="adminSupportInput" class="input-field flex-1" placeholder="Type your reply...">
+          <button type="button" id="adminSupportSend" class="neon-btn px-8 py-3 text-xs uppercase">Send</button>
+        </div>
+
+      </div>`;
 
   }
 
@@ -537,6 +527,11 @@ export class AdminSupport {
     });
     document.getElementById('supportCloseTicketBtn')?.addEventListener('click', () => {
       if (this.activeId) this.closeTicket(this.activeId);
+    });
+    document.getElementById('supportBackBtn')?.addEventListener('click', () => {
+      this.activeId = null;
+      this.messages = [];
+      this.renderPage();
     });
     document.querySelectorAll('[data-transfer]').forEach((btn) => {
       btn.addEventListener('click', () => this.transferChat(btn.dataset.transfer));
