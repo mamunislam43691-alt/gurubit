@@ -1009,11 +1009,9 @@ router.post('/api-keys/:id/test', verifyAdmin, async (req, res) => {
     const results = {};
 
     if (provider.providerType === 'integrated') {
-      const rawBase = (provider.getNumberUrl || provider.baseUrl || '').replace(/\/$/, '')
-        .replace(/\/numbers\/numbers$/, '').replace(/\/numbers$/, '').replace(/\/otp$/, '').replace(/\/$/, '');
-      const manualRange = provider.cliRange ? String(provider.cliRange).trim() : null;
-      const cliFilter = manualRange ? `&cli=${encodeURIComponent(manualRange)}` : '';
-      const numbersUrl = `${rawBase}/numbers?status=assigned&limit=5${cliFilter}`;
+      const rawNumUrl = (provider.getNumberUrl || provider.baseUrl || '').replace(/\/$/, '');
+      const rawSmsUrl = (provider.getSmsUrl || provider.baseUrl || '').replace(/\/$/, '');
+      const isStex = rawNumUrl.includes('public/api/getnum') || rawNumUrl.includes('@public/api/');
 
       const headers = {
         'x-api-key': provider.apiKey,
@@ -1021,42 +1019,66 @@ router.post('/api-keys/:id/test', verifyAdmin, async (req, res) => {
         'Accept': 'application/json'
       };
 
-      // Test numbers endpoint
-      try {
-        const ctrl = new AbortController();
-        const tid = setTimeout(() => ctrl.abort(), 20000);
-        const r = await fetch(numbersUrl, { headers, signal: ctrl.signal });
-        clearTimeout(tid);
-        const text = await r.text();
-        let parsed = null;
-        try { parsed = JSON.parse(text); } catch (_) {}
-        const numbers = parsed ? (parsed.data || parsed.numbers || parsed.list || []) : [];
-        results.numbers = {
-          url: numbersUrl,
-          status: r.status,
-          ok: r.ok,
-          count: numbers.length,
-          sample: numbers.slice(0, 3),
-          raw: text.slice(0, 500)
-        };
-      } catch (e) {
-        results.numbers = { url: numbersUrl, ok: false, error: e.message };
-      }
+      if (isStex) {
+        // ── STEX test: POST /public/api/getnum with test rid ──
+        const rid = (provider.cliRange || '').replace(/X+$/i, '').trim() || '22501';
+        const stexPostHeaders = { 'mauthapi': provider.apiKey, 'Content-Type': 'application/json', 'Accept': 'application/json' };
+        try {
+          const ctrl = new AbortController();
+          const tid = setTimeout(() => ctrl.abort(), 20000);
+          const r = await fetch(rawNumUrl, { method: 'POST', headers: stexPostHeaders, body: JSON.stringify({ rid }), signal: ctrl.signal });
+          clearTimeout(tid);
+          const text = await r.text();
+          results.numbers = { url: `${rawNumUrl} POST rid=${rid}`, status: r.status, ok: r.ok, raw: text.slice(0, 500) };
+        } catch (e) {
+          results.numbers = { url: rawNumUrl, ok: false, error: e.message };
+        }
+        // STEX OTP: GET /public/api/success-otp
+        const stexOtp = rawSmsUrl.includes('public/api/success-otp') ? rawSmsUrl : `${rawSmsUrl.replace(/\/public\/api\/getnum.*$/, '')}/public/api/success-otp`;
+        try {
+          const ctrl2 = new AbortController();
+          const tid2 = setTimeout(() => ctrl2.abort(), 15000);
+          const r2 = await fetch(stexOtp, { headers: stexPostHeaders, signal: ctrl2.signal });
+          clearTimeout(tid2);
+          const text2 = await r2.text();
+          results.otp = { url: stexOtp, status: r2.status, ok: r2.ok, raw: text2.slice(0, 300) };
+        } catch (e) {
+          results.otp = { url: stexOtp, ok: false, error: e.message };
+        }
+      } else {
+        // ── Generic integrated: GET /numbers + GET /otp ──
+        const rawBase = rawNumUrl.replace(/\/numbers\/numbers$/, '').replace(/\/numbers$/, '').replace(/\/otp$/, '').replace(/\/$/, '');
+        const manualRange = provider.cliRange ? String(provider.cliRange).trim() : null;
+        const cliFilter = manualRange ? `&cli=${encodeURIComponent(manualRange)}` : '';
+        const numbersUrl = `${rawBase}/numbers?status=assigned&limit=5${cliFilter}`;
 
-      // Test OTP endpoint (with a dummy number)
-      const smsRaw = (provider.getSmsUrl || provider.baseUrl || '').replace(/\/$/, '')
-        .replace(/\/numbers\/numbers$/, '').replace(/\/numbers$/, '').replace(/\/otp$/, '').replace(/\/$/, '');
-      const otpBase = /\/otp$/i.test(smsRaw) ? smsRaw : `${smsRaw}/otp`;
-      const otpUrl = `${otpBase}?number=0000000000&since=${encodeURIComponent(new Date(Date.now() - 60000).toISOString())}&limit=1`;
-      try {
-        const ctrl2 = new AbortController();
-        const tid2 = setTimeout(() => ctrl2.abort(), 15000);
-        const r2 = await fetch(otpUrl, { headers, signal: ctrl2.signal });
-        clearTimeout(tid2);
-        const text2 = await r2.text();
-        results.otp = { url: otpUrl, status: r2.status, ok: r2.ok, raw: text2.slice(0, 300) };
-      } catch (e) {
-        results.otp = { url: otpUrl, ok: false, error: e.message };
+        try {
+          const ctrl = new AbortController();
+          const tid = setTimeout(() => ctrl.abort(), 20000);
+          const r = await fetch(numbersUrl, { headers, signal: ctrl.signal });
+          clearTimeout(tid);
+          const text = await r.text();
+          let parsed = null;
+          try { parsed = JSON.parse(text); } catch (_) {}
+          const numbers = parsed ? (parsed.data || parsed.numbers || parsed.list || []) : [];
+          results.numbers = { url: numbersUrl, status: r.status, ok: r.ok, count: numbers.length, sample: numbers.slice(0, 3), raw: text.slice(0, 500) };
+        } catch (e) {
+          results.numbers = { url: numbersUrl, ok: false, error: e.message };
+        }
+
+        const smsRaw = rawSmsUrl.replace(/\/numbers\/numbers$/, '').replace(/\/numbers$/, '').replace(/\/otp$/, '').replace(/\/$/, '');
+        const otpBase = /\/otp$/i.test(smsRaw) ? smsRaw : `${smsRaw}/otp`;
+        const otpUrl = `${otpBase}?number=0000000000&since=${encodeURIComponent(new Date(Date.now() - 60000).toISOString())}&limit=1`;
+        try {
+          const ctrl2 = new AbortController();
+          const tid2 = setTimeout(() => ctrl2.abort(), 15000);
+          const r2 = await fetch(otpUrl, { headers, signal: ctrl2.signal });
+          clearTimeout(tid2);
+          const text2 = await r2.text();
+          results.otp = { url: otpUrl, status: r2.status, ok: r2.ok, raw: text2.slice(0, 300) };
+        } catch (e) {
+          results.otp = { url: otpUrl, ok: false, error: e.message };
+        }
       }
 
     } else {
