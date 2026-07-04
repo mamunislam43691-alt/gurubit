@@ -41,15 +41,15 @@ export class LandingPage {
 
     chooseCard(title, desc, icon) {
         return `
-            <motion.div class="flex gap-4 p-5 rounded-xl border border-white/5 hover:bg-white/[0.02] transition-all">
-                <motion.div class="w-10 h-10 shrink-0 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
+            <div class="flex gap-4 p-5 rounded-xl border border-white/10 hover:border-primary/20 bg-white/[0.03] hover:bg-white/[0.06] transition-all">
+                <div class="w-10 h-10 shrink-0 rounded-lg bg-primary/15 flex items-center justify-center text-primary border border-primary/20">
                     <i class="fas fa-${icon} text-sm"></i>
-                </motion.div>
-                <motion.div>
+                </div>
+                <div>
                     <h4 class="font-bold text-white text-sm mb-1">${title}</h4>
-                    <p class="text-gray-500 text-xs leading-relaxed">${desc}</p>
-                </motion.div>
-            </motion.div>
+                    <p class="text-gray-400 text-xs leading-relaxed">${desc}</p>
+                </div>
+            </div>
         `.replaceAll('<motion.', '<').replaceAll('</motion.', '</');
     }
 
@@ -186,13 +186,13 @@ export class LandingPage {
                                 ['02', 'Choose Your Country', 'Pick from global numbers instantly.', 'globe-americas'],
                                 ['03', 'Receive SMS & Verify', 'SMS arrives in seconds. Earn rewards.', 'comment-sms']
                             ].map(([n, t, d, ic], i) => `
-                                <div class="glass-card p-8 text-center border-white/5 step-card-3d reveal-up delay-${i+1}">
+                                <div class="p-8 text-center rounded-2xl border border-white/10 hover:border-primary/30 bg-gradient-to-b from-white/[0.06] to-transparent hover:bg-white/[0.08] transition-all step-card-3d reveal-up delay-${i+1}">
                                     <p class="text-5xl font-black gradient-text mb-4 neon-text">${n}</p>
-                                    <div class="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-4 border border-primary/20">
+                                    <div class="w-14 h-14 rounded-2xl bg-primary/15 flex items-center justify-center mx-auto mb-4 border border-primary/30">
                                         <i class="fas fa-${ic} text-xl text-primary"></i>
                                     </div>
                                     <h3 class="font-black text-white uppercase text-sm mb-3">${t}</h3>
-                                    <p class="text-gray-500 text-sm">${d}</p>
+                                    <p class="text-gray-400 text-sm">${d}</p>
                                 </div>
                             `).join('')}
                         </div>
