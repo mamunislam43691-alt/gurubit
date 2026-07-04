@@ -498,7 +498,7 @@ export class AdminDatabase {
           </div>
           <div class="md:col-span-2">
             <label class="text-xs uppercase tracking-wider text-gray-400 block mb-1">From Address</label>
-            <input id="smtpFrom" type="text" class="input-field w-full" value="${smtp.from||''}" placeholder='"GURUBIT" <noreply@example.com>'>
+            <input id="smtpFrom" type="text" class="input-field w-full" value="${smtp.from||''}" placeholder="GURUBIT &lt;noreply@example.com&gt;">
           </div>
           <div class="md:col-span-2">
             <label class="text-xs uppercase tracking-wider text-gray-400 block mb-1">Test Recipient</label>

@@ -12,12 +12,13 @@ async function loadSmtpFromMongo() {
     const doc = await db.collection('appConfig').doc(SMTP_DOC).get();
     if (!doc.exists) return;
     const cfg = doc.data();
-    if (cfg.host && !process.env.SMTP_HOST) process.env.SMTP_HOST = cfg.host;
-    if (cfg.port && !process.env.SMTP_PORT) process.env.SMTP_PORT = String(cfg.port);
-    if (cfg.secure !== undefined && !process.env.SMTP_SECURE) process.env.SMTP_SECURE = String(cfg.secure);
-    if (cfg.user && !process.env.SMTP_USER) process.env.SMTP_USER = cfg.user;
-    if (cfg.pass && !process.env.SMTP_PASS) process.env.SMTP_PASS = cfg.pass;
-    if (cfg.from && !process.env.SMTP_FROM) process.env.SMTP_FROM = cfg.from;
+    // Override env vars with MongoDB values (MongoDB is source of truth for runtime config)
+    if (cfg.host) process.env.SMTP_HOST = cfg.host;
+    if (cfg.port) process.env.SMTP_PORT = String(cfg.port);
+    if (cfg.secure !== undefined) process.env.SMTP_SECURE = String(cfg.secure);
+    if (cfg.user) process.env.SMTP_USER = cfg.user;
+    if (cfg.pass) process.env.SMTP_PASS = cfg.pass;
+    if (cfg.from) process.env.SMTP_FROM = cfg.from;
     if (cfg.host) console.log(`✅ SMTP config loaded from MongoDB (${cfg.user})`);
   } catch (_) {
     // Mongo not available yet — will fall back to env vars
@@ -51,43 +52,43 @@ function getTransporter() {
   });
 }
 
-async function sendVerificationEmail({ to, name, verifyUrl }) {
+async function sendVerificationEmail({ to, name, code }) {
   const { buildVerificationEmail } = require('./verificationEmail');
-  const html = buildVerificationEmail({ name, verifyUrl });
+  const html = buildVerificationEmail({ name, code });
 
   const transporter = getTransporter();
   if (!transporter) {
-    console.log('\n📧 Verification email (SMTP not configured):');
+    console.log('\n📧 Verification code (SMTP not configured):');
     console.log(`   To: ${to}`);
-    console.log(`   Activate URL: ${verifyUrl}\n`);
-    return { sent: false, preview: true, verifyUrl };
+    console.log(`   Code: ${code}\n`);
+    return { sent: false, preview: true, code };
   }
 
   await transporter.sendMail({
     from: process.env.SMTP_FROM || `"GURUBIT" <${process.env.SMTP_USER}>`,
     to,
-    subject: 'Activate your GURUBIT account',
+    subject: `${code} — Your GURUBIT verification code`,
     html
   });
   return { sent: true };
 }
 
-async function sendPasswordResetEmail({ to, name, resetUrl }) {
+async function sendPasswordResetEmail({ to, name, code }) {
   const { buildPasswordResetEmail } = require('./verificationEmail');
-  const html = buildPasswordResetEmail({ name, resetUrl });
+  const html = buildPasswordResetEmail({ name, code });
 
   const transporter = getTransporter();
   if (!transporter) {
-    console.log('\n📧 Password reset email (SMTP not configured):');
+    console.log('\n📧 Password reset code (SMTP not configured):');
     console.log(`   To: ${to}`);
-    console.log(`   Reset URL: ${resetUrl}\n`);
-    return { sent: false, preview: true, resetUrl };
+    console.log(`   Code: ${code}\n`);
+    return { sent: false, preview: true, code };
   }
 
   await transporter.sendMail({
     from: process.env.SMTP_FROM || `"GURUBIT" <${process.env.SMTP_USER}>`,
     to,
-    subject: 'Reset your GURUBIT password',
+    subject: `${code} — Your GURUBIT password reset code`,
     html
   });
   return { sent: true };

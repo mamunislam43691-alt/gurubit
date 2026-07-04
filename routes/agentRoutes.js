@@ -104,6 +104,9 @@ router.get('/dashboard', verifyAgent, async (req, res) => {
       isBanned: !!m.isBanned
     }));
 
+    // Only include approved members in the members list — pending go in the separate pending list
+    const approvedMemberStats = memberStats.filter(m => m.agentApproved === true);
+
     const totalNumbers = members.reduce((s, m) => s + (numberCounts.get(m.id) || 0), 0);
     const bannedMembers = members.filter((m) => !!m.isBanned).length;
 
@@ -135,7 +138,7 @@ router.get('/dashboard', verifyAgent, async (req, res) => {
         totalNumbers,
         failedNumbers
       },
-      members: memberStats,
+      members: approvedMemberStats,
       pending
     });
   } catch (error) {
@@ -183,11 +186,24 @@ router.post('/approve-user/:userId', verifyAgent, async (req, res) => {
 });
 
 router.post('/reject/:approvalId', verifyAgent, async (req, res) => {
-  const item = await agentStore.reject(req.params.approvalId);
-  if (!item || item.agentEmail !== req.agent.email.toLowerCase()) {
-    return res.status(404).json({ success: false, error: { message: 'Approval not found' } });
+  try {
+    const item = await agentStore.reject(req.params.approvalId);
+    if (!item || item.agentEmail !== req.agent.email.toLowerCase()) {
+      return res.status(404).json({ success: false, error: { message: 'Approval not found' } });
+    }
+
+    // Delete the user and ALL their data when agent rejects
+    if (item.userId) {
+      const { deleteUserAndAllData } = require('../services/userCleanup');
+      await deleteUserAndAllData(item.userId).catch(e =>
+        console.warn('[AgentReject] cleanup error:', e.message)
+      );
+    }
+
+    res.json({ success: true, message: 'Request rejected and user data removed' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: { message: error.message } });
   }
-  res.json({ success: true, message: 'Request rejected' });
 });
 
 router.put('/users/:userId/toggle-ban', verifyAgent, async (req, res) => {
@@ -218,25 +234,15 @@ router.delete('/users/:userId', verifyAgent, async (req, res) => {
       return res.status(403).json({ success: false, error: { message: 'Not your member' } });
     }
 
-    // Delete user from MongoDB
-    await collections.users.doc(userId).delete();
+    // Full A-Z data deletion
+    const { deleteUserAndAllData } = require('../services/userCleanup');
+    const result = await deleteUserAndAllData(userId);
 
-    // Delete any approvals associated with this user
-    try {
-      const snap = await db.collection('agentApprovals').get();
-      const deletePromises = [];
-      snap.forEach((doc) => {
-        const data = doc.data();
-        if (data.userId === userId) {
-          deletePromises.push(doc.ref.delete());
-        }
-      });
-      await Promise.all(deletePromises);
-    } catch (e) {
-      console.error('Error deleting approvals during user deletion:', e);
-    }
-
-    res.json({ success: true, message: 'User deleted successfully' });
+    res.json({
+      success: true,
+      message: 'User and all associated data deleted successfully',
+      cleaned: result.deleted
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: error.message } });
   }

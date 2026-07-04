@@ -49,8 +49,9 @@ async function approve(id) {
 async function reject(id) {
   const doc = await col().doc(id).get();
   if (!doc.exists) return null;
-  await col().doc(id).update({ status: 'rejected' });
-  return { ...doc.data(), status: 'rejected' };
+  // We delete the approval record since user will be fully deleted
+  await col().doc(id).delete();
+  return doc.data();
 }
 
 function findAgentByEmail(email) {

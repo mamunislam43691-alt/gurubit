@@ -1452,48 +1452,28 @@ router.put('/users/:id/blue-verify', verifyAdmin, async (req, res) => {
 
 /**
  * DELETE /api/admin/users/:id
- * Delete a single user
+ * Delete a user and ALL associated data (A to Z).
  */
 router.delete('/users/:id', verifyAdmin, async (req, res) => {
   try {
     const userId = req.params.id;
-    
-    // Check if user exists
+
     const userDoc = await collections.users.doc(userId).get();
     if (!userDoc.exists) {
-      return res.status(404).json({ 
-        success: false, 
-        error: { message: 'User not found' } 
-      });
+      return res.status(404).json({ success: false, error: { message: 'User not found' } });
     }
 
-    // Delete user
-    await collections.users.doc(userId).delete();
-    
-    // Optional: Clean up related data (phone numbers, sessions, etc.)
-    try {
-      // Delete user's phone numbers
-      const numbersSnap = await collections.phoneNumbers.where('userId', '==', userId).get();
-      const numberDeletes = [];
-      numbersSnap.forEach(doc => numberDeletes.push(doc.ref.delete()));
-      await Promise.all(numberDeletes);
-      
-      // Delete user's sessions
-      const sessionsSnap = await collections.sessions.where('userId', '==', userId).get();
-      const sessionDeletes = [];
-      sessionsSnap.forEach(doc => sessionDeletes.push(doc.ref.delete()));
-      await Promise.all(sessionDeletes);
-    } catch (cleanupErr) {
-      console.warn('User cleanup warning:', cleanupErr.message);
-    }
-    
-    res.json({ success: true, message: 'User deleted successfully' });
+    const { deleteUserAndAllData } = require('../services/userCleanup');
+    const result = await deleteUserAndAllData(userId);
+
+    res.json({
+      success: true,
+      message: 'User and all associated data deleted successfully',
+      cleaned: result.deleted
+    });
   } catch (error) {
     console.error('Delete user error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: { message: 'Failed to delete user: ' + error.message } 
-    });
+    res.status(500).json({ success: false, error: { message: 'Failed to delete user: ' + error.message } });
   }
 });
 
@@ -2119,7 +2099,8 @@ router.put('/database/env-config', requireSuperAdminRoute, async (req, res) => {
         from: process.env.SMTP_FROM
       });
 
-      // Test SMTP connection if credentials provided
+      // Verify SMTP in background with a 10s timeout — don't block the save response
+      let verifyMsg = 'SMTP settings saved ✅';
       if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
         try {
           const nodemailer = require('nodemailer');
@@ -2127,15 +2108,21 @@ router.put('/database/env-config', requireSuperAdminRoute, async (req, res) => {
             host: process.env.SMTP_HOST,
             port: parseInt(process.env.SMTP_PORT || '587', 10),
             secure: process.env.SMTP_SECURE === 'true',
-            auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+            auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+            connectionTimeout: 8000,
+            greetingTimeout: 8000,
+            socketTimeout: 8000
           });
-          await transporter.verify();
-          return res.json({ success: true, message: 'SMTP settings saved & connection verified ✅' });
+          await Promise.race([
+            transporter.verify(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timed out')), 10000))
+          ]);
+          verifyMsg = 'SMTP settings saved & connection verified ✅';
         } catch (err) {
-          return res.json({ success: true, message: `Settings saved but SMTP test failed: ${err.message}` });
+          verifyMsg = `SMTP settings saved ✅ (verify failed: ${err.message})`;
         }
       }
-      return res.json({ success: true, message: 'SMTP settings saved ✅ (will persist after restart)' });
+      return res.json({ success: true, message: verifyMsg });
     }
 
     if (section === 'mongodb') {
@@ -2183,19 +2170,25 @@ router.post('/database/test-email', requireSuperAdminRoute, async (req, res) => 
       host: process.env.SMTP_HOST,
       port: parseInt(process.env.SMTP_PORT || '587', 10),
       secure: process.env.SMTP_SECURE === 'true',
-      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000
     });
-    await transporter.sendMail({
-      from: process.env.SMTP_FROM || `"GURUBIT" <${process.env.SMTP_USER}>`,
-      to,
-      subject: 'GURUBIT — SMTP Test Email',
-      html: `<div style="font-family:sans-serif;padding:24px;background:#0f172a;color:#fff;border-radius:12px">
+    await Promise.race([
+      transporter.sendMail({
+        from: process.env.SMTP_FROM || `"GURUBIT" <${process.env.SMTP_USER}>`,
+        to,
+        subject: 'GURUBIT — SMTP Test Email',
+        html: `<div style="font-family:sans-serif;padding:24px;background:#0f172a;color:#fff;border-radius:12px">
         <h2 style="color:#06b6d4">✅ SMTP Test Successful</h2>
         <p>Your GURUBIT email configuration is working correctly.</p>
         <p style="color:#94a3b8;font-size:12px">Sent from GURUBIT Admin Panel</p>
       </div>`
-    });
-    res.json({ success: true, message: `Test email sent to ${to}` });
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Send timed out after 15s — check SMTP credentials and host')), 15000))
+    ]);
+    res.json({ success: true, message: `Test email sent to ${to} ✅` });
   } catch (err) {
     res.status(500).json({ success: false, error: { message: err.message } });
   }

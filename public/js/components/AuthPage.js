@@ -34,6 +34,14 @@ export class AuthPage {
         this.errors = {};
         this.isLoading = false;
         this.allowGuestLogin = true;
+        // OTP verification state
+        this.otpMode = false;       // showing OTP input after signup
+        this.otpEmail = '';
+        this.otpCode = '';
+        this.otpError = '';
+        // Password reset OTP state
+        this.resetOtpMode = false;  // showing code input after requesting reset
+        this.resetEmail = '';
     }
 
     mapAuthError(error) {
@@ -59,25 +67,16 @@ export class AuthPage {
         return Object.keys(this.errors).length === 0;
     }
 
-    async sendVerificationEmail(user) {
+    async sendVerificationEmail(email, name) {
         const res = await fetch('/api/auth/send-verification', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                email: user.email,
-                name: this.formData.name || (user.email || '').split('@')[0]
-            })
+            body: JSON.stringify({ email, name })
         });
         let data = {};
         try { data = await res.json(); } catch (_) {}
-
-        if (res.ok) {
-            if (data.preview) {
-                console.info('Verification link (dev):', data.message);
-            }
-            return { ok: true, preview: data.preview };
-        }
-        throw new Error(data.error?.message || 'Could not send verification email. Configure SMTP in admin settings.');
+        if (res.ok) return { ok: true, preview: data.preview, previewCode: data.previewCode };
+        throw new Error(data.error?.message || 'Could not send verification code. Configure SMTP in admin settings.');
     }
 
     async handleForgotPassword(e) {
@@ -94,16 +93,68 @@ export class AuthPage {
         try {
             const r = await sendPasswordReset(this.formData.email);
             if (!r.ok) {
-                throw new Error(r.data?.error?.message || 'Could not send reset email. Configure SMTP in admin settings.');
+                throw new Error(r.data?.error?.message || 'Could not send reset code. Configure SMTP in admin settings.');
             }
+            // Switch to reset OTP input mode
+            this.resetEmail = this.formData.email;
+            this.resetOtpMode = true;
+            this.isForgotMode = false;
             this.errors.submit = null;
-            this.showNotice('Check your email and tap the <strong>Reset Password</strong> button (no link text in the email).');
         } catch (error) {
             this.errors.submit = this.mapAuthError(error);
         }
 
         this.isLoading = false;
         this.renderModal();
+    }
+
+    async handleVerifyOtp() {
+        if (!this.otpCode || this.otpCode.length !== 6) {
+            this.otpError = 'Please enter the 6-digit code';
+            this.renderModal();
+            return;
+        }
+        this.isLoading = true;
+        this.otpError = '';
+        this.renderModal();
+        try {
+            const r = await fetch('/api/auth/verify-code', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: this.otpEmail, code: this.otpCode })
+            });
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(data.error?.message || 'Verification failed');
+            // Success
+            this.otpMode = false;
+            this.isLoginMode = true;
+            this.errors.submit = null;
+            this.isLoading = false;
+            this.renderModal();
+            this.showNotice('✅ Email verified! You can now log in.');
+            return;
+        } catch (e) {
+            this.otpError = e.message || 'Verification failed.';
+        }
+        this.isLoading = false;
+        this.renderModal();
+    }
+
+    async handleResendOtp() {
+        this.isLoading = true;
+        this.otpError = '';
+        this.renderModal();
+        try {
+            await this.sendVerificationEmail(this.otpEmail, this.otpEmail.split('@')[0]);
+            this.otpError = '';
+            this.isLoading = false;
+            this.renderModal();
+            this.showNotice('New code sent! Check your inbox.', 'green');
+        } catch (e) {
+            this.otpError = e.message || 'Could not resend code.';
+            this.isLoading = false;
+            this.renderModal();
+        }
     }
 
     async handleResendVerification() {
@@ -115,20 +166,14 @@ export class AuthPage {
         this.isLoading = true;
         this.renderModal();
         try {
-            const r = await fetch('/api/auth/send-verification', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    email: this.formData.email,
-                    name: this.formData.email.split('@')[0]
-                })
-            });
-            const data = await r.json().catch(() => ({}));
-            if (!r.ok) throw new Error(data.error?.message || 'Could not send verification email');
+            await this.sendVerificationEmail(
+                this.formData.email,
+                this.formData.email.split('@')[0]
+            );
             this.errors.submit = null;
-            this.showNotice('Verification email sent! Tap <strong>Activate Now</strong> in your inbox.', 'green');
+            this.showNotice('New verification code sent! Check your inbox.', 'green');
         } catch (e) {
-            this.errors.submit = e.message || 'Could not resend verification email.';
+            this.errors.submit = e.message || 'Could not resend verification code.';
         }
         this.isLoading = false;
         this.renderModal();
@@ -167,12 +212,19 @@ export class AuthPage {
                     const code = r.data?.error?.code || 'unknown';
                     throw new Error(r.data?.error?.message || AUTH_ERRORS[`auth/${code}`] || 'Could not sign up.');
                 }
-                await this.sendVerificationEmail({ email: this.formData.email }).catch(() => null);
-                this.isLoginMode = true;
+                // Send OTP and switch to code input mode
+                const email = this.formData.email;
+                const name  = this.formData.name;
+                try {
+                    await this.sendVerificationEmail(email, name);
+                } catch (_) { /* SMTP not set — still proceed */ }
+                this.otpMode  = true;
+                this.otpEmail = email;
+                this.otpCode  = '';
+                this.otpError = '';
                 this.errors.submit = null;
                 this.isLoading = false;
                 this.renderModal();
-                this.showNotice('Account created! ✅<br>Your request has been sent to your agent. Once your agent approves your account, you can log in with your email and password.');
                 return;
             }
         } catch (error) {
@@ -228,22 +280,22 @@ export class AuthPage {
             container.appendChild(modal);
         }
 
-        const isSignup = !this.isLoginMode && !this.isForgotMode;
+        const isSignup = !this.isLoginMode && !this.isForgotMode && !this.otpMode && !this.resetOtpMode;
         modal.innerHTML = `
             <div id="authModalBackdrop" class="absolute inset-0 cursor-pointer" style="background:rgba(0,0,0,0.55);backdrop-filter:blur(4px);"></div>
             <div id="authModalPanel" class="relative z-10 w-full" style="max-width:400px;animation:fadeIn .22s ease;">
                 <div style="background:linear-gradient(135deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02));border:1px solid rgba(0,210,255,0.2);border-radius:1.25rem;overflow:hidden;box-shadow:0 25px 60px rgba(0,0,0,0.6);">
                     <div style="height:3px;background:linear-gradient(90deg,#00d2ff,#3a7bd5,#7c3aed);"></div>
 
-                    <!-- Header: [logo+title] [×] -->
+                    <!-- Header -->
                     <div style="display:flex;align-items:center;padding:1rem 1rem 0;gap:.5rem;">
                         <div style="flex:1;text-align:center;">
                             <img src="/assets/logo-icon.svg" alt="" style="width:32px;height:32px;margin:0 auto 3px;display:block;">
                             <h2 style="font-size:1rem;font-weight:900;color:#fff;text-transform:uppercase;letter-spacing:.05em;margin:0;line-height:1.2;">
-                                ${this.isForgotMode ? 'Reset Password' : this.isLoginMode ? 'Welcome Back' : 'Join GURUBIT'}
+                                ${this.otpMode ? 'Verify Email' : this.resetOtpMode ? 'Enter Reset Code' : this.isForgotMode ? 'Reset Password' : this.isLoginMode ? 'Welcome Back' : 'Join GURUBIT'}
                             </h2>
                             <p style="font-size:.68rem;color:#6b7280;margin:2px 0 0;">
-                                ${this.isForgotMode ? 'Enter your email to reset' : this.isLoginMode ? 'Sign in to your account' : 'Create your free account'}
+                                ${this.otpMode ? `Code sent to ${this.otpEmail}` : this.resetOtpMode ? `Code sent to ${this.resetEmail}` : this.isForgotMode ? 'Enter your email to reset' : this.isLoginMode ? 'Sign in to your account' : 'Create your free account'}
                             </p>
                         </div>
                         <button type="button" id="modalCloseBtn"
@@ -255,6 +307,7 @@ export class AuthPage {
                     <!-- Body -->
                     <div style="padding:.85rem 1.1rem 1.1rem;">
                         <div id="modalNotice" style="margin-bottom:.6rem;"></div>
+                        ${this.otpMode ? this.renderOtpFields() : this.resetOtpMode ? this.renderResetOtpFields() : `
                         <form id="authForm" style="display:flex;flex-direction:column;gap:.55rem;${isSignup ? 'max-height:58vh;overflow-y:auto;padding-right:2px;' : ''}">
                             ${this.isForgotMode ? this.renderForgotFields() : this.isLoginMode ? this.renderLoginFields() : this.renderSignupFields()}
                             ${this.errors.submit ? `
@@ -266,7 +319,7 @@ export class AuthPage {
                                 style="width:100%;padding:.75rem;font-size:.72rem;text-transform:uppercase;letter-spacing:.12em;display:flex;align-items:center;justify-content:center;gap:.4rem;margin-top:.15rem;">
                                 ${this.isLoading
                                     ? '<i class="fas fa-circle-notch fa-spin"></i><span>Please wait...</span>'
-                                    : `<i class="fas fa-${this.isForgotMode ? 'paper-plane' : this.isLoginMode ? 'sign-in-alt' : 'user-plus'}"></i><span>${this.isForgotMode ? 'Send Reset Link' : this.isLoginMode ? 'Login' : 'Create Account'}</span>`}
+                                    : `<i class="fas fa-${this.isForgotMode ? 'paper-plane' : this.isLoginMode ? 'sign-in-alt' : 'user-plus'}"></i><span>${this.isForgotMode ? 'Send Reset Code' : this.isLoginMode ? 'Login' : 'Create Account'}</span>`}
                             </button>
                             ${this.isLoginMode && !this.isForgotMode && this.allowGuestLogin ? `
                             <button type="button" id="guestLoginBtn"
@@ -282,10 +335,78 @@ export class AuthPage {
                                     ${this.isLoginMode ? 'Need an account? Sign Up Free →' : 'Already have an account? Sign In →'}
                                    </button>`}
                         </div>
+                        `}
                     </div>
                 </div>
             </div>`;
         this.attachEventListeners();
+    }
+
+    renderOtpFields() {
+        return `
+            <div style="display:flex;flex-direction:column;gap:.85rem;padding:.4rem 0;">
+                <div style="background:rgba(0,210,255,0.06);border:1px solid rgba(0,210,255,0.2);border-radius:.85rem;padding:1rem;text-align:center;">
+                    <i class="fas fa-envelope-open-text" style="font-size:2rem;color:#00d2ff;margin-bottom:.5rem;display:block;"></i>
+                    <p style="margin:0;font-size:.8rem;color:#d1d5db;line-height:1.5;">
+                        A <strong style="color:#fff;">6-digit code</strong> was sent to<br>
+                        <strong style="color:#00d2ff;">${this.otpEmail}</strong>
+                    </p>
+                </div>
+                <div>
+                    <label style="display:block;font-size:.7rem;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.4rem;">Enter Verification Code</label>
+                    <input type="text" id="otpCodeInput" inputmode="numeric" maxlength="6" placeholder="_ _ _ _ _ _"
+                        value="${this.otpCode}"
+                        style="width:100%;height:56px;text-align:center;font-size:1.6rem;font-weight:900;letter-spacing:.35em;background:rgba(0,0,0,0.4);border:2px solid ${this.otpError ? 'rgba(239,68,68,0.5)' : 'rgba(0,210,255,0.3)'};border-radius:.75rem;color:#fff;outline:none;box-sizing:border-box;">
+                    ${this.otpError ? `<p style="color:#f87171;font-size:.7rem;margin:.3rem 0 0;text-align:center;">${this.otpError}</p>` : ''}
+                </div>
+                <button type="button" id="verifyOtpBtn"
+                    class="neon-btn ${this.isLoading ? 'opacity-60 pointer-events-none' : ''}"
+                    style="width:100%;padding:.75rem;font-size:.75rem;text-transform:uppercase;letter-spacing:.12em;display:flex;align-items:center;justify-content:center;gap:.5rem;">
+                    ${this.isLoading
+                        ? '<i class="fas fa-circle-notch fa-spin"></i><span>Verifying…</span>'
+                        : '<i class="fas fa-shield-alt"></i><span>Verify Code</span>'}
+                </button>
+                <div style="text-align:center;padding-top:.25rem;border-top:1px solid rgba(255,255,255,0.06);">
+                    <p style="font-size:.7rem;color:#6b7280;margin:0 0 .4rem;">Didn't receive the code?</p>
+                    <button type="button" id="resendOtpBtn" style="font-size:.75rem;font-weight:700;color:#00d2ff;background:none;border:none;cursor:pointer;">
+                        <i class="fas fa-redo" style="margin-right:4px;font-size:.65rem;"></i>Resend Code
+                    </button>
+                </div>
+            </div>`;
+    }
+
+    renderResetOtpFields() {
+        return `
+            <div style="display:flex;flex-direction:column;gap:.85rem;padding:.4rem 0;">
+                <div style="background:rgba(124,58,237,0.08);border:1px solid rgba(124,58,237,0.3);border-radius:.85rem;padding:1rem;text-align:center;">
+                    <i class="fas fa-key" style="font-size:2rem;color:#a78bfa;margin-bottom:.5rem;display:block;"></i>
+                    <p style="margin:0;font-size:.8rem;color:#d1d5db;line-height:1.5;">
+                        A <strong style="color:#fff;">6-digit reset code</strong> was sent to<br>
+                        <strong style="color:#a78bfa;">${this.resetEmail}</strong>
+                    </p>
+                </div>
+                <div>
+                    <label style="display:block;font-size:.7rem;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.4rem;">Reset Code</label>
+                    <input type="text" id="resetOtpInput" inputmode="numeric" maxlength="6" placeholder="_ _ _ _ _ _"
+                        style="width:100%;height:52px;text-align:center;font-size:1.5rem;font-weight:900;letter-spacing:.35em;background:rgba(0,0,0,0.4);border:2px solid rgba(124,58,237,0.4);border-radius:.75rem;color:#fff;outline:none;box-sizing:border-box;">
+                </div>
+                <div>
+                    <label style="display:block;font-size:.7rem;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.4rem;">New Password</label>
+                    <input type="password" id="resetNewPass" placeholder="New password (min. 8 chars)"
+                        style="width:100%;height:44px;padding:0 .85rem;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);border-radius:.65rem;color:#fff;font-size:.85rem;outline:none;box-sizing:border-box;">
+                </div>
+                <button type="button" id="submitResetBtn"
+                    class="neon-btn ${this.isLoading ? 'opacity-60 pointer-events-none' : ''}"
+                    style="width:100%;padding:.75rem;font-size:.75rem;text-transform:uppercase;letter-spacing:.12em;display:flex;align-items:center;justify-content:center;gap:.5rem;">
+                    ${this.isLoading
+                        ? '<i class="fas fa-circle-notch fa-spin"></i><span>Updating…</span>'
+                        : '<i class="fas fa-lock"></i><span>Set New Password</span>'}
+                </button>
+                ${this.errors.submit ? `<p style="color:#f87171;font-size:.72rem;text-align:center;margin:0;">${this.errors.submit}</p>` : ''}
+                <div style="text-align:center;">
+                    <button type="button" id="backToLoginBtn" style="font-size:.75rem;font-weight:700;color:#6b7280;background:none;border:none;cursor:pointer;">← Back to Login</button>
+                </div>
+            </div>`;
     }
 
     renderSignupFields() {
@@ -360,21 +481,69 @@ export class AuthPage {
             if (this.isForgotMode) this.handleForgotPassword(e);
             else this.handleSubmit(e);
         });
+
+        // OTP verification
+        const otpInput = document.getElementById('otpCodeInput');
+        if (otpInput) {
+            otpInput.addEventListener('input', (e) => {
+                this.otpCode = e.target.value.replace(/\D/g, '').slice(0, 6);
+                e.target.value = this.otpCode;
+                if (this.otpCode.length === 6) this.handleVerifyOtp();
+            });
+        }
+        document.getElementById('verifyOtpBtn')?.addEventListener('click', () => this.handleVerifyOtp());
+        document.getElementById('resendOtpBtn')?.addEventListener('click', () => this.handleResendOtp());
+
+        // Reset OTP
+        document.getElementById('submitResetBtn')?.addEventListener('click', async () => {
+            const code = document.getElementById('resetOtpInput')?.value?.replace(/\s/g, '');
+            const pass = document.getElementById('resetNewPass')?.value;
+            if (!code || code.length !== 6) { this.errors.submit = 'Enter the 6-digit code.'; this.renderModal(); return; }
+            if (!pass || pass.length < 8) { this.errors.submit = 'Password must be at least 8 characters.'; this.renderModal(); return; }
+            this.isLoading = true; this.errors.submit = ''; this.renderModal();
+            try {
+                const r = await fetch('/api/auth/reset-password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: this.resetEmail, code, password: pass })
+                });
+                const data = await r.json().catch(() => ({}));
+                if (!r.ok) throw new Error(data.error?.message || 'Reset failed');
+                this.resetOtpMode = false;
+                this.isLoginMode = true;
+                this.errors.submit = null;
+                this.isLoading = false;
+                this.renderModal();
+                this.showNotice('✅ Password updated! You can now log in.');
+                return;
+            } catch (e) {
+                this.errors.submit = e.message;
+            }
+            this.isLoading = false;
+            this.renderModal();
+        });
+
         document.getElementById('toggleModeBtn')?.addEventListener('click', () => {
             this.isLoginMode = !this.isLoginMode;
             this.isForgotMode = false;
+            this.otpMode = false;
+            this.resetOtpMode = false;
             this.errors = {};
             this.renderModal();
         });
         document.getElementById('forgotPasswordBtn')?.addEventListener('click', () => {
             this.isForgotMode = true;
             this.isLoginMode = false;
+            this.otpMode = false;
+            this.resetOtpMode = false;
             this.errors = {};
             this.renderModal();
         });
         document.getElementById('backToLoginBtn')?.addEventListener('click', () => {
             this.isForgotMode = false;
             this.isLoginMode = true;
+            this.otpMode = false;
+            this.resetOtpMode = false;
             this.errors = {};
             this.renderModal();
         });

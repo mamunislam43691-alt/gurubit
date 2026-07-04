@@ -673,24 +673,29 @@ curl "${host}/api/open/sms?apiKey=${exampleKey}&numberId=YOUR_NUMBER_ID"</pre>
 
   renderUsersSection() {
     const { members } = this.data;
-    const activeMembers = members.filter(m => m.agentApproved && !m.isBanned);
+
+    // Only show approved users — pending users belong in the Pending Users section
+    const approvedMembers = members.filter(m => m.agentApproved === true);
     const q = this._searchQuery || '';
 
     const filteredMembers = q
-      ? members.filter(m =>
+      ? approvedMembers.filter(m =>
           m.name?.toLowerCase().includes(q) ||
           m.email?.toLowerCase().includes(q) ||
-          (m.agentApproved ? 'active' : m.isBanned ? 'banned' : 'pending').includes(q))
-      : members;
+          (m.isBanned ? 'banned' : 'active').includes(q))
+      : approvedMembers;
+
+    const activeCount  = approvedMembers.filter(m => !m.isBanned).length;
+    const bannedCount  = approvedMembers.filter(m => m.isBanned).length;
 
     return `
       <section class="agent-page-section scroll-mt-24">
         <div class="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-4">
           <div>
             <h3 class="stat-label">Members</h3>
-            <p class="text-xs text-gray-400">Manage your members — approve, ban, or delete.</p>
+            <p class="text-xs text-gray-400">Manage your approved members — ban or delete.</p>
           </div>
-          <span class="text-xs text-primary font-bold">Active: ${activeMembers.length} / ${members.length}</span>
+          <span class="text-xs text-primary font-bold">Active: ${activeCount} / ${approvedMembers.length}</span>
         </div>
 
         <div class="mb-4">
@@ -713,15 +718,10 @@ curl "${host}/api/open/sms?apiKey=${exampleKey}&numberId=YOUR_NUMBER_ID"</pre>
                   <td>
                     ${m.isBanned
                       ? '<span class="px-2 py-0.5 rounded text-[10px] font-black bg-red-500/20 text-red-400">Banned</span>'
-                      : m.agentApproved
-                        ? '<span class="px-2 py-0.5 rounded text-[10px] font-black bg-green-500/20 text-green-400">Active</span>'
-                        : '<span class="px-2 py-0.5 rounded text-[10px] font-black bg-orange-500/20 text-orange-400">Pending</span>'}
+                      : '<span class="px-2 py-0.5 rounded text-[10px] font-black bg-green-500/20 text-green-400">Active</span>'}
                   </td>
                   <td class="py-3">
                     <div class="flex items-center gap-2 flex-wrap">
-                      ${(!m.agentApproved && !m.isBanned)
-                        ? `<button type="button" data-user-approve="${m.id}" class="neon-btn px-3 py-1.5 text-[10px] uppercase">Approve</button>`
-                        : ''}
                       <button type="button" data-toggle-ban="${m.id}"
                         class="px-3 py-1.5 rounded text-[10px] font-black uppercase
                         ${m.isBanned ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'}">
@@ -736,8 +736,8 @@ curl "${host}/api/open/sms?apiKey=${exampleKey}&numberId=YOUR_NUMBER_ID"</pre>
                 </tr>
               `).join('')}
               ${filteredMembers.length === 0 ? `
-                <tr><td colspan="6" class="p-8 text-gray-500 text-center">
-                  ${q ? 'No matching users found' : 'No members yet'}
+                <tr id="noMatchingUsersRow"><td colspan="6" class="p-8 text-gray-500 text-center">
+                  ${q ? 'No matching users found' : 'No approved members yet'}
                 </td></tr>` : ''}
             </tbody>
           </table>

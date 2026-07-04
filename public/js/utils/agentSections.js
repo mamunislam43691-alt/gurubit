@@ -18,6 +18,8 @@ export function renderAgentOverview(stats) {
 }
 
 export function renderAgentUsers(members = []) {
+  // Only show approved (agentApproved === true) users here
+  const approved = members.filter(m => m.agentApproved === true);
   return `
     <section class="agent-page-section" id="agent-users">
       <h2 class="agent-section-title"><i class="fas fa-users mr-2"></i>Users</h2>
@@ -25,17 +27,17 @@ export function renderAgentUsers(members = []) {
         <table class="number-history-table w-full text-sm">
           <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Numbers</th><th>SMS</th><th>Status</th><th></th></tr></thead>
           <tbody>
-            ${members.length ? members.map((m) => `
+            ${approved.length ? approved.map((m) => `
               <tr>
                 <td class="text-white font-bold">${m.name}</td>
                 <td class="text-gray-400 text-xs">${m.email}</td>
                 <td class="text-gray-400 text-xs">${m.phone || '—'}</td>
                 <td class="text-primary font-bold">${m.totalNumbers ?? 0}</td>
                 <td>${m.totalSms ?? 0}</td>
-                <td>${m.agentApproved ? '<span class="text-green-400 font-bold">Active</span>' : '<span class="text-orange-400 font-bold">Pending</span>'}</td>
-                <td class="whitespace-nowrap">${!m.agentApproved ? `<button type="button" class="neon-btn px-3 py-1.5 text-xs agent-approve-user" data-uid="${m.id}">Approve</button>` : ''}</td>
+                <td>${m.isBanned ? '<span class="text-red-400 font-bold">Banned</span>' : '<span class="text-green-400 font-bold">Active</span>'}</td>
+                <td class="whitespace-nowrap"></td>
               </tr>
-            `).join('') : '<tr><td colspan="7" class="p-6 text-center text-gray-500">No users yet</td></tr>'}
+            `).join('') : '<tr><td colspan="7" class="p-6 text-center text-gray-500">No approved users yet</td></tr>'}
           </tbody>
         </table>
       </div>

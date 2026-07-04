@@ -38,7 +38,8 @@ const COLLECTIONS = {
   groupBans: 'groupBans',
   announcements: 'announcements',
   guests: 'guests',
-  adminSessions: 'adminSessions'
+  adminSessions: 'adminSessions',
+  emailVerifyCodes: 'emailVerifyCodes'
 };
 
 const baseOpts = { _id: false, strict: false, minimize: false };
@@ -574,6 +575,22 @@ const AdminSessionsSchema = new Schema(
 );
 AdminSessionsSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
+// OTP codes for email verification — auto-expire after 10 minutes
+const EmailVerifyCodesSchema = new Schema(
+  {
+    _id: { type: String },
+    id: String,
+    email: { type: String, lowercase: true, trim: true },
+    code: { type: String },
+    attempts: { type: Number, default: 0 },
+    expiresAt: { type: Date },
+    createdAt: { type: Date, default: Date.now }
+  },
+  baseOpts
+);
+EmailVerifyCodesSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+EmailVerifyCodesSchema.index({ email: 1 });
+
 const models = {
   [COLLECTIONS.users]:            mongoose.models[COLLECTIONS.users]            || model(COLLECTIONS.users,            UsersSchema),
   [COLLECTIONS.sessions]:         mongoose.models[COLLECTIONS.sessions]         || model(COLLECTIONS.sessions,         SessionsSchema),
@@ -606,7 +623,8 @@ const models = {
   [COLLECTIONS.groupBans]:        mongoose.models[COLLECTIONS.groupBans]        || model(COLLECTIONS.groupBans,        GroupBansSchema),
   [COLLECTIONS.announcements]:    mongoose.models[COLLECTIONS.announcements]    || model(COLLECTIONS.announcements,    AnnouncementsSchema),
   [COLLECTIONS.guests]:           mongoose.models[COLLECTIONS.guests]           || model(COLLECTIONS.guests,           GuestsSchema),
-  [COLLECTIONS.adminSessions]:    mongoose.models[COLLECTIONS.adminSessions]    || model(COLLECTIONS.adminSessions,    AdminSessionsSchema)
+  [COLLECTIONS.adminSessions]:    mongoose.models[COLLECTIONS.adminSessions]    || model(COLLECTIONS.adminSessions,    AdminSessionsSchema),
+  [COLLECTIONS.emailVerifyCodes]: mongoose.models[COLLECTIONS.emailVerifyCodes] || model(COLLECTIONS.emailVerifyCodes, EmailVerifyCodesSchema)
 };
 
 async function syncIndexes() {
@@ -654,7 +672,8 @@ module.exports = {
     groupBans: GroupBansSchema,
     announcements: AnnouncementsSchema,
     guests: GuestsSchema,
-    adminSessions: AdminSessionsSchema
+    adminSessions: AdminSessionsSchema,
+    emailVerifyCodes: EmailVerifyCodesSchema
   },
   syncIndexes,
   model: (name) => models[name]

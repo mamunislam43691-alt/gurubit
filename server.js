@@ -529,6 +529,14 @@ async function startServer() {
 
         console.log('✅ All stores ready');
 
+        // Start unverified user cleanup scheduler
+        try {
+          const { startCleanupScheduler } = require('./services/userCleanup');
+          startCleanupScheduler();
+        } catch (e) {
+          console.warn('Cleanup scheduler:', e.message);
+        }
+
         // Start provider poller after stores are loaded
         try {
           const { startProviderPoller } = require('./services/providerPoll');

@@ -242,8 +242,7 @@ router.post('/login', async (req, res) => {
 
 /**
  * POST /api/auth/send-verification
- * Branded verification email (no external dependencies).
- * Token is a short-lived JWT containing the user's email.
+ * Generate a 6-digit OTP, store it in MongoDB, and email it to the user.
  */
 router.post('/send-verification', async (req, res) => {
   try {
@@ -251,56 +250,163 @@ router.post('/send-verification', async (req, res) => {
     if (!email) {
       return res.status(400).json({ success: false, error: { message: 'Email is required' } });
     }
+    const cleanEmail = String(email).toLowerCase().trim();
 
-    const verifyToken = signToken(`verify_${email}`, { email, kind: 'verify' });
-    const verifyUrl = `${appUrl()}/verify-email?token=${verifyToken}`;
+    // Rate-limit: block if a fresh code was sent within the last 60 seconds
+    const recent = await collections.emailVerifyCodes
+      .where('email', '==', cleanEmail)
+      .limit(1)
+      .get();
+    if (recent.size > 0) {
+      const existing = recent.docs[0].data();
+      const sentAt = new Date(existing.createdAt).getTime();
+      if (Date.now() - sentAt < 60 * 1000) {
+        return res.status(429).json({
+          success: false,
+          error: { message: 'A code was already sent. Please wait 60 seconds before requesting again.' }
+        });
+      }
+      // Delete old code before issuing a new one
+      await collections.emailVerifyCodes.doc(existing.id || recent.docs[0].id).delete().catch(() => {});
+    }
+
+    // Generate 6-digit code
+    const crypto = require('crypto');
+    const code = String(Math.floor(100000 + crypto.randomInt(900000))).padStart(6, '0');
+    const codeId = `evc_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    await collections.emailVerifyCodes.doc(codeId).set({
+      _id: codeId,
+      id: codeId,
+      email: cleanEmail,
+      code,
+      attempts: 0,
+      expiresAt: expiresAt.toISOString(),
+      createdAt: new Date().toISOString()
+    });
 
     const result = await sendVerificationEmail({
-      to: email,
-      name: name || email.split('@')[0],
-      verifyUrl
+      to: cleanEmail,
+      name: name || cleanEmail.split('@')[0],
+      code
     });
 
     res.json({
       success: true,
       message: result.sent
-        ? 'Verification email sent. Tap Activate Now in your inbox.'
-        : 'Verification link generated (check server console if SMTP is not set).',
-      preview: result.preview === true
+        ? 'Verification code sent to your email.'
+        : 'Code generated (check server console — SMTP not configured).',
+      preview: result.preview === true,
+      ...(result.preview ? { previewCode: code } : {})
     });
   } catch (error) {
     console.error('Send verification error:', error);
-    res.status(500).json({ success: false, error: { message: 'Could not send verification email. Try again later.' } });
+    res.status(500).json({ success: false, error: { message: 'Could not send verification code. Try again later.' } });
   }
 });
 
 /**
- * GET /api/auth/verify-email
- * Mark verified = true in Mongo.
+ * POST /api/auth/verify-code
+ * Check the submitted OTP — mark user verified, delete the code.
+ */
+router.post('/verify-code', async (req, res) => {
+  try {
+    const { email, code } = req.body || {};
+    if (!email || !code) {
+      return res.status(400).json({ success: false, error: { message: 'Email and code are required.' } });
+    }
+    const cleanEmail = String(email).toLowerCase().trim();
+    const cleanCode  = String(code).replace(/\s/g, '');
+
+    // Find the stored code for this email
+    const snap = await collections.emailVerifyCodes
+      .where('email', '==', cleanEmail)
+      .limit(1)
+      .get();
+
+    if (snap.size === 0) {
+      return res.status(400).json({ success: false, error: { message: 'No verification code found. Please request a new one.' } });
+    }
+
+    const codeDoc  = snap.docs[0];
+    const codeData = codeDoc.data();
+    const docId    = codeData.id || codeDoc.id;
+
+    // Check expiry
+    if (new Date(codeData.expiresAt) < new Date()) {
+      await collections.emailVerifyCodes.doc(docId).delete().catch(() => {});
+      return res.status(400).json({ success: false, error: { message: 'Code has expired. Please request a new one.' } });
+    }
+
+    // Limit attempts to 5
+    const attempts = (codeData.attempts || 0) + 1;
+    if (attempts > 5) {
+      await collections.emailVerifyCodes.doc(docId).delete().catch(() => {});
+      return res.status(400).json({ success: false, error: { message: 'Too many wrong attempts. Please request a new code.' } });
+    }
+
+    if (codeData.code !== cleanCode) {
+      await collections.emailVerifyCodes.doc(docId).update({ attempts }).catch(() => {});
+      const remaining = 5 - attempts;
+      return res.status(400).json({
+        success: false,
+        error: { message: `Incorrect code. ${remaining} attempt${remaining === 1 ? '' : 's'} remaining.` }
+      });
+    }
+
+    // ✅ Code is correct — mark user verified and delete code
+    await collections.emailVerifyCodes.doc(docId).delete().catch(() => {});
+
+    const userSnap = await collections.users
+      .where('email', '==', cleanEmail)
+      .limit(1)
+      .get();
+    if (userSnap.size > 0) {
+      const userDoc = userSnap.docs[0];
+      await collections.users.doc(userDoc.id).update({
+        emailVerified: true,
+        updatedAt: new Date().toISOString()
+      });
+    }
+
+    res.json({ success: true, message: 'Email verified successfully! You can now log in.' });
+  } catch (err) {
+    console.error('verify-code error:', err);
+    res.status(500).json({ success: false, error: { message: 'Verification failed. Please try again.' } });
+  }
+});
+
+/**
+ * GET /api/auth/verify-email  (legacy link support — redirect to OTP page)
  */
 router.get('/verify-email', async (req, res) => {
-  try {
-    const token = req.query.token;
-    if (!token) return res.status(400).send('Missing verification token.');
-    const payload = verifyToken(token);
-    if (!payload || payload.kind !== 'verify') {
-      return res.status(400).send('Invalid or expired verification link.');
-    }
-    const email = payload.email;
-    const snap = await collections.users.where('email', '==', String(email).toLowerCase()).limit(1).get();
-    const userDoc = snap.docs[0];
-    if (userDoc) {
-      await collections.users.doc(userDoc.id).update({ emailVerified: true, updatedAt: new Date().toISOString() });
-    }
-    res.redirect(`/verify-email?verified=1`);
-  } catch (err) {
-    console.error('verify-email error:', err);
-    res.status(500).send('Verification failed.');
+  const token = req.query.token;
+  if (token) {
+    // Try legacy JWT-link verification for backward compat
+    try {
+      const payload = verifyToken(token);
+      if (payload && payload.kind === 'verify') {
+        const snap = await collections.users
+          .where('email', '==', String(payload.email).toLowerCase())
+          .limit(1)
+          .get();
+        if (snap.docs[0]) {
+          await collections.users.doc(snap.docs[0].id).update({
+            emailVerified: true,
+            updatedAt: new Date().toISOString()
+          });
+        }
+        return res.redirect('/verify-email?verified=1');
+      }
+    } catch (_) {}
   }
+  res.redirect('/verify-email');
 });
 
 /**
  * POST /api/auth/send-password-reset
+ * Generate a 6-digit reset OTP and email it.
  */
 router.post('/send-password-reset', async (req, res) => {
   try {
@@ -308,51 +414,136 @@ router.post('/send-password-reset', async (req, res) => {
     if (!email) {
       return res.status(400).json({ success: false, error: { message: 'Email is required' } });
     }
-    const resetToken = signToken(`reset_${email}`, { email, kind: 'reset' });
-    const resetUrl = `${appUrl()}/reset-password?token=${resetToken}`;
+    const cleanEmail = String(email).toLowerCase().trim();
 
+    // Only send if user exists (don't reveal whether email is registered)
+    const userSnap = await collections.users
+      .where('email', '==', cleanEmail)
+      .limit(1)
+      .get();
+    // Always respond success to prevent user enumeration
+    if (userSnap.size === 0) {
+      return res.json({ success: true, message: 'If an account exists for this email, a reset code has been sent.' });
+    }
+
+    // Rate-limit
+    const recent = await collections.emailVerifyCodes
+      .where('email', '==', `reset_${cleanEmail}`)
+      .limit(1)
+      .get();
+    if (recent.size > 0) {
+      const existing = recent.docs[0].data();
+      if (Date.now() - new Date(existing.createdAt).getTime() < 60 * 1000) {
+        return res.status(429).json({
+          success: false,
+          error: { message: 'A reset code was recently sent. Please wait 60 seconds.' }
+        });
+      }
+      await collections.emailVerifyCodes.doc(existing.id || recent.docs[0].id).delete().catch(() => {});
+    }
+
+    const crypto = require('crypto');
+    const code = String(Math.floor(100000 + crypto.randomInt(900000))).padStart(6, '0');
+    const codeId = `prc_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    // Store with "reset_" prefix to distinguish from verify codes
+    await collections.emailVerifyCodes.doc(codeId).set({
+      _id: codeId,
+      id: codeId,
+      email: `reset_${cleanEmail}`,
+      code,
+      attempts: 0,
+      expiresAt: expiresAt.toISOString(),
+      createdAt: new Date().toISOString()
+    });
+
+    const userData = userSnap.docs[0].data();
     const result = await sendPasswordResetEmail({
-      to: email,
-      name: email.split('@')[0],
-      resetUrl
+      to: cleanEmail,
+      name: userData.name || cleanEmail.split('@')[0],
+      code
     });
 
     res.json({
       success: true,
       message: result.sent
-        ? 'Password reset email sent. Tap Reset Password in your inbox.'
-        : 'Reset link generated (check server console if SMTP is not set).'
+        ? 'Password reset code sent to your email.'
+        : 'Code generated (check server console — SMTP not configured).',
+      preview: result.preview === true,
+      ...(result.preview ? { previewCode: code } : {})
     });
   } catch (error) {
     console.error('Password reset error:', error);
-    res.status(500).json({ success: false, error: { message: 'Could not send password reset email.' } });
+    res.status(500).json({ success: false, error: { message: 'Could not send password reset code.' } });
   }
 });
 
 /**
  * POST /api/auth/reset-password
- * Confirm a password reset using the JWT token issued above.
+ * Verify the OTP code and set new password.
  */
 router.post('/reset-password', async (req, res) => {
   try {
-    const { token, password } = req.body || {};
-    if (!token || !password) {
-      return res.status(400).json({ success: false, error: { message: 'Token and new password are required.' } });
+    const { email, code, password } = req.body || {};
+    if (!email || !code || !password) {
+      return res.status(400).json({ success: false, error: { message: 'Email, code and new password are required.' } });
     }
     if (password.length < 8) {
       return res.status(400).json({ success: false, error: { message: 'Password must be at least 8 characters.' } });
     }
-    const payload = verifyToken(token);
-    if (!payload || payload.kind !== 'reset') {
-      return res.status(400).json({ success: false, error: { message: 'Invalid or expired reset link.' } });
+    const cleanEmail = String(email).toLowerCase().trim();
+    const cleanCode  = String(code).replace(/\s/g, '');
+
+    const snap = await collections.emailVerifyCodes
+      .where('email', '==', `reset_${cleanEmail}`)
+      .limit(1)
+      .get();
+
+    if (snap.size === 0) {
+      return res.status(400).json({ success: false, error: { message: 'No reset code found. Please request a new one.' } });
     }
-    const snap = await collections.users.where('email', '==', String(payload.email).toLowerCase()).limit(1).get();
-    const userDoc = snap.docs[0];
-    if (!userDoc) {
-      return res.status(200).json({ success: true, message: 'If an account exists for this email, the password has been updated.' });
+
+    const codeDoc  = snap.docs[0];
+    const codeData = codeDoc.data();
+    const docId    = codeData.id || codeDoc.id;
+
+    if (new Date(codeData.expiresAt) < new Date()) {
+      await collections.emailVerifyCodes.doc(docId).delete().catch(() => {});
+      return res.status(400).json({ success: false, error: { message: 'Code has expired. Please request a new one.' } });
+    }
+
+    const attempts = (codeData.attempts || 0) + 1;
+    if (attempts > 5) {
+      await collections.emailVerifyCodes.doc(docId).delete().catch(() => {});
+      return res.status(400).json({ success: false, error: { message: 'Too many wrong attempts. Please request a new code.' } });
+    }
+
+    if (codeData.code !== cleanCode) {
+      await collections.emailVerifyCodes.doc(docId).update({ attempts }).catch(() => {});
+      const remaining = 5 - attempts;
+      return res.status(400).json({
+        success: false,
+        error: { message: `Incorrect code. ${remaining} attempt${remaining === 1 ? '' : 's'} remaining.` }
+      });
+    }
+
+    // ✅ Code correct — update password, delete code
+    await collections.emailVerifyCodes.doc(docId).delete().catch(() => {});
+
+    const userSnap = await collections.users
+      .where('email', '==', cleanEmail)
+      .limit(1)
+      .get();
+    if (!userSnap.docs[0]) {
+      return res.json({ success: true, message: 'Password updated successfully.' });
     }
     const passwordHash = await hashPassword(password);
-    await collections.users.doc(userDoc.id).update({ passwordHash, updatedAt: new Date().toISOString() });
+    await collections.users.doc(userSnap.docs[0].id).update({
+      passwordHash,
+      updatedAt: new Date().toISOString()
+    });
+
     res.json({ success: true, message: 'Password updated. You can now log in.' });
   } catch (err) {
     console.error('reset-password error:', err);
