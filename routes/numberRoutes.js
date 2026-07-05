@@ -216,7 +216,10 @@ router.post('/numbers/generate', verifyAuth, async (req, res) => {
                 if (provider.providerType === 'integrated') {
                     // Detect provider type by URL pattern
                     const rawNumberUrl = (provider.getNumberUrl || provider.baseUrl || '').replace(/\/$/, '');
-                    const isStex = rawNumberUrl.includes('public/api/getnum') || rawNumberUrl.includes('@public/api/');
+                    // STEX variants: @public/api/getnum or public/api/getnum
+                    const isStex = rawNumberUrl.includes('public/api/getnum') || rawNumberUrl.includes('@public/api/getnum');
+                    // 2oo9.cloud variant: /@public/api/getnum
+                    const is2oo9 = rawNumberUrl.includes('@public/api/');
 
                     if (isStex) {
                         // ── STEX SMS API ──────────────────────────────────────────
