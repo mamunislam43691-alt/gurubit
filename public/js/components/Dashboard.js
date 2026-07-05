@@ -4,6 +4,7 @@
 
 import { UserLayout } from '../utils/UserLayout.js';
 import { appIconMeta } from '../utils/uiHelpers.js';
+import { notifyOtp, requestOtpNotificationPermission } from '../utils/otpNotifier.js';
 
 export class Dashboard {
   constructor() {
@@ -26,6 +27,9 @@ export class Dashboard {
     this.user = await UserLayout.ensureAuth();
     if (!this.user) return;
 
+    // Request notification permission after auth
+    requestOtpNotificationPermission().catch(() => {});
+
     const dash = await window.optimizedFetch('/api/user/dashboard').catch(() => ({}));
     if (dash && dash.success) {
       this.stats = dash.dashboard;
@@ -47,12 +51,25 @@ export class Dashboard {
     this._wsUnsubs.forEach(fn => fn());
     this._wsUnsubs = [];
     window.GWS.connect(this.user.id);
-    this._wsUnsubs.push(window.GWS.on('otp_success', () => {
+    this._wsUnsubs.push(window.GWS.on('otp_success', (data) => {
       this.stats.totalSms = (this.stats.totalSms || 0) + 1;
+      // 🔔 Notify user
+      notifyOtp({
+        phoneNumber: data.phoneNumber || '',
+        otp: data.otp || '',
+        platform: data.service || 'Verification',
+        numberId: data.numberId
+      }).catch(() => {});
       this.render();
     }));
-    this._wsUnsubs.push(window.GWS.on('sms_success', () => {
+    this._wsUnsubs.push(window.GWS.on('sms_success', (data) => {
       this.stats.totalSms = (this.stats.totalSms || 0) + 1;
+      notifyOtp({
+        phoneNumber: data.phoneNumber || '',
+        otp: data.otp || '',
+        platform: data.service || 'Verification',
+        numberId: data.numberId
+      }).catch(() => {});
       this.render();
     }));
   }

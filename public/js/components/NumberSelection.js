@@ -15,6 +15,7 @@ import {
   extractOtpFromSms,
   showToast
 } from '../utils/uiHelpers.js';
+import { notifyOtp, requestOtpNotificationPermission } from '../utils/otpNotifier.js';
 
 export class NumberSelection {
   constructor() {
@@ -149,6 +150,15 @@ export class NumberSelection {
       const smsMessage = data.smsMessage || data.message?.smsMessage || data.message?.content || data.content;
       const otp = data.otp || data.otpCode || data.message?.otp || data.message?.otpCode;
       if (!otp && !smsMessage) return;
+
+      // Find matching number for phone/platform info
+      const matchedNum = numberId ? this.numbers.find((x) => x.id === numberId) : null;
+      const phoneNumber = data.phoneNumber || matchedNum?.phoneNumber || '';
+      const platform = data.service || matchedNum?.platformName || 'Verification';
+
+      // 🔔 Trigger notification + sound
+      notifyOtp({ phoneNumber, otp, platform, numberId }).catch(() => {});
+
       if (numberId) {
         const idx = this.numbers.findIndex((x) => x.id === numberId);
         if (idx > -1) {
@@ -161,11 +171,10 @@ export class NumberSelection {
           });
           this.highlightId = numberId;
           this.render();
-          showToast(`🔔 OTP received: ${otp || 'SMS received'}`);
           return;
         }
       }
-      this.loadNumbers().then(() => { this.render(); showToast('SMS received'); });
+      this.loadNumbers().then(() => { this.render(); });
     };
     this._wsUnsubs.push(window.GWS.on('otp_success', onSms));
     this._wsUnsubs.push(window.GWS.on('sms_success', onSms));
@@ -420,19 +429,41 @@ export class NumberSelection {
             this.countryMap[n.countryId]?.code
           );
           const otp = extractOtpFromSms(n);
-          const otpText = otp || '—';
-          const otpClass = otp ? 'text-emerald-400 font-black font-mono' : 'text-gray-600 font-mono';
-          const otpCopy = otp ? ` data-copy="${otp}" data-copy-msg="OTP copied!"` : '';
+          const st = numberStatus(n);
+          const statusHtml = st === 'successful'
+            ? '<span class="text-green-400 font-bold uppercase text-[10px]">Success</span>'
+            : st === 'failed'
+            ? '<span class="text-red-400 font-bold uppercase text-[10px]">Failed</span>'
+            : '<span class="text-orange-400 font-bold uppercase text-[10px] animate-pulse">Pending</span>';
+          const otpHtml = otp
+            ? `<button type="button" class="copy-line copy-line--otp font-mono font-black text-sm text-emerald-400" data-copy="${otp}" data-copy-msg="OTP copied!" style="letter-spacing:2px">${otp}</button>`
+            : st === 'pending'
+            ? `<span class="text-orange-400 font-bold font-mono text-xs animate-pulse" data-countdown data-expires="${n.expiresAt || ''}" data-status="pending">${countdownText(n.expiresAt)}</span>`
+            : '<span class="text-gray-600 text-xs">—</span>';
           const time = this.formatRelative(n.createdAt);
 
-          return `<div class="px-4 py-3 ${hl}">
-            <div class="flex items-center justify-between gap-3">
-              <button type="button" class="copy-line copy-line--phone text-sm font-bold text-white font-mono tracking-wide truncate text-left min-w-0 flex-1" data-copy="${phoneCopy}" data-number-id="${n.id}" data-copy-msg="Number copied!">${n.phoneNumber || '—'}</button>
-              <button type="button" class="copy-line copy-line--otp text-sm ${otpClass} shrink-0"${otpCopy}>${otpText}</button>
+          return `
+          <div class="px-3 py-3 ${hl}">
+            <!-- Row 1: Country + Range + Time -->
+            <div class="flex items-center justify-between gap-2 mb-1.5">
+              <div class="flex items-center gap-2 min-w-0 flex-1">
+                ${this.countryLabel(n)}
+                <span class="text-gray-500 text-[10px] shrink-0 truncate max-w-[80px]">${n.serverName || '—'}</span>
+              </div>
               <span class="text-gray-600 text-[10px] shrink-0 whitespace-nowrap">${time}</span>
             </div>
+            <!-- Row 2: Phone + Status -->
+            <div class="flex items-center justify-between gap-2 mb-1">
+              <button type="button" class="copy-line copy-line--phone font-mono text-primary text-sm font-bold tracking-wide min-w-0 flex-1 text-left truncate" data-copy="${phoneCopy}" data-number-id="${n.id}" data-copy-msg="Number copied!">${n.phoneNumber || '—'}</button>
+              ${statusHtml}
+            </div>
+            <!-- Row 3: OTP -->
+            <div class="flex items-center gap-2">
+              <span class="text-[10px] text-gray-600 uppercase font-bold tracking-wider">OTP:</span>
+              ${otpHtml}
+            </div>
           </div>`;
-        }).join('') : '<div class="p-8 text-center text-gray-500 text-sm">No numbers yet</div>'}
+        }).join('') : '<div class="p-8 text-center text-gray-500 text-sm">No numbers yet — click Get SMS Number</div>'}
       </div>`;
 
     return `
@@ -472,62 +503,37 @@ export class NumberSelection {
           </span>
         </h2>
         <div class="number-controls glass-card p-3 mb-3">
-          <button type="button" id="toggleFiltersBtn" class="flex items-center gap-2 text-gray-400 hover:text-white text-[11px] font-bold uppercase tracking-wider transition-colors w-full md:hidden mb-2">
-            <i class="fas fa-chart-bar text-[10px]"></i> Summary
-            <span class="ml-auto px-2 py-0.5 rounded-full bg-primary/15 text-primary text-[10px] font-black">${this.numbers.length}</span>
-            <i class="fas fa-chevron-down text-[10px] ml-1 transition-transform" id="filterChevron"></i>
-          </button>
-          <div id="filtersPanel" class="hidden mb-3 pt-2 border-t border-white/5">
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
-              <div class="bg-white/[0.03] rounded-xl p-2.5 text-center">
-                <p class="text-xl font-black text-white">${this.numbers.length}</p>
-                <p class="text-[9px] text-gray-500 uppercase tracking-wider mt-0.5">Total</p>
+          <!-- Mobile: always-visible compact controls -->
+          <div class="md:hidden space-y-2">
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="stat-label block mb-1">Country</label>
+                <select id="countrySelect" class="input-field w-full text-sm py-2 px-3"><option value="">Select...</option>${countryOpts}</select>
               </div>
-              <div class="bg-white/[0.03] rounded-xl p-2.5 text-center">
-                <p class="text-xl font-black text-emerald-400">${this.numbers.filter(n => numberStatus(n) === 'successful').length}</p>
-                <p class="text-[9px] text-gray-500 uppercase tracking-wider mt-0.5">Delivered</p>
-              </div>
-              <div class="bg-white/[0.03] rounded-xl p-2.5 text-center">
-                <p class="text-xl font-black text-red-400">${this.numbers.filter(n => numberStatus(n) === 'failed').length}</p>
-                <p class="text-[9px] text-gray-500 uppercase tracking-wider mt-0.5">Failed</p>
-              </div>
-              <div class="bg-white/[0.03] rounded-xl p-2.5 text-center">
-                <p class="text-xl font-black text-amber-400">${this.numbers.filter(n => numberStatus(n) === 'pending').length}</p>
-                <p class="text-[9px] text-gray-500 uppercase tracking-wider mt-0.5">Pending</p>
+              <div>
+                <label class="stat-label block mb-1">Range</label>
+                <select id="serverSelect" class="input-field w-full text-sm py-2 px-3" ${!this.servers.length ? 'disabled' : ''}>
+                  <option value="">Select...</option>${serverOpts}
+                </select>
               </div>
             </div>
-          </div>
-          <!-- Mobile: collapsible settings -->
-          <div class="md:hidden">
-            <button type="button" id="mobileSettingsToggle" class="flex items-center gap-2 w-full text-left text-gray-400 hover:text-white text-xs font-bold uppercase tracking-wider transition-colors mb-2">
-              <i class="fas fa-cog text-[10px]"></i> Settings
-              <span class="ml-auto text-[10px] text-gray-600 font-normal normal-case">${this.selectedServer?.name || this.selectedCountry?.name || 'Select range'}</span>
-              <i class="fas fa-chevron-down text-[10px] transition-transform" id="mobileSettingsChevron"></i>
-            </button>
-            <div id="mobileSettingsPanel" class="hidden">
-              <div class="grid grid-cols-2 gap-2 mb-2">
-                <div>
-                  <label class="stat-label block mb-1">Country</label>
-                  <select id="countrySelect" class="input-field w-full text-sm py-2.5 px-3"><option value="">Select...</option>${countryOpts}</select>
-                </div>
-                <div>
-                  <label class="stat-label block mb-1">Range</label>
-                  <select id="serverSelect" class="input-field w-full text-sm py-2.5 px-3" ${!this.servers.length ? 'disabled' : ''}>
-                    <option value="">Select...</option>${serverOpts}
-                  </select>
-                </div>
-              </div>
-              <div class="flex items-center gap-3 mb-2">
-                <label class="flex items-center gap-1.5 text-xs text-gray-300 cursor-pointer">
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-4 text-xs text-gray-300">
+                <label class="flex items-center gap-1.5 cursor-pointer">
                   <input type="radio" name="numFormat" value="natural" ${this.numberFormat === 'natural' ? 'checked' : ''}> +code
                 </label>
-                <label class="flex items-center gap-1.5 text-xs text-gray-300 cursor-pointer">
+                <label class="flex items-center gap-1.5 cursor-pointer">
                   <input type="radio" name="numFormat" value="remove_plus" ${this.numberFormat === 'remove_plus' ? 'checked' : ''}> No +
                 </label>
               </div>
+              <div class="flex items-center gap-2 text-[10px] text-gray-500">
+                <span class="text-green-400 font-bold">${this.numbers.filter(n => numberStatus(n) === 'successful').length}✓</span>
+                <span class="text-red-400 font-bold">${this.numbers.filter(n => numberStatus(n) === 'failed').length}✗</span>
+                <span class="text-orange-400 font-bold">${this.numbers.filter(n => numberStatus(n) === 'pending').length}⏳</span>
+              </div>
             </div>
-            <button type="button" id="generateBtn" class="w-full py-3 rounded-xl font-black text-sm uppercase bg-violet-600 hover:bg-violet-500 text-white ${this.isGenerating ? 'opacity-60' : ''}">
-              ${this.isGenerating ? '<i class="fas fa-spinner fa-spin mr-1"></i> Getting...' : '<i class="fas fa-paper-plane mr-1"></i> Get SMS Number'}
+            <button type="button" id="generateBtn" class="w-full py-3 rounded-xl font-black text-sm uppercase bg-violet-600 hover:bg-violet-500 text-white transition-colors ${this.isGenerating ? 'opacity-60 pointer-events-none' : ''}">
+              ${this.isGenerating ? '<i class="fas fa-spinner fa-spin mr-2"></i>Getting...' : '<i class="fas fa-paper-plane mr-2"></i>Get SMS Number'}
             </button>
           </div>
           <!-- Desktop layout: grid -->
@@ -574,18 +580,6 @@ export class NumberSelection {
     });
     document.getElementById('generateBtn')?.addEventListener('click', () => this.generateNumber());
     document.getElementById('generateBtnDesktop')?.addEventListener('click', () => this.generateNumber());
-    document.getElementById('mobileSettingsToggle')?.addEventListener('click', () => {
-      const panel = document.getElementById('mobileSettingsPanel');
-      const chevron = document.getElementById('mobileSettingsChevron');
-      if (panel) panel.classList.toggle('hidden');
-      if (chevron) chevron.style.transform = panel?.classList.contains('hidden') ? '' : 'rotate(180deg)';
-    });
-    document.getElementById('toggleFiltersBtn')?.addEventListener('click', () => {
-      const panel = document.getElementById('filtersPanel');
-      const chevron = document.getElementById('filterChevron');
-      if (panel) panel.classList.toggle('hidden');
-      if (chevron) chevron.style.transform = panel?.classList.contains('hidden') ? '' : 'rotate(180deg)';
-    });
     document.querySelectorAll('[data-filter]').forEach((btn) => {
       btn.addEventListener('click', () => { this.filterStatus = btn.dataset.filter; this.render(); });
     });
@@ -702,6 +696,9 @@ export class NumberSelection {
   async init() {
     this.user = await UserLayout.ensureAuth();
     if (!this.user) return;
+
+    // Request notification permission early (after auth)
+    requestOtpNotificationPermission().catch(() => {});
 
     await this.loadCountries();
     await this.loadNumbers();

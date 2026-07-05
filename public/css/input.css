@@ -1225,21 +1225,25 @@ html.light .mobile-nav-item.is-active {
 
 /* ── Number selection mobile ────────────────────────────────── */
 @media (max-width: 767px) {
-  /* Server/range select full width */
+  /* Selects full width */
   #countrySelect, #serverSelect { width: 100% !important; }
 
-  /* Number table mobile cards */
+  /* Number controls compact padding */
+  .number-controls { padding: 0.65rem !important; }
+
+  /* Mobile card rows */
   .number-row--new { animation: highlight-row 1.5s ease; }
   @keyframes highlight-row {
     0% { background: rgba(0, 210, 255, 0.15); }
     100% { background: transparent; }
   }
 
-  /* Status badges */
-  .number-history-table .text-green-400,
-  .number-history-table .text-orange-400,
-  .number-history-table .text-red-400 {
-    font-size: 0.65rem !important;
+  /* Mobile card country cell — keep inline */
+  .number-table-wrap .country-cell {
+    display: inline-flex !important;
+    flex-direction: row !important;
+    text-align: left !important;
+    gap: 0.35rem !important;
   }
 
   /* Countdown timer */
@@ -1250,6 +1254,12 @@ html.light .mobile-nav-item.is-active {
     width: 100% !important;
     padding: 0.85rem !important;
     font-size: 0.8rem !important;
+  }
+
+  /* Input fields in number controls */
+  .number-controls .input-field {
+    font-size: 14px !important;
+    padding: 0.55rem 0.65rem !important;
   }
 }
 
@@ -1322,6 +1332,54 @@ html.light .mobile-nav-item.is-active {
 @media (max-width: 767px) {
   .live-feed-panel .hidden.md\:block { display: none !important; }
   .live-feed-panel .md\:hidden { display: block !important; }
+}
+
+/* ── Live SMS feed — shared styles ─────────────────────────── */
+.live-sms-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+.live-sms-table thead th {
+  padding: 0.6rem 1rem;
+  font-size: 0.65rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #4b5563;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  background: rgba(0,0,0,0.2);
+  white-space: nowrap;
+}
+.live-sms-table tbody .live-sms-row td {
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  vertical-align: top;
+}
+.live-sms-table tbody .live-sms-row:hover td {
+  background: rgba(255,255,255,0.02);
+}
+
+/* Service label pill */
+.sms-service-label {
+  display: inline-block;
+  background: rgba(0,210,255,0.12);
+  color: #00d2ff;
+  border-radius: 0.4rem;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+/* Time stamp */
+.sms-time {
+  font-size: 0.65rem;
+  color: #4b5563;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 /* ── Auth modal mobile ──────────────────────────────────────── */

@@ -4,9 +4,10 @@
   "description": "Free temporary phone numbers for receiving SMS verification messages",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0a192f",
-  "theme_color": "#FFD700",
+  "background_color": "#020b18",
+  "theme_color": "#00d2ff",
   "orientation": "portrait-primary",
+  "permissions": ["notifications"],
   "icons": [
     {
       "src": "/assets/logo-icon.svg",

@@ -110,11 +110,11 @@ const ROUTES = {
   '/signup':            () => import('./components/AuthPage.js').then(m => m.AuthPage),
   '/forgot-password':   () => import('./components/AuthPage.js').then(m => m.AuthPage),
   '/admin':             () => import('./components/AdminPanel.js').then(m => m.AdminPanel),
-  '/dashboard':         () => import('./components/Dashboard.js?v=3').then(m => m.Dashboard),
+  '/dashboard':         () => import('./components/Dashboard.js?v=4').then(m => m.Dashboard),
   '/agent':             () => import('./components/AgentDashboard.js?v=3').then(m => m.AgentDashboard),
   '/profile':           () => import('./components/ProfilePage.js').then(m => m.ProfilePage),
-  '/numbers':           () => import('./components/NumberSelection.js?v=4').then(m => m.NumberSelection),
-  '/live-feed':         () => import('./components/LiveSMSFeed.js?v=2').then(m => m.LiveSMSFeed),
+  '/numbers':           () => import('./components/NumberSelection.js?v=5').then(m => m.NumberSelection),
+  '/live-feed':         () => import('./components/LiveSMSFeed.js?v=3').then(m => m.LiveSMSFeed),
   '/post':              () => import('./components/PostFeed.js?v=2').then(m => m.PostFeed),
   '/groups':            () => import('./components/GroupsPage.js?v=2').then(m => m.GroupsPage),
   '/movement':          () => import('./components/PostFeed.js?v=2').then(m => m.PostFeed),
@@ -236,6 +236,16 @@ class Router {
 // Initialize app
 let liveSupportWidget = null;
 let _appRouter = null; // global router reference for SPA navigation
+
+// ── Service Worker notification click → navigate ──────────────────────────
+if (navigator.serviceWorker) {
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if (event.data?.type === 'NAVIGATE' && event.data.url) {
+      window.history.pushState({}, '', event.data.url);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }
+  });
+}
 
 window.GURUBIT_APP_READY = new Promise((resolve, reject) => {
   window.__GURUBIT_APP_RESOLVE__ = resolve;

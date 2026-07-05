@@ -4,7 +4,7 @@
  * Static assets use stale-while-revalidate (show cache instantly, update in background)
  */
 
-const CACHE_VERSION = 'gurubit-v5-' + '2026-05-24';
+const CACHE_VERSION = 'gurubit-v6-' + '2026-07-05';
 const STATIC_ASSETS = [
   '/css/output.css',
   '/assets/logo.svg',
@@ -28,6 +28,28 @@ self.addEventListener('message', (event) => {
   if (event.data?.type === 'SKIP_WAITING') {
     self.skipWaiting();
   }
+});
+
+// Handle notification click — open /numbers page
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetUrl = event.notification.data?.url || '/numbers';
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      // If app is already open, focus it and navigate
+      for (const client of clientList) {
+        if ('focus' in client) {
+          client.focus();
+          client.postMessage({ type: 'NAVIGATE', url: targetUrl });
+          return;
+        }
+      }
+      // Otherwise open new window
+      if (clients.openWindow) {
+        return clients.openWindow(targetUrl);
+      }
+    })
+  );
 });
 
 // Activate: delete ALL old caches immediately
