@@ -221,13 +221,17 @@ router.post('/numbers/generate', verifyAuth, async (req, res) => {
                     // 2oo9.cloud variant: /@public/api/getnum
                     const is2oo9 = rawNumberUrl.includes('@public/api/');
 
+                    // ── Get service config for this specific serverId/countryId ──
+                    const { getServiceForTarget } = require('../services/providerStore');
+                    const activeSvc = getServiceForTarget(provider, serverId, countryId);
+
                     if (isStex) {
                         // ── STEX SMS API ──────────────────────────────────────────
                         // POST /public/api/getnum  { "rid": "<range_digits>" }
                         // Header: mauthapi: <api_key>
                         try {
                             // Determine range ID from CLI range filter or auto-selected range
-                            let rid = provider.cliRange || '';
+                            let rid = activeSvc.cliRange || provider.cliRange || '';
                             try {
                                 const { getActiveRangeName } = require('../services/providerPoll');
                                 const rangeName = getActiveRangeName(provider.id);
@@ -311,11 +315,11 @@ router.post('/numbers/generate', verifyAuth, async (req, res) => {
                     } else {
                         // ── Generic Integrated API (Propyter / 203.161.58.20 style) ──
                         // GET /numbers?status=assigned&limit=500[&cli=RANGE]
-                        const apiCountryCode = provider.apiCountryCode || '';
+                        const apiCountryCode = activeSvc.apiCountryCode || provider.apiCountryCode || '';
 
-                        // Build CLI filter — manual cliRange takes priority over auto-selected range
+                        // Build CLI filter — service cliRange → manual provider cliRange → auto-selected range
                         let cliFilter = '';
-                        const manualRange = provider.cliRange ? String(provider.cliRange).trim() : null;
+                        const manualRange = (activeSvc.cliRange || provider.cliRange) ? String(activeSvc.cliRange || provider.cliRange).trim() : null;
                         if (manualRange) {
                             cliFilter = `&cli=${encodeURIComponent(manualRange)}`;
                         } else {

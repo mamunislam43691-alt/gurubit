@@ -183,22 +183,49 @@ async function refreshBestRange(provider) {
 async function maybeRefreshRanges() {
   const providers = providerStore.list().filter(p => p.providerType === 'integrated');
   for (const provider of providers) {
-    // Skip auto-refresh if admin has set a manual CLI range
-    if (provider.cliRange) continue;
-    const current = activeRanges.get(provider.id);
-    const needsRefresh = !current || (Date.now() - current.selectedAt) > RANGE_REFRESH_MS;
-    if (needsRefresh) {
-      await refreshBestRange(provider);
+    // Get all services for this provider
+    const services = _getProviderServices(provider);
+    for (const svc of services) {
+      // Skip auto-refresh if admin has set a manual CLI range for this service
+      if (svc.cliRange) continue;
+      const rangeKey = `${provider.id}:${svc.id || 'default'}`;
+      const current = activeRanges.get(rangeKey);
+      const needsRefresh = !current || (Date.now() - current.selectedAt) > RANGE_REFRESH_MS;
+      if (needsRefresh) {
+        await refreshBestRange(provider);
+      }
     }
   }
 }
 
-function getActiveRangeName(providerId) {
+// Get all services from a provider — supports both new services[] and legacy single fields
+function _getProviderServices(provider) {
+  if (Array.isArray(provider.services) && provider.services.length > 0) {
+    return provider.services;
+  }
+  // Legacy single-service fallback
+  return [{
+    id: 'legacy',
+    countryId: provider.countryId || null,
+    serverId: provider.serverId || null,
+    apiCountryCode: provider.apiCountryCode || '',
+    cliRange: provider.cliRange || null,
+    label: ''
+  }];
+}
+
+function getActiveRangeName(providerId, serviceId) {
   const provider = providerStore.list().find(p => p.id === providerId);
+  const services = provider ? _getProviderServices(provider) : [];
+  // Find matching service
+  const svc = serviceId ? services.find(s => s.id === serviceId) : services[0];
   // If admin set a manual CLI range, always use that
+  if (svc?.cliRange) return svc.cliRange;
+  // Legacy fallback
   if (provider?.cliRange) return provider.cliRange;
   // Otherwise use auto-selected best range
-  return activeRanges.get(providerId)?.rangeName || null;
+  const rangeKey = `${providerId}:${svc?.id || 'default'}`;
+  return activeRanges.get(rangeKey)?.rangeName || activeRanges.get(providerId)?.rangeName || null;
 }
 // ────────────────────────────────────────────────────────────────────────────
 

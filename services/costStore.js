@@ -55,9 +55,19 @@ async function setCost(countryId, serverId, patch) {
   const docRef = col().doc(key);
   const existing = await docRef.get();
   const prev = existing.exists ? existing.data() : { countryId, serverId: serverId || null, userReward: 0.05, agentReward: 0.02 };
+
+  // Preserve full decimal precision (up to 10 decimal places)
+  const sanitize = (val, fallback) => {
+    const n = parseFloat(val);
+    if (isNaN(n) || n < 0) return fallback;
+    return Math.round(n * 1e10) / 1e10;
+  };
+
   const next = {
     ...prev,
     ...patch,
+    userReward: sanitize(patch.userReward ?? prev.userReward, prev.userReward),
+    agentReward: sanitize(patch.agentReward ?? prev.agentReward, prev.agentReward),
     countryId,
     serverId: serverId || null,
     updatedAt: new Date().toISOString()

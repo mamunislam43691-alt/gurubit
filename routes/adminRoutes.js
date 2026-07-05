@@ -935,7 +935,7 @@ router.get('/api-keys', verifyAdmin, async (req, res) => {
 
 router.post('/api-keys', verifyAdmin, async (req, res) => {
   try {
-    const { serviceName, apiKey, baseUrl, getNumberUrl, getSmsUrl, controlUrl, providerType, additionalUrls, countryId, serverId, apiCountryCode, cliRange, fbId } = req.body;
+    const { serviceName, apiKey, baseUrl, getNumberUrl, getSmsUrl, controlUrl, providerType, additionalUrls, countryId, serverId, apiCountryCode, cliRange, fbId, services } = req.body;
     const effectiveUrl = (getNumberUrl || baseUrl || '').trim();
     if (!effectiveUrl || !apiKey?.trim()) {
       const urlLabel = (providerType === 'integrated') ? 'Number URL' : 'Base URL';
@@ -954,7 +954,8 @@ router.post('/api-keys', verifyAdmin, async (req, res) => {
       serverId: serverId || null,
       apiCountryCode: (apiCountryCode || '').trim(),
       cliRange: cliRange ? String(cliRange).trim() : null,
-      fbId: fbId ? String(fbId).trim() : null
+      fbId: fbId ? String(fbId).trim() : null,
+      services: Array.isArray(services) ? services : []
     });
     res.json({ success: true, message: 'Provider saved', key, webhookUrl: `${req.protocol}://${req.get('host')}/api/provider/incoming-sms` });
   } catch (error) {
@@ -964,7 +965,7 @@ router.post('/api-keys', verifyAdmin, async (req, res) => {
 
 router.put('/api-keys/:id', verifyAdmin, async (req, res) => {
   try {
-    const { serviceName, apiKey, baseUrl, getNumberUrl, getSmsUrl, controlUrl, providerType, additionalUrls, countryId, serverId, apiCountryCode, cliRange, fbId } = req.body;
+    const { serviceName, apiKey, baseUrl, getNumberUrl, getSmsUrl, controlUrl, providerType, additionalUrls, countryId, serverId, apiCountryCode, cliRange, fbId, services } = req.body;
     const effectiveUrl = (getNumberUrl || baseUrl || '').trim();
     if (!effectiveUrl || !apiKey?.trim()) {
       const urlLabel = (providerType === 'integrated') ? 'Number URL' : 'Base URL';
@@ -983,7 +984,8 @@ router.put('/api-keys/:id', verifyAdmin, async (req, res) => {
       serverId: serverId || null,
       apiCountryCode: (apiCountryCode || '').trim(),
       cliRange: cliRange ? String(cliRange).trim() : null,
-      fbId: fbId ? String(fbId).trim() : null
+      fbId: fbId ? String(fbId).trim() : null,
+      services: Array.isArray(services) ? services : undefined
     });
     if (!key) return res.status(404).json({ success: false, error: { message: 'Provider not found' } });
     res.json({ success: true, message: 'Provider updated', key });

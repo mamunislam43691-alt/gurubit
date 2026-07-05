@@ -20,6 +20,19 @@ export class AdminCost {
     return this.countries.find((c) => c.countryId === this.selectedCountryId);
   }
 
+  // Format reward value for display — avoid scientific notation for small numbers
+  formatReward(val) {
+    if (val == null || val === '') return '';
+    const n = parseFloat(val);
+    if (isNaN(n)) return '';
+    // For very small numbers, show full decimal representation
+    if (n > 0 && n < 0.0001) {
+      // Convert to fixed decimal without scientific notation
+      return n.toFixed(10).replace(/\.?0+$/, '');
+    }
+    return String(n);
+  }
+
   async save(countryId, serverId, userReward, agentReward) {
     const uR = parseFloat(userReward);
     const aR = parseFloat(agentReward);
@@ -27,11 +40,14 @@ export class AdminCost {
       alert('Please enter valid reward amounts (≥ 0)');
       return;
     }
+    // Round to 10 decimal places to avoid floating point artifacts
+    const uRounded = Math.round(uR * 1e10) / 1e10;
+    const aRounded = Math.round(aR * 1e10) / 1e10;
     const res = await fetch(`/api/admin/costs/${countryId}`, {
       method: 'PUT',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ serverId: serverId || '', userReward: uR, agentReward: aR })
+      body: JSON.stringify({ serverId: serverId || '', userReward: uRounded, agentReward: aRounded })
     });
     const data = await res.json().catch(() => ({}));
     if (!data.success) {
@@ -91,13 +107,13 @@ export class AdminCost {
                 <label class="stat-label flex items-center gap-1">
                   <i class="fas fa-user text-primary text-xs"></i> User Reward (per SMS)
                 </label>
-                <input type="number" step="0.01" min="0" class="input-field user-r w-full" value="${r.userReward}">
+                <input type="number" step="any" min="0" placeholder="e.g. 0.00001" class="input-field user-r w-full" value="${this.formatReward(r.userReward)}">
               </div>
               <div>
                 <label class="stat-label flex items-center gap-1">
                   <i class="fas fa-user-tie text-yellow-400 text-xs"></i> Agent Reward (per SMS)
                 </label>
-                <input type="number" step="0.01" min="0" class="input-field agent-r w-full" value="${r.agentReward}">
+                <input type="number" step="any" min="0" placeholder="e.g. 0.000005" class="input-field agent-r w-full" value="${this.formatReward(r.agentReward)}">
               </div>
               <div>
                 <button type="submit" class="neon-btn w-full py-3 text-xs uppercase cost-save-btn">
