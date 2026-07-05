@@ -183,8 +183,64 @@ function normalizeFeedRow(d, id) {
 }
 
 router.get('/live-feed', async (req, res) => {
-  // Feed starts empty — only real-time WebSocket messages populate it
-  res.json({ success: true, messages: [] });
+  try {
+    const { collections } = require('../config/db');
+    const { isMongoConnected } = require('../config/mongo');
+
+    if (!isMongoConnected()) {
+      return res.json({ success: true, messages: [] });
+    }
+
+    // Fetch last 50 SMS messages, newest first
+    const snap = await collections.smsMessages
+      .orderBy('receivedAt', 'desc')
+      .limit(50)
+      .get();
+
+    if (snap.empty) {
+      return res.json({ success: true, messages: [] });
+    }
+
+    // Collect unique numberIds to fetch phone number docs for country/server info
+    const numberIds = [...new Set(
+      snap.docs.map(d => d.data().numberId).filter(Boolean)
+    )];
+
+    // Fetch phoneNumber docs in parallel (for country/server lookup)
+    const numMap = {};
+    if (numberIds.length > 0) {
+      await Promise.all(numberIds.map(async (nid) => {
+        try {
+          const doc = await collections.phoneNumbers.doc(nid).get();
+          if (doc.exists) numMap[nid] = doc.data();
+        } catch (_) {}
+      }));
+    }
+
+    const messages = snap.docs.map(d => {
+      const raw = d.data();
+      const numDoc = numMap[raw.numberId] || {};
+      const meta = getCountryFromPhone(raw.phoneNumber);
+      const rangeName = numDoc.serverName || numDoc.server || meta.server;
+
+      return normalizeFeedRow({
+        id: raw.id || d.id,
+        phoneNumber: raw.phoneNumber,
+        content: raw.content || raw.text || '',
+        platformName: raw.platformName || numDoc.platformName || 'Verification',
+        otp: raw.otp || raw.otpCode,
+        country: numDoc.country || numDoc.countryName || meta.country,
+        server: rangeName,
+        rangeName: rangeName,
+        receivedAt: raw.receivedAt || raw.createdAt
+      }, raw.id || d.id);
+    });
+
+    res.json({ success: true, messages });
+  } catch (err) {
+    console.error('Live feed error:', err.message);
+    res.json({ success: true, messages: [] });
+  }
 });
 
 router.post('/receive', async (req, res) => {

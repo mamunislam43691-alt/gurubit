@@ -30,31 +30,45 @@ export class AgentLayout {
 
     document.getElementById('app-skeleton')?.remove();
     document.getElementById('app').innerHTML = `
-        <button type="button" id="agentNavToggle" class="user-nav-toggle" aria-label="Menu"><i class="fas fa-bars"></i></button>
-        <div id="agentSidebarBackdrop" class="agent-sidebar-backdrop" aria-hidden="true"></div>
-        <aside class="user-sidebar" id="agentSidebar">
+      <div class="user-shell min-h-screen bg-dark text-gray-200">
+        <div id="agentSidebarBackdrop" class="agent-sidebar-backdrop"></div>
+        <aside class="user-sidebar flex flex-col" id="agentSidebar">
           <a href="/agent" class="user-sidebar-brand">
             <img src="/assets/logo.svg" alt="" class="w-9 h-9">
-            <span class="font-black gradient-text text-sm uppercase">Agent</span>
+            <span class="font-black gradient-text text-sm uppercase tracking-widest">GURUBIT</span>
           </a>
-          <nav class="user-sidebar-nav">
+          <nav class="user-sidebar-nav flex-1">
             ${AGENT_NAV.map((n) => `
               <a href="${n.href}" class="user-nav-link ${n.id === resolved ? 'is-active' : ''}">
-                <i class="fas fa-${n.icon} w-5"></i><span>${n.label}</span>
+                <i class="fas fa-${n.icon} w-5 text-center"></i><span>${n.label}</span>
               </a>
             `).join('')}
           </nav>
+          <div class="p-4 border-t border-white/5">
+            <span class="text-[10px] text-primary font-bold uppercase">Agent Panel</span>
+          </div>
         </aside>
         <div class="user-main">
-          <header class="user-topbar flex justify-between items-center">
-            <h1 class="text-lg font-black text-white uppercase tracking-wide">${title}</h1>
-            <div class="flex items-center gap-4">
+          <header class="user-topbar sticky top-0 z-40 flex items-center gap-3 px-4 py-3 border-b border-white/5"
+                  style="background:rgba(2,11,24,0.92);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)">
+            <button type="button" id="agentNavToggle" class="user-nav-toggle w-9 h-9 rounded-xl bg-white/5 hover:bg-white/10 flex items-center justify-center text-gray-300 hover:text-white transition-all shrink-0" aria-label="Open menu">
+              <i class="fas fa-bars text-sm"></i>
+            </button>
+            <a href="/agent" class="flex items-center gap-2 md:hidden flex-1 min-w-0">
+              <img src="/assets/logo.svg" alt="" class="w-7 h-7 shrink-0">
+              <span class="font-black gradient-text text-xs uppercase tracking-widest truncate">GURUBIT</span>
+            </a>
+            <h1 class="hidden md:block text-base font-black text-white uppercase tracking-wide flex-1">${title}</h1>
+            <div class="flex items-center gap-2 shrink-0">
               ${UserLayout.profileMenuHtml(user)}
             </div>
           </header>
-          <main class="user-content px-4 pb-10">${bodyHtml}</main>
+          <div class="md:hidden px-4 pt-3 pb-1">
+            <h1 class="text-sm font-black text-white uppercase tracking-widest">${title}</h1>
+          </div>
+          <main class="user-content">${bodyHtml}</main>
         </div>
-      </motion.div>`.replaceAll('<motion.', '<').replaceAll('</motion.', '</');
+      </div>`;
 
     UserLayout.bindProfileMenu();
     window.GURUBIT_THEME.updateButtons();
@@ -65,18 +79,20 @@ export class AgentLayout {
     const closeNav = () => {
       sidebar?.classList.remove('is-open');
       backdrop?.classList.remove('is-visible');
+      document.body.style.overflow = '';
     };
     const openNav = () => {
       sidebar?.classList.add('is-open');
       backdrop?.classList.add('is-visible');
+      document.body.style.overflow = 'hidden';
     };
-    toggleBtn?.addEventListener('click', () => {
-      if (sidebar?.classList.contains('is-open')) closeNav();
-      else openNav();
+    toggleBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      sidebar?.classList.contains('is-open') ? closeNav() : openNav();
     });
     backdrop?.addEventListener('click', closeNav);
     document.querySelectorAll('.user-nav-link').forEach((a) => {
-      a.addEventListener('click', closeNav);
+      a.addEventListener('click', () => { if (window.innerWidth < 1024) closeNav(); });
     });
   }
 }

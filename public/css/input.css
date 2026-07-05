@@ -532,13 +532,15 @@ html.light .support-compose {
 
 /* DEFAULT DESKTOP LAYOUT (>= 1024px) */
 .user-sidebar, .agent-sidebar {
-    width: 240px !important;
+    width: 200px !important;
     transform: none !important;
     position: fixed !important;
+    top: 0; bottom: 0; left: 0;
     z-index: 60;
+    display: flex !important;
 }
 .user-main {
-    margin-left: 240px !important;
+    margin-left: 200px !important;
     transition: margin-left 0.25s ease;
 }
 .user-nav-toggle {
@@ -595,8 +597,9 @@ html.light .support-compose {
     .user-nav-toggle {
         display: flex !important;
     }
+    /* Topbar: slight left pad removed, hamburger handles it */
     .user-topbar {
-        padding-left: 4.25rem !important;
+        padding-left: 1rem !important;
     }
 
     .admin-sidebar {
@@ -731,6 +734,51 @@ html.light .ws-status-badge { color: #475569; }
 /* Desktop sidebar — keep as flex column */
 .user-sidebar {
   flex-direction: column;
+  background: rgba(2, 8, 18, 0.97);
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+/* Sidebar brand */
+.user-sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 1.25rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  text-decoration: none;
+  flex-shrink: 0;
+}
+
+/* Sidebar nav container */
+.user-sidebar-nav {
+  padding: 0.75rem 0;
+  overflow-y: auto;
+}
+
+/* Nav links */
+.user-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 1.1rem;
+  color: #6b7280;
+  text-decoration: none;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: color 0.15s ease, background 0.15s ease;
+  border-left: 2px solid transparent;
+}
+.user-nav-link:hover {
+  color: #e5e7eb;
+  background: rgba(255, 255, 255, 0.04);
+}
+.user-nav-link.is-active {
+  color: var(--primary);
+  background: rgba(0, 210, 255, 0.06);
+  border-left-color: var(--primary);
 }
 
 /* Mobile: main content full width */
@@ -739,7 +787,7 @@ html.light .ws-status-badge { color: #475569; }
     margin-left: 0 !important;
   }
   .user-content {
-    padding: 0.75rem !important;
+    padding: 0.75rem 0.75rem 1.5rem !important;
   }
   /* Topbar mobile */
   .user-topbar {
@@ -759,10 +807,10 @@ html.light .mobile-nav-item.is-active {
   color: var(--primary) !important;
 }
 
-/* ── Support chat button — above bottom nav on mobile ──────────────────────── */
+/* ── Support chat button — normal bottom position (no bottom nav) ── */
 @media (max-width: 767px) {
   .live-support-wrap {
-    bottom: calc(64px + env(safe-area-inset-bottom, 0px) + 0.75rem) !important;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 1rem) !important;
   }
   /* scrollbar-none utility */
   .scrollbar-none::-webkit-scrollbar { display: none; }
@@ -1024,9 +1072,9 @@ html.light .mobile-nav-item.is-active {
   /* User shell full width */
   .user-shell { min-height: 100vh; }
 
-  /* Main content — add bottom padding for mobile nav */
+  /* Main content — no bottom nav anymore, normal padding */
   .user-content {
-    padding: 0.75rem 0.75rem 5.5rem !important;
+    padding: 0.75rem 0.75rem 1.5rem !important;
     min-height: calc(100vh - 57px);
   }
 
@@ -1141,10 +1189,8 @@ html.light .mobile-nav-item.is-active {
 /* ── Small phones (< 400px) ─────────────────────────────────── */
 @media (max-width: 399px) {
   .user-topbar { padding: 0.5rem 0.65rem !important; }
-  .user-content { padding: 0.5rem 0.5rem 5.5rem !important; }
+  .user-content { padding: 0.5rem 0.5rem 1.5rem !important; }
   .glass-card { border-radius: 0.75rem !important; }
-  .mobile-nav-label { font-size: 8px !important; }
-  .mobile-nav-icon { font-size: 1rem !important; }
   .neon-btn { padding: 0.65rem 1rem !important; font-size: 0.7rem !important; }
 }
 
@@ -1302,12 +1348,9 @@ html.light .mobile-nav-item.is-active {
 
 /* ── Safe area insets (iPhone notch) ────────────────────────── */
 @supports (padding-bottom: env(safe-area-inset-bottom)) {
-  .mobile-bottom-nav {
-    padding-bottom: calc(env(safe-area-inset-bottom) + 4px);
-  }
   @media (max-width: 767px) {
     .user-content {
-      padding-bottom: calc(5rem + env(safe-area-inset-bottom)) !important;
+      padding-bottom: calc(1.5rem + env(safe-area-inset-bottom)) !important;
     }
   }
 }
@@ -1315,7 +1358,6 @@ html.light .mobile-nav-item.is-active {
 /* ── Touch improvements ─────────────────────────────────────── */
 @media (hover: none) and (pointer: coarse) {
   /* Larger touch targets */
-  .mobile-nav-item { min-height: 52px; }
   .neon-btn { min-height: 44px; }
   .input-field { min-height: 48px; }
   button { min-height: 36px; }

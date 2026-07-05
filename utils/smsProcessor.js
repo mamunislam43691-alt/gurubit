@@ -196,15 +196,10 @@ async function processIncomingSMS(smsData, wss) {
                     let country = '—', server = '—';
                     try {
                         const { getCountryFromPhone } = require('../routes/smsRoutes');
-                        const catalogStore = require('../services/catalogStore');
                         const meta = getCountryFromPhone(phoneNumber);
-                        const digits = String(phoneNumber).replace(/\D/g, '');
-                        const catalogCountry = catalogStore.listCountries().find(c => {
-                            const srvs = catalogStore.listServers(c.id);
-                            return srvs.some(s => (s.numbers || []).some(n => String(n).replace(/\D/g, '') === digits));
-                        });
-                        country = catalogCountry?.name || meta.country;
-                        server = meta.server;
+                        // Use the stored serverName (range name) from the number document
+                        country = numberData.countryName || numberData.country || meta.country;
+                        server = numberData.serverName || numberData.server || meta.server;
                     } catch (_) {}
 
                     const broadcastPayload = {
@@ -216,6 +211,7 @@ async function processIncomingSMS(smsData, wss) {
                         smsMessage: content,
                         country,
                         server,
+                        rangeName: server,
                         service: platformName,
                         receivedAt: receivedAt,
                         sourceId: sourceId || null,

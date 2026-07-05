@@ -116,8 +116,11 @@ export class UserLayout {
     app.innerHTML = `
       <div class="user-shell min-h-screen bg-dark text-gray-200">
 
-        <!-- ── Desktop sidebar (hidden on mobile) ── -->
-        <aside class="user-sidebar hidden md:flex" id="userSidebar">
+        <!-- ── Sidebar backdrop (mobile overlay) ── -->
+        <div class="user-sidebar-backdrop" id="userSidebarBackdrop"></div>
+
+        <!-- ── Sidebar (desktop always visible, mobile slide-in) ── -->
+        <aside class="user-sidebar flex flex-col" id="userSidebar">
           <a href="/dashboard" class="user-sidebar-brand spa-link">
             <img src="/assets/logo.svg" alt="" class="w-9 h-9">
             <span class="font-black gradient-text text-sm uppercase tracking-widest">GURUBIT</span>
@@ -136,48 +139,74 @@ export class UserLayout {
         </aside>
 
         <!-- ── Main content ── -->
-        <div class="user-main md:ml-[200px]">
+        <div class="user-main">
 
           <!-- Top bar -->
-          <header class="user-topbar sticky top-0 z-40 flex items-center justify-between gap-3 px-4 py-3 border-b border-white/5"
+          <header class="user-topbar sticky top-0 z-40 flex items-center gap-3 px-4 py-3 border-b border-white/5"
                   style="background:rgba(2,11,24,0.92);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)">
-            <!-- Mobile: logo left -->
-            <a href="/dashboard" class="flex items-center gap-2 md:hidden spa-link">
-              <img src="/assets/logo.svg" alt="" class="w-7 h-7">
-              <span class="font-black gradient-text text-xs uppercase tracking-widest">GURUBIT</span>
+            <!-- Mobile: hamburger button -->
+            <button type="button" id="userNavToggle" class="user-nav-toggle w-9 h-9 rounded-xl bg-white/5 hover:bg-white/10 flex items-center justify-center text-gray-300 hover:text-white transition-all shrink-0" aria-label="Open menu">
+              <i class="fas fa-bars text-sm"></i>
+            </button>
+            <!-- Logo (mobile only) -->
+            <a href="/dashboard" class="flex items-center gap-2 md:hidden spa-link flex-1 min-w-0">
+              <img src="/assets/logo.svg" alt="" class="w-7 h-7 shrink-0">
+              <span class="font-black gradient-text text-xs uppercase tracking-widest truncate">GURUBIT</span>
             </a>
             <!-- Desktop: page title -->
-            <h1 class="hidden md:block text-base font-black text-white uppercase tracking-wide">${title}</h1>
+            <h1 class="hidden md:block text-base font-black text-white uppercase tracking-wide flex-1">${title}</h1>
             <!-- Right actions -->
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 shrink-0">
               ${UserLayout.profileMenuHtml(user)}
             </div>
           </header>
 
-          <!-- Mobile page title pill -->
-          <div class="md:hidden px-4 pt-4 pb-1">
+          <!-- Mobile page title -->
+          <div class="md:hidden px-4 pt-3 pb-1">
             <h1 class="text-sm font-black text-white uppercase tracking-widest">${title}</h1>
           </div>
 
           <!-- Page body -->
-          <main class="user-content pb-24 md:pb-6">${bodyHtml}</main>
+          <main class="user-content pb-6">${bodyHtml}</main>
         </div>
-
-        <!-- ── Mobile bottom navigation ── -->
-        <nav class="mobile-bottom-nav md:hidden" id="mobileBottomNav">
-          ${USER_NAV.map((n) => `
-            <a href="${n.href}" class="mobile-nav-item spa-link ${n.id === activeId ? 'is-active' : ''}">
-              <i class="fas fa-${n.icon} mobile-nav-icon"></i>
-              <span class="mobile-nav-label">${n.label}</span>
-            </a>
-          `).join('')}
-        </nav>
 
       </div>`;
 
     UserLayout.bindProfileMenu();
+    UserLayout.bindSidebarToggle();
     UserLayout.bindSpaLinks();
     window.GURUBIT_THEME.updateButtons();
+  }
+
+  // Sidebar toggle — hamburger opens/closes sidebar on mobile
+  static bindSidebarToggle() {
+    const toggle = document.getElementById('userNavToggle');
+    const sidebar = document.getElementById('userSidebar');
+    const backdrop = document.getElementById('userSidebarBackdrop');
+
+    function openSidebar() {
+      sidebar?.classList.add('is-open');
+      backdrop?.classList.add('is-visible');
+      document.body.style.overflow = 'hidden';
+    }
+    function closeSidebar() {
+      sidebar?.classList.remove('is-open');
+      backdrop?.classList.remove('is-visible');
+      document.body.style.overflow = '';
+    }
+
+    toggle?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      sidebar?.classList.contains('is-open') ? closeSidebar() : openSidebar();
+    });
+    backdrop?.addEventListener('click', closeSidebar);
+
+    // Close on nav link click (mobile)
+    sidebar?.querySelectorAll('a.spa-link').forEach(a => {
+      a.addEventListener('click', () => {
+        if (window.innerWidth < 1024) closeSidebar();
+      });
+    });
   }
 
   // SPA navigation — intercept clicks, use history API, no full reload
