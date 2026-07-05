@@ -506,7 +506,6 @@ export class AdminApiKeys {
         </button>
       </form>`;
   }
-  }
 
   renderBody() {
     const filtered = this.search
